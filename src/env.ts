@@ -1,3 +1,3 @@
-import { defineEnvVars } from '@sveltejs/kit/env';
+import { defineEnvVars } from '@sveltejs/kit/env'
 
-export const variables = defineEnvVars({ DATABASE_URL: { schema: (input) => input ?? '' } });
+export const variables = defineEnvVars({ DATABASE_URL: { schema: (input) => input ?? '' } })

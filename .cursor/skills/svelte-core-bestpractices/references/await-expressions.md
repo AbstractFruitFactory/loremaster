@@ -14,7 +14,7 @@ export default {
 			async: true
 		}
 	}
-};
+}
 ```
 
 The experimental flag will be removed in Svelte 6.
@@ -28,12 +28,12 @@ When an `await` expression depends on a particular piece of state, changes to th
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	let a = $state(1);
-	let b = $state(2);
+	let a = $state(1)
+	let b = $state(2)
 
 	async function add(a, b) {
-		await new Promise((f) => setTimeout(f, 500)); // artificial delay
-		return a + b;
+		await new Promise((f) => setTimeout(f, 500)) // artificial delay
+		return a + b
 	}
 </script>
 
@@ -71,8 +71,8 @@ This does not apply to sequential `await` expressions inside your `<script>` or 
 // `b` will not be created until `a` has resolved,
 // but once created they will update independently
 // even if `x` and `y` update simultaneously
-let a = $derived(await one(x));
-let b = $derived(await two(y));
+let a = $derived(await one(x))
+let b = $derived(await two(y))
 ```
 
 > [!NOTE] If you write code like this, expect Svelte to give you an [`await_waterfall`](https://svelte.dev/docs/svelte/runtime-warnings/llms.txt#Client-warnings-await_waterfall) warning
@@ -86,24 +86,24 @@ After the contents of a boundary have resolved for the first time and have repla
 You can also use [`settled()`](https://svelte.dev/docs/svelte/svelte/llms.txt#settled) to get a promise that resolves when the current update is complete:
 
 ```js
-import { tick, settled } from 'svelte';
+import { tick, settled } from 'svelte'
 
 async function onclick() {
-	updating = true;
+	updating = true
 
 	// without this, the change to `updating` will be
 	// grouped with the other changes, meaning it
 	// won't be reflected in the UI
-	await tick();
+	await tick()
 
-	color = 'octarine';
-	answer = 42;
+	color = 'octarine'
+	answer = 42
 
-	await settled();
+	await settled()
 
 	// any updates affected by `color` or `answer`
 	// have now been applied
-	updating = false;
+	updating = false
 }
 ```
 
@@ -135,23 +135,23 @@ The [`fork(...)`](https://svelte.dev/docs/svelte/svelte/llms.txt#fork) API, adde
 
 ```svelte
 <script>
-	import { fork } from 'svelte';
-	import Menu from './Menu.svelte';
+	import { fork } from 'svelte'
+	import Menu from './Menu.svelte'
 
-	let open = $state(false);
+	let open = $state(false)
 
 	/** @type {import('svelte').Fork | null} */
-	let pending = null;
+	let pending = null
 
 	function preload() {
 		pending ??= fork(() => {
-			open = true;
-		});
+			open = true
+		})
 	}
 
 	function discard() {
-		pending?.discard();
-		pending = null;
+		pending?.discard()
+		pending = null
 	}
 </script>
 
@@ -161,12 +161,12 @@ The [`fork(...)`](https://svelte.dev/docs/svelte/svelte/llms.txt#fork) API, adde
 	onpointerenter={preload}
 	onpointerleave={discard}
 	onclick={() => {
-		pending?.commit();
-		pending = null;
+		pending?.commit()
+		pending = null
 
 		// in case `pending` didn't exist
 		// (if it did, this is a no-op)
-		open = true;
+		open = true
 	}}>open menu</button
 >
 

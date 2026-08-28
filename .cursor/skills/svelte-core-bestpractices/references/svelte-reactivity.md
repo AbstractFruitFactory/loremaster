@@ -21,31 +21,31 @@ It's best understood with an example. Here's an implementation of [`MediaQuery`]
 
 ```js
 // @errors: 7031
-import { createSubscriber } from 'svelte/reactivity';
-import { on } from 'svelte/events';
+import { createSubscriber } from 'svelte/reactivity'
+import { on } from 'svelte/events'
 
 export class MediaQuery {
-	#query;
-	#subscribe;
+	#query
+	#subscribe
 
 	constructor(query) {
-		this.#query = window.matchMedia(`(${query})`);
+		this.#query = window.matchMedia(`(${query})`)
 
 		this.#subscribe = createSubscriber((update) => {
 			// when the `change` event occurs, re-run any effects that read `this.current`
-			const off = on(this.#query, 'change', update);
+			const off = on(this.#query, 'change', update)
 
 			// stop listening when all the effects are destroyed
-			return () => off();
-		});
+			return () => off()
+		})
 	}
 
 	get current() {
 		// This makes the getter reactive, if read in an effect
-		this.#subscribe();
+		this.#subscribe()
 
 		// Return the current state of the query, whether or not we're in an effect
-		return this.#query.matches;
+		return this.#query.matches
 	}
 }
 ```

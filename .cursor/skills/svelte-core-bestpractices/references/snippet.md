@@ -60,7 +60,7 @@ Snippets can be declared anywhere inside your component. They can reference valu
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	let { message = `it's great to see you!` } = $props();
+	let { message = `it's great to see you!` } = $props()
 </script>
 
 {#snippet hello(name)}
@@ -127,13 +127,13 @@ Within the template, snippets are values just like any other. As such, they can 
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import Table from './Table.svelte';
+	import Table from './Table.svelte'
 
 	const fruits = [
 		{ name: 'apples', qty: 5, price: 2 },
 		{ name: 'bananas', qty: 10, price: 1 },
 		{ name: 'cherries', qty: 20, price: 0.5 }
-	];
+	]
 </script>
 
 {#snippet header()}
@@ -156,7 +156,7 @@ Within the template, snippets are values just like any other. As such, they can 
 ```svelte
 <!--- file: Table.svelte --->
 <script>
-	let { data, header, row } = $props();
+	let { data, header, row } = $props()
 </script>
 
 <table>
@@ -203,13 +203,13 @@ As an authoring convenience, snippets declared directly _inside_ a component imp
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import Table from './Table.svelte';
+	import Table from './Table.svelte'
 
 	const fruits = [
 		{ name: 'apples', qty: 5, price: 2 },
 		{ name: 'bananas', qty: 10, price: 1 },
 		{ name: 'cherries', qty: 20, price: 0.5 }
-	];
+	]
 </script>
 
 <Table data={fruits}>
@@ -232,7 +232,7 @@ As an authoring convenience, snippets declared directly _inside_ a component imp
 ```svelte
 <!--- file: Table.svelte --->
 <script>
-	let { data, header, row } = $props();
+	let { data, header, row } = $props()
 </script>
 
 <table>
@@ -277,7 +277,7 @@ Any content inside the component tags that is _not_ a snippet declaration implic
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import Button from './Button.svelte';
+	import Button from './Button.svelte'
 </script>
 
 <Button>click me</Button>
@@ -286,7 +286,7 @@ Any content inside the component tags that is _not_ a snippet declaration implic
 ```svelte
 <!--- file: Button.svelte --->
 <script>
-	let { children } = $props();
+	let { children } = $props()
 </script>
 
 <!-- result will be <button>click me</button> -->
@@ -303,7 +303,7 @@ You can declare snippet props as being optional. You can either use optional cha
 
 ```svelte
 <script>
-	let { children } = $props();
+	let { children } = $props()
 </script>
 
 {@render children?.()}
@@ -313,7 +313,7 @@ You can declare snippet props as being optional. You can either use optional cha
 
 ```svelte
 <script>
-	let { children } = $props();
+	let { children } = $props()
 </script>
 
 {#if children}
@@ -329,15 +329,15 @@ Snippets implement the `Snippet` interface imported from `'svelte'`:
 
 ```svelte
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import type { Snippet } from 'svelte'
 
 	interface Props {
-		data: any[];
-		children: Snippet;
-		row: Snippet<[any]>;
+		data: any[]
+		children: Snippet
+		row: Snippet<[any]>
 	}
 
-	let { data, children, row }: Props = $props();
+	let { data, children, row }: Props = $props()
 </script>
 ```
 
@@ -347,17 +347,17 @@ We can tighten things up further by declaring a generic, so that `data` and `row
 
 ```svelte
 <script lang="ts" generics="T">
-	import type { Snippet } from 'svelte';
+	import type { Snippet } from 'svelte'
 
 	let {
 		data,
 		children,
 		row
 	}: {
-		data: T[];
-		children: Snippet;
-		row: Snippet<[T]>;
-	} = $props();
+		data: T[]
+		children: Snippet
+		row: Snippet<[T]>
+	} = $props()
 </script>
 ```
 
@@ -370,7 +370,7 @@ Snippets declared at the top level of a `.svelte` file can be exported from a `<
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import { add } from './snippets.svelte';
+	import { add } from './snippets.svelte'
 </script>
 
 {@render add(1, 2)}
@@ -379,7 +379,7 @@ Snippets declared at the top level of a `.svelte` file can be exported from a `<
 ```svelte
 <!--- file: snippets.svelte --->
 <script module>
-	export { add };
+	export { add }
 </script>
 
 {#snippet add(a, b)}

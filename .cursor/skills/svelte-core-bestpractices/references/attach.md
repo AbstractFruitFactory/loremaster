@@ -10,11 +10,11 @@ Optionally, they can return a function that is called before the attachment re-r
 <script>
 	/** @type {import('svelte/attachments').Attachment} */
 	function myAttachment(element) {
-		console.log(element.nodeName); // 'DIV'
+		console.log(element.nodeName) // 'DIV'
 
 		return () => {
-			console.log('cleaning up');
-		};
+			console.log('cleaning up')
+		}
 	}
 </script>
 
@@ -30,9 +30,9 @@ A useful pattern is for a function, such as `tooltip` in this example, to _retur
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import tippy from 'tippy.js';
+	import tippy from 'tippy.js'
 
-	let content = $state('Hello!');
+	let content = $state('Hello!')
 
 	/**
 	 * @param {string} content
@@ -40,9 +40,9 @@ A useful pattern is for a function, such as `tooltip` in this example, to _retur
 	 */
 	function tooltip(content) {
 		return (element) => {
-			const tooltip = tippy(element, { content });
-			return tooltip.destroy;
-		};
+			const tooltip = tippy(element, { content })
+			return tooltip.destroy
+		}
 	}
 </script>
 
@@ -63,12 +63,12 @@ Attachments can also be created inline (demo:
 	width={32}
 	height={32}
 	{@attach (canvas) => {
-		const context = canvas.getContext('2d');
+		const context = canvas.getContext('2d')
 
 		$effect(() => {
-			context.fillStyle = color;
-			context.fillRect(0, 0, canvas.width, canvas.height);
-		});
+			context.fillStyle = color
+			context.fillRect(0, 0, canvas.width, canvas.height)
+		})
 	}}
 ></canvas>
 ```
@@ -94,7 +94,7 @@ This allows you to create _wrapper components_ that augment elements (demo:
 <!--- file: Button.svelte --->
 <script>
 	/** @type {import('svelte/elements').HTMLButtonAttributes} */
-	let { children, ...props } = $props();
+	let { children, ...props } = $props()
 </script>
 
 <!-- `props` includes attachments -->
@@ -106,10 +106,10 @@ This allows you to create _wrapper components_ that augment elements (demo:
 ```svelte
 <!--- file: App.svelte --->
 <script>
-	import tippy from 'tippy.js';
-	import Button from './Button.svelte';
+	import tippy from 'tippy.js'
+	import Button from './Button.svelte'
 
-	let content = $state('Hello!');
+	let content = $state('Hello!')
 
 	/**
 	 * @param {string} content
@@ -117,9 +117,9 @@ This allows you to create _wrapper components_ that augment elements (demo:
 	 */
 	function tooltip(content) {
 		return (element) => {
-			const tooltip = tippy(element, { content });
-			return tooltip.destroy;
-		};
+			const tooltip = tippy(element, { content })
+			return tooltip.destroy
+		}
 	}
 </script>
 
@@ -136,9 +136,9 @@ Attachments, unlike [actions](https://svelte.dev/docs/svelte/use/llms.txt), are 
 // @errors: 7006 2304 2552
 function foo(bar) {
 	return (node) => {
-		veryExpensiveSetupWork(node);
-		update(node, bar);
-	};
+		veryExpensiveSetupWork(node)
+		update(node, bar)
+	}
 }
 ```
 
