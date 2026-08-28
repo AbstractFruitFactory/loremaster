@@ -1,11 +1,14 @@
 import { flatMap, map, succeed } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type * as Ai from '../ai/generate'
+import type { GenerateText } from '../ai/generate'
 import type * as CampaignDb from '../db/campaign'
 import { fail } from '../failure'
+import { campaignSummaryPrompt } from './summary'
 
 type CampaignDependencies = {
-	ai: typeof Ai
+	ai: {
+		generateText: GenerateText
+	}
 	db: typeof CampaignDb
 }
 
@@ -23,10 +26,7 @@ export const campaignOperations = ({ ai, db }: CampaignDependencies) => {
 			getCampaign(id),
 			flatMap((campaign) =>
 				pipe(
-					ai.fakeGenerateText({
-						system: 'Summarize tabletop role-playing game campaigns for Dungeon Masters.',
-						prompt: `Campaign "${campaign.name}": ${campaign.description}`
-					}),
+					ai.generateText(campaignSummaryPrompt(campaign)),
 					map((content) => ({ campaignId: campaign.id, content }))
 				)
 			)

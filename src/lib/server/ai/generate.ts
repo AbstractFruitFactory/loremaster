@@ -1,4 +1,14 @@
 import { succeed } from 'effect/Effect'
-import type { GenerateText } from './types'
+import type { Effect } from 'effect/Effect'
+import type { Failure } from '../failure'
 
-export const fakeGenerateText: GenerateText = ({ prompt }) => succeed(prompt)
+export type GenerateTextInput = {
+	system?: string
+	prompt: string
+}
+
+export type GenerateText = (
+	input: GenerateTextInput
+) => Effect<string, Failure<'ai', 'generateText'>>
+
+export const generateText: GenerateText = ({ prompt }) => succeed('Lorem ipsum.')
