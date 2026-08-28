@@ -4,6 +4,7 @@ import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { campaign } from '#lib/server/app.js'
+import type { Campaign } from '#lib/server/campaign/types.js'
 
 const campaignInput = z
 	.object({
@@ -14,7 +15,7 @@ const campaignInput = z
 
 const campaignId = z.uuid()
 
-export const listCampaigns = query(() =>
+export const listCampaigns = query((): Promise<Campaign[]> =>
 	runPromise(
 		pipe(
 			campaign.listCampaigns(),
