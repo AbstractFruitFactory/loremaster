@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '#lib/components/button/Button.svelte'
 	import type { PageProps } from './$types'
 	import {
 		createDocument,
@@ -174,14 +175,9 @@
 			<p class="eyebrow">Knowledge vault</p>
 			<h1>Campaign documents</h1>
 		</div>
-		<button
-			type="button"
-			class="secondary"
-			onclick={handleReindex}
-			disabled={pendingAction !== null}
-		>
+		<Button variant="secondary" onclick={handleReindex} disabled={pendingAction !== null}>
 			{pendingAction === 'reindexing' ? 'Reindexing…' : 'Reindex vault'}
-		</button>
+		</Button>
 	</header>
 
 	<div class="status" aria-live="polite">
@@ -211,16 +207,14 @@
 				<ul class="document-list">
 					{#each documents.current as document (document.id)}
 						<li>
-							<button
-								type="button"
-								class={selectedDocument?.id === document.id ? 'active' : undefined}
+							<Button
 								disabled={pendingAction !== null}
 								aria-pressed={selectedDocument?.id === document.id}
 								onclick={() => openDocument(document.id)}
 							>
 								<strong>{document.title}</strong>
 								<span>{document.path}</span>
-							</button>
+							</Button>
 						</li>
 					{/each}
 				</ul>
@@ -259,9 +253,9 @@
 					<textarea bind:value={newContent} rows="7"></textarea>
 				</label>
 
-				<button type="submit" disabled={pendingAction !== null}>
+				<Button type="submit" disabled={pendingAction !== null}>
 					{pendingAction === 'creating' ? 'Creating…' : 'Create document'}
-				</button>
+				</Button>
 			</form>
 		</aside>
 
@@ -272,14 +266,9 @@
 						<p class="path">{selectedDocument.path}</p>
 						<h2 id="editor-heading">{selectedDocument.title}</h2>
 					</div>
-					<button
-						type="button"
-						class="danger"
-						onclick={handleDelete}
-						disabled={pendingAction !== null}
-					>
+					<Button variant="danger" onclick={handleDelete} disabled={pendingAction !== null}>
 						{pendingAction === 'deleting' ? 'Deleting…' : 'Delete'}
-					</button>
+					</Button>
 				</div>
 
 				<form class="edit-form" onsubmit={handleSave}>
@@ -300,9 +289,9 @@
 						<textarea class="markdown" bind:value={draftContent} rows="24"></textarea>
 					</label>
 
-					<button type="submit" disabled={pendingAction !== null}>
+					<Button type="submit" disabled={pendingAction !== null}>
 						{pendingAction === 'saving' ? 'Saving…' : 'Save document'}
-					</button>
+					</Button>
 				</form>
 
 				<div class="links">
@@ -453,26 +442,52 @@
 		gap: 0.4rem;
 	}
 
-	.document-list button {
+	.document-list :global(button.button) {
 		display: grid;
 		width: 100%;
+		justify-content: normal;
+		justify-items: start;
 		gap: 0.2rem;
 		padding: 0.7rem;
 		border: 1px solid transparent;
 		border-radius: 0.4rem;
 		background: transparent;
 		color: inherit;
-		font: inherit;
+		box-shadow: none;
 		text-align: left;
+		filter: none;
+		transform: none;
 	}
 
-	.document-list button:hover,
-	.document-list button.active {
+	.document-list :global(button.button strong),
+	.document-list :global(button.button span) {
+		width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.document-list :global(button.button span) {
+		color: #6b665e;
+		font-size: 0.82rem;
+		font-weight: 400;
+	}
+
+	.document-list :global(button.button:hover:not(:disabled)),
+	.document-list :global(button.button[aria-pressed='true']) {
 		border-color: #aeb7a9;
 		background: #edf1eb;
+		box-shadow: none;
+		filter: none;
+		transform: none;
 	}
 
-	.document-list button span,
+	.document-list :global(button.button:active:not(:disabled)) {
+		box-shadow: none;
+		filter: none;
+		transform: none;
+	}
+
 	.path,
 	.optional {
 		color: #6b665e;
@@ -517,33 +532,6 @@
 	.markdown {
 		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 		line-height: 1.55;
-	}
-
-	button {
-		justify-self: start;
-		padding: 0.65rem 0.9rem;
-		border: 0;
-		border-radius: 0.4rem;
-		background: #3e4b39;
-		color: #fff;
-		font: inherit;
-		font-weight: 700;
-		cursor: pointer;
-	}
-
-	button.secondary {
-		border: 1px solid #899483;
-		background: #fff;
-		color: #34422f;
-	}
-
-	button.danger {
-		background: #9b2f2f;
-	}
-
-	button:disabled {
-		cursor: wait;
-		opacity: 0.55;
 	}
 
 	.metadata {

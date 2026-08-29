@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '#lib/components/button/Button.svelte'
 	import { createCampaign, listCampaigns } from './data.remote'
 
 	const campaigns = listCampaigns()
@@ -55,9 +56,9 @@
 				<textarea bind:value={description} required rows="3"></textarea>
 			</label>
 
-			<button type="submit" disabled={isCreating}>
+			<Button type="submit" disabled={isCreating}>
 				{isCreating ? 'Creating…' : 'Create campaign'}
-			</button>
+			</Button>
 		</form>
 
 		{#if createError}
@@ -156,23 +157,6 @@
 
 	textarea {
 		resize: vertical;
-	}
-
-	button {
-		justify-self: start;
-		padding: 0.7rem 1rem;
-		border: 0;
-		border-radius: 0.4rem;
-		background: #3e4b39;
-		color: #fff;
-		font: inherit;
-		font-weight: 700;
-		cursor: pointer;
-	}
-
-	button:disabled {
-		cursor: wait;
-		opacity: 0.65;
 	}
 
 	ul {
