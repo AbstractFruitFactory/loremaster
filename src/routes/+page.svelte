@@ -90,20 +90,6 @@
 </main>
 
 <style>
-	:global(body) {
-		margin: 0;
-		background: #f5f3ef;
-		color: #25231f;
-		font-family:
-			Inter,
-			ui-sans-serif,
-			system-ui,
-			-apple-system,
-			BlinkMacSystemFont,
-			'Segoe UI',
-			sans-serif;
-	}
-
 	main {
 		width: min(56rem, calc(100% - 2rem));
 		margin: 0 auto;
