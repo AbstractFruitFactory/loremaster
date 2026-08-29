@@ -1,5 +1,26 @@
-import { foreignKey, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import {
+	customType,
+	foreignKey,
+	index,
+	integer,
+	jsonb,
+	pgTable,
+	primaryKey,
+	serial,
+	text,
+	timestamp,
+	uniqueIndex,
+	uuid,
+	varchar,
+	vector
+} from 'drizzle-orm/pg-core'
 import { documentTypes } from '../../document'
+import { EMBEDDING_DIMENSIONS } from '../ai/embeddings'
+
+const tsvector = customType<{ data: string }>({
+	dataType: () => 'tsvector'
+})
 
 export const campaigns = pgTable('campaigns', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -18,7 +39,7 @@ export const vaultDocuments = pgTable(
 		documentId: text('document_id').notNull(),
 		path: text('path').notNull(),
 		title: text('title').notNull(),
-		type: text('type', { enum: documentTypes }),
+		type: text('type', { enum: documentTypes }).notNull(),
 		indexedAt: timestamp('indexed_at', { withTimezone: true, mode: 'string' })
 			.notNull()
 			.defaultNow()
@@ -52,6 +73,94 @@ export const vaultLinks = pgTable(
 		}),
 		index('vault_links_campaign_source_index').on(table.campaignId, table.sourceDocumentId),
 		index('vault_links_campaign_target_index').on(table.campaignId, table.targetDocumentId)
+	]
+)
+
+export const contextFragments = pgTable(
+	'context_fragments',
+	{
+		id: text('id').notNull(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		documentId: text('document_id').notNull(),
+		title: text('title').notNull(),
+		aliases: text('aliases')
+			.array()
+			.notNull()
+			.default(sql`'{}'::text[]`),
+		aliasesText: text('aliases_text').notNull().default(''),
+		documentType: text('document_type', { enum: documentTypes }).notNull(),
+		heading: text('heading'),
+		content: text('content').notNull(),
+		position: integer('position').notNull(),
+		contentHash: text('content_hash').notNull(),
+		searchVector: tsvector('search_vector')
+			.generatedAlwaysAs(
+				sql`
+					setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
+					setweight(to_tsvector('simple', coalesce(aliases_text, '')), 'B') ||
+					setweight(to_tsvector('simple', coalesce(heading, '')), 'C') ||
+					setweight(to_tsvector('simple', coalesce(content, '')), 'D')
+				`
+			)
+			.notNull(),
+		indexedAt: timestamp('indexed_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.id],
+			name: 'context_fragments_campaign_id_fragment_id_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.documentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'context_fragments_campaign_document_fk'
+		}).onDelete('cascade'),
+		uniqueIndex('context_fragments_campaign_document_position_unique').on(
+			table.campaignId,
+			table.documentId,
+			table.position
+		),
+		index('context_fragments_campaign_document_index').on(table.campaignId, table.documentId),
+		index('context_fragments_search_vector_index').using('gin', table.searchVector)
+	]
+)
+
+export const contextEmbeddingCache = pgTable(
+	'context_embedding_cache',
+	{
+		model: text('model').notNull(),
+		contentHash: text('content_hash').notNull(),
+		embedding: vector('embedding', { dimensions: EMBEDDING_DIMENSIONS }).notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.model, table.contentHash],
+			name: 'context_embedding_cache_model_content_hash_pk'
+		})
+	]
+)
+
+export const vaultFragmentEmbeddings = pgTable(
+	'vault_fragment_embeddings',
+	{
+		id: serial('id').primaryKey(),
+		vectorId: text('vector_id').notNull(),
+		embedding: vector('embedding', { dimensions: EMBEDDING_DIMENSIONS }).notNull(),
+		metadata: jsonb('metadata').notNull().default({}),
+		namespace: varchar('namespace', { length: 255 }).notNull().default('default')
+	},
+	(table) => [
+		uniqueIndex('vault_fragment_embeddings_namespace_vector_id_unique').on(
+			table.namespace,
+			table.vectorId
+		)
 	]
 )
 
