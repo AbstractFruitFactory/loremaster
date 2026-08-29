@@ -1,6 +1,8 @@
+import type { DocumentType } from '../../document'
+
 export type VaultFrontmatter = {
 	id?: string
-	type?: string
+	type?: DocumentType
 	aliases?: string[]
 }
 
@@ -8,7 +10,7 @@ export type VaultDocument = {
 	id: string
 	path: string
 	title: string
-	type?: string
+	type?: DocumentType
 	aliases?: string[]
 	content: string
 	links: string[]
@@ -22,13 +24,13 @@ export type ParsedVaultDocument = Omit<VaultDocument, 'id'> & {
 
 export type CreateVaultDocumentInput = {
 	path: string
-	type?: string
+	type?: DocumentType
 	aliases?: string[]
 	content: string
 }
 
 export type UpdateVaultDocumentInput = {
-	type?: string
+	type?: DocumentType
 	aliases?: string[]
 	content: string
 }

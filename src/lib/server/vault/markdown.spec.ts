@@ -15,7 +15,7 @@ describe('vault Markdown', () => {
 			'Characters/Varek.md',
 			`---
 id: char_varek
-type: character
+type: npc
 aliases:
   - Varek the Innkeeper
 ---
@@ -29,7 +29,7 @@ Varek owns [[The Black Crown]].`
 			id: 'char_varek',
 			path: 'Characters/Varek.md',
 			title: 'Varek',
-			type: 'character',
+			type: 'npc',
 			aliases: ['Varek the Innkeeper'],
 			links: ['The Black Crown']
 		})
@@ -58,7 +58,7 @@ Varek owns [[The Black Crown]].`
 		const source = serializeVaultDocument(
 			{
 				id: 'char_varek',
-				type: 'character',
+				type: 'npc',
 				aliases: ['Varek the Innkeeper']
 			},
 			'# Varek'
@@ -66,7 +66,7 @@ Varek owns [[The Black Crown]].`
 
 		expect(parseDocument('Characters/Varek.md', source)).toMatchObject({
 			id: 'char_varek',
-			type: 'character',
+			type: 'npc',
 			aliases: ['Varek the Innkeeper'],
 			content: '# Varek'
 		})
@@ -105,6 +105,27 @@ aliases: [unterminated
 		expect(result).toMatchObject({
 			domain: 'vault',
 			operation: 'parseDocument'
+		})
+	})
+
+	it('rejects document types outside the app-wide values', () => {
+		const result = runSync(
+			flip(
+				parseVaultDocument(
+					'Characters/Varek.md',
+					`---
+type: character
+---
+
+# Varek`
+				)
+			)
+		)
+
+		expect(result).toMatchObject({
+			domain: 'vault',
+			operation: 'parseDocument',
+			cause: { reason: 'invalidDocumentType', type: 'character' }
 		})
 	})
 })

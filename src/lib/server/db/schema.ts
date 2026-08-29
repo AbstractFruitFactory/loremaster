@@ -1,4 +1,5 @@
 import { foreignKey, index, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { documentTypes } from '../../document'
 
 export const campaigns = pgTable('campaigns', {
 	id: uuid('id').primaryKey().defaultRandom(),
@@ -17,7 +18,7 @@ export const vaultDocuments = pgTable(
 		documentId: text('document_id').notNull(),
 		path: text('path').notNull(),
 		title: text('title').notNull(),
-		type: text('type'),
+		type: text('type', { enum: documentTypes }),
 		indexedAt: timestamp('indexed_at', { withTimezone: true, mode: 'string' })
 			.notNull()
 			.defaultNow()

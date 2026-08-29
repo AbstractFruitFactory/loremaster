@@ -1,7 +1,8 @@
 import { basename } from 'node:path'
-import { map, succeed, type Effect } from 'effect/Effect'
+import { flatMap, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { parseDocument as parseYamlDocument, stringify } from 'yaml'
+import { isDocumentType } from '../../document'
 import { fail } from '../failure'
 import type { Failure } from '../failure'
 import type { ParsedVaultDocument, VaultFrontmatter } from './types'
@@ -41,7 +42,7 @@ const parseFrontmatter = (
 
 	return pipe(
 		parseYamlRecord(match[1]),
-		map((record) => {
+		flatMap((record) => {
 			const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined
 			const type =
 				typeof record.type === 'string' && record.type.trim() ? record.type.trim() : undefined
@@ -51,14 +52,23 @@ const parseFrontmatter = (
 					)
 				: undefined
 
-			return {
+			if (type && !isDocumentType(type)) {
+				return fail('vault', 'parseDocument', {
+					reason: 'invalidDocumentType',
+					type
+				})
+			}
+
+			const documentType = isDocumentType(type) ? type : undefined
+
+			return succeed({
 				frontmatter: {
 					id,
-					type,
+					type: documentType,
 					aliases: aliases?.map((alias) => alias.trim())
 				},
 				content: source.slice(match[0].length).replace(/^\r?\n/, '')
-			}
+			})
 		})
 	)
 }
