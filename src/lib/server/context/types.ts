@@ -52,9 +52,3 @@ export type ContextConversationMessage = {
 	role: 'user' | 'assistant'
 	content: string
 }
-
-export type BuildAssistantContextInput = {
-	campaignId: string
-	message: string
-	history: ContextConversationMessage[]
-}

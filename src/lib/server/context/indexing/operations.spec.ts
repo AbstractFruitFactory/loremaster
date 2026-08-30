@@ -27,6 +27,7 @@ const createIndex = (embedTexts: EmbedTexts = vi.fn(createEmbeddings)) => {
 		deleteDocumentFragments: vi.fn((_campaignId: string, _documentId: string) =>
 			succeed(undefined)
 		),
+		deleteDocumentNames: vi.fn((_campaignId: string, _documentId: string) => succeed(undefined)),
 		getCachedEmbeddings: vi.fn((_model: string, contentHashes: string[]) =>
 			succeed(
 				contentHashes.flatMap((contentHash): CachedEmbedding[] => {
@@ -38,8 +39,15 @@ const createIndex = (embedTexts: EmbedTexts = vi.fn(createEmbeddings)) => {
 		replaceCampaignFragments: vi.fn((_campaignId: string, _sources: ContextSource[]) =>
 			succeed(undefined)
 		),
+		replaceCampaignNames: vi.fn(
+			(_campaignId: string, _documents: { documentId: string; normalizedNames: string[] }[]) =>
+				succeed(undefined)
+		),
 		replaceDocumentFragments: vi.fn(
 			(_campaignId: string, _documentId: string, _sources: ContextSource[]) => succeed(undefined)
+		),
+		replaceDocumentNames: vi.fn(
+			(_campaignId: string, _documentId: string, _normalizedNames: string[]) => succeed(undefined)
 		),
 		upsertCachedEmbeddings: vi.fn(
 			(_model: string, records: { contentHash: string; embedding: number[] }[]) => {
@@ -86,11 +94,15 @@ describe('context index operations', () => {
 				aliases: ['The Gatekeeper']
 			})
 		])
+		expect(db.replaceDocumentNames).toHaveBeenLastCalledWith(campaignId, document.id, [
+			'varek',
+			'the gatekeeper'
+		])
 		expect(db.replaceDocumentVectors).toHaveBeenCalledTimes(2)
 	})
 
 	it('deduplicates equal fragment content across a campaign rebuild', async () => {
-		const { embedTexts, index } = createIndex()
+		const { db, embedTexts, index } = createIndex()
 		const sharedContent = '# Shared\n\nThe same lore appears here.'
 
 		await runPromise(
@@ -101,6 +113,10 @@ describe('context index operations', () => {
 		)
 
 		expect(embedTexts).toHaveBeenCalledWith({ values: [sharedContent] })
+		expect(db.replaceCampaignNames).toHaveBeenCalledWith(campaignId, [
+			{ documentId: 'first', normalizedNames: ['varek', 'the gatekeeper'] },
+			{ documentId: 'second', normalizedNames: ['varek', 'the gatekeeper'] }
+		])
 	})
 
 	it('fails when the embedding provider returns the wrong number of vectors', async () => {
@@ -121,6 +137,7 @@ describe('context index operations', () => {
 		await runPromise(index.deleteDocumentIndex(campaignId, document.id))
 
 		expect(db.deleteDocumentFragments).toHaveBeenCalledWith(campaignId, document.id)
+		expect(db.deleteDocumentNames).toHaveBeenCalledWith(campaignId, document.id)
 		expect(db.deleteDocumentVectors).toHaveBeenCalledWith(campaignId, document.id)
 	})
 })

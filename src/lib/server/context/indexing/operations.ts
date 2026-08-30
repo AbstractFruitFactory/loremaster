@@ -6,6 +6,7 @@ import type * as VectorDb from '../../db/vector'
 import { fail, type Failure } from '../../failure'
 import type { VaultDocument } from '../../vault/types'
 import { chunkDocument } from '../chunking'
+import { documentMentionNames } from '../mentions'
 import type { ContextSource, SemanticVectorRecord } from '../types'
 
 type ContextIndexDependencies = {
@@ -15,9 +16,12 @@ type ContextIndexDependencies = {
 	}
 	db: {
 		deleteDocumentFragments: typeof ContextDb.deleteDocumentFragments
+		deleteDocumentNames: typeof ContextDb.deleteDocumentNames
 		getCachedEmbeddings: typeof ContextDb.getCachedEmbeddings
 		replaceCampaignFragments: typeof ContextDb.replaceCampaignFragments
+		replaceCampaignNames: typeof ContextDb.replaceCampaignNames
 		replaceDocumentFragments: typeof ContextDb.replaceDocumentFragments
+		replaceDocumentNames: typeof ContextDb.replaceDocumentNames
 		upsertCachedEmbeddings: typeof ContextDb.upsertCachedEmbeddings
 		deleteDocumentVectors: typeof VectorDb.deleteDocumentVectors
 		replaceCampaignVectors: typeof VectorDb.replaceCampaignVectors
@@ -142,14 +146,20 @@ export const contextIndexOperations = ({ ai, db }: ContextIndexDependencies) => 
 			const records = yield* buildVectorRecords(sources)
 
 			yield* db.replaceDocumentFragments(campaignId, document.id, sources)
+			yield* db.replaceDocumentNames(
+				campaignId,
+				document.id,
+				documentMentionNames(document.title, document.aliases)
+			)
 			yield* db.replaceDocumentVectors(campaignId, document.id, records)
 		})
 
 	const deleteDocumentIndex = (campaignId: string, documentId: string) =>
-		pipe(
-			db.deleteDocumentFragments(campaignId, documentId),
-			flatMap(() => db.deleteDocumentVectors(campaignId, documentId))
-		)
+		gen(function* () {
+			yield* db.deleteDocumentFragments(campaignId, documentId)
+			yield* db.deleteDocumentNames(campaignId, documentId)
+			yield* db.deleteDocumentVectors(campaignId, documentId)
+		})
 
 	const reindexCampaign = (campaignId: string, documents: VaultDocument[]) =>
 		gen(function* () {
@@ -157,6 +167,13 @@ export const contextIndexOperations = ({ ai, db }: ContextIndexDependencies) => 
 			const records = yield* buildVectorRecords(sources)
 
 			yield* db.replaceCampaignFragments(campaignId, sources)
+			yield* db.replaceCampaignNames(
+				campaignId,
+				documents.map((document) => ({
+					documentId: document.id,
+					normalizedNames: documentMentionNames(document.title, document.aliases)
+				}))
+			)
 			yield* db.replaceCampaignVectors(campaignId, records)
 		})
 

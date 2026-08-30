@@ -4,6 +4,7 @@ import * as embeddings from './ai/embeddings'
 import * as ai from './ai/generate'
 import { campaignOperations } from './campaign/operations'
 import { contextIndexOperations } from './context/indexing/operations'
+import { contextOperations } from './context/operations'
 import * as campaignDb from './db/campaign'
 import * as contextDb from './db/context'
 import * as vaultDb from './db/vault'
@@ -35,4 +36,16 @@ export const vault = vaultOperations({
 	},
 	contextIndex,
 	storage: filesystemVaultStorage(resolve('data/campaigns'))
+})
+
+export const context = contextOperations({
+	ai: {
+		embedTexts: embeddings.embedTexts,
+		model: embeddings.EMBEDDING_MODEL
+	},
+	db: {
+		...contextDb,
+		...vaultDb,
+		...vectorDb
+	}
 })

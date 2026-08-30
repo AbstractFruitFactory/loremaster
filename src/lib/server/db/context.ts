@@ -4,7 +4,7 @@ import { pipe } from 'effect/Function'
 import type { ContextSource } from '../context/types'
 import { failure } from '../failure'
 import { db } from '.'
-import { contextEmbeddingCache, contextFragments } from './schema'
+import { contextDocumentNames, contextEmbeddingCache, contextFragments } from './schema'
 
 const DEFAULT_LEXICAL_RESULTS = 50
 const LEXICAL_RANK_SCALE = 2
@@ -12,12 +12,6 @@ const LEXICAL_CONTENT_WEIGHT = 1
 const LEXICAL_HEADING_WEIGHT = 2
 const LEXICAL_ALIASES_WEIGHT = 3
 const LEXICAL_TITLE_WEIGHT = 5
-
-export type ContextDocument = {
-	documentId: string
-	title: string
-	aliases: string[]
-}
 
 export type LexicalFragmentMatch = {
 	source: ContextSource
@@ -126,6 +120,101 @@ export const replaceCampaignFragments = (campaignId: string, sources: ContextSou
 		catch: (cause) => failure('database', 'replaceCampaignFragments', cause)
 	})
 
+export const replaceDocumentNames = (
+	campaignId: string,
+	documentId: string,
+	normalizedNames: string[]
+) =>
+	tryPromise({
+		try: () =>
+			db.transaction(async (transaction) => {
+				await transaction
+					.delete(contextDocumentNames)
+					.where(
+						and(
+							eq(contextDocumentNames.campaignId, campaignId),
+							eq(contextDocumentNames.documentId, documentId)
+						)
+					)
+
+				if (normalizedNames.length) {
+					await transaction.insert(contextDocumentNames).values(
+						normalizedNames.map((normalizedName) => ({
+							campaignId,
+							documentId,
+							normalizedName
+						}))
+					)
+				}
+			}),
+		catch: (cause) => failure('database', 'replaceDocumentNames', cause)
+	})
+
+export const deleteDocumentNames = (campaignId: string, documentId: string) =>
+	pipe(
+		tryPromise({
+			try: () =>
+				db
+					.delete(contextDocumentNames)
+					.where(
+						and(
+							eq(contextDocumentNames.campaignId, campaignId),
+							eq(contextDocumentNames.documentId, documentId)
+						)
+					),
+			catch: (cause) => failure('database', 'deleteDocumentNames', cause)
+		}),
+		map(() => undefined)
+	)
+
+export const replaceCampaignNames = (
+	campaignId: string,
+	documents: { documentId: string; normalizedNames: string[] }[]
+) =>
+	tryPromise({
+		try: () =>
+			db.transaction(async (transaction) => {
+				await transaction
+					.delete(contextDocumentNames)
+					.where(eq(contextDocumentNames.campaignId, campaignId))
+
+				const names = documents.flatMap(({ documentId, normalizedNames }) =>
+					normalizedNames.map((normalizedName) => ({
+						campaignId,
+						documentId,
+						normalizedName
+					}))
+				)
+
+				if (names.length) {
+					await transaction.insert(contextDocumentNames).values(names)
+				}
+			}),
+		catch: (cause) => failure('database', 'replaceCampaignNames', cause)
+	})
+
+export const findDocumentIdsByNames = (campaignId: string, normalizedNames: string[]) => {
+	if (!normalizedNames.length) return succeed([])
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.selectDistinct({ documentId: contextDocumentNames.documentId })
+					.from(contextDocumentNames)
+					.where(
+						and(
+							eq(contextDocumentNames.campaignId, campaignId),
+							inArray(contextDocumentNames.normalizedName, normalizedNames)
+						)
+					)
+					.orderBy(asc(contextDocumentNames.documentId)),
+			catch: (cause) => failure('database', 'findContextDocumentIdsByNames', cause)
+		}),
+		map((rows) => rows.map(({ documentId }) => documentId))
+	)
+}
+
 export const getFragmentsByIds = (campaignId: string, fragmentIds: string[]) => {
 	if (!fragmentIds.length) return succeed([])
 
@@ -175,20 +264,6 @@ export const getFragmentsForDocuments = (campaignId: string, documentIds: string
 		map((rows) => rows.map(toSource))
 	)
 }
-
-export const listContextDocuments = (campaignId: string) =>
-	tryPromise({
-		try: (): Promise<ContextDocument[]> =>
-			db
-				.selectDistinct({
-					documentId: contextFragments.documentId,
-					title: contextFragments.title,
-					aliases: contextFragments.aliases
-				})
-				.from(contextFragments)
-				.where(eq(contextFragments.campaignId, campaignId)),
-		catch: (cause) => failure('database', 'listContextDocuments', cause)
-	})
 
 export const searchLexicalFragments = (
 	campaignId: string,

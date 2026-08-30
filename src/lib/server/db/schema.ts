@@ -129,6 +129,29 @@ export const contextFragments = pgTable(
 	]
 )
 
+export const contextDocumentNames = pgTable(
+	'context_document_names',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		documentId: text('document_id').notNull(),
+		normalizedName: text('normalized_name').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.documentId, table.normalizedName],
+			name: 'context_document_names_campaign_document_name_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.documentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'context_document_names_campaign_document_fk'
+		}).onDelete('cascade'),
+		index('context_document_names_campaign_name_index').on(table.campaignId, table.normalizedName)
+	]
+)
+
 export const contextEmbeddingCache = pgTable(
 	'context_embedding_cache',
 	{
