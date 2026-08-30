@@ -1,4 +1,4 @@
-import type { GenerateText } from '../ai/generate'
+import type { AiPrompt } from '../ai/provider'
 import type { ContextConversationMessage, ContextFragment } from '../context/types'
 
 const loreContext = (fragments: ContextFragment[]) =>
@@ -26,7 +26,7 @@ export const assistantPrompt = (
 	message: string,
 	history: ContextConversationMessage[],
 	fragments: ContextFragment[]
-): Parameters<GenerateText>[0] => ({
+): AiPrompt => ({
 	system:
 		'Help a tabletop Dungeon Master using the supplied campaign lore and conversation. Answer naturally. When the user is establishing or changing campaign canon, include an editable lore proposal for approval instead of silently changing it.',
 	prompt: `${loreContext(fragments)}\n\n## Conversation\n${conversationContext(history)}\n\n## Current message\n${message}`

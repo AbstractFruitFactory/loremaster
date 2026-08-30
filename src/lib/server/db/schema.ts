@@ -16,7 +16,7 @@ import {
 	vector
 } from 'drizzle-orm/pg-core'
 import { documentTypes } from '../../document'
-import { EMBEDDING_DIMENSIONS } from '../ai/embeddings'
+import { EMBEDDING_DIMENSIONS } from '../ai/provider'
 
 const tsvector = customType<{ data: string }>({
 	dataType: () => 'tsvector'

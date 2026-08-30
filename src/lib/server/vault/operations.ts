@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { all, flatMap, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type * as DocumentAi from '../ai/infer-document-type'
+import type { AiModel } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
 import { fail, type Failure } from '../failure'
@@ -57,9 +57,7 @@ export const vaultOperations = ({
 	contextIndex,
 	storage
 }: {
-	ai: {
-		inferDocumentType: typeof DocumentAi.inferDocumentType
-	}
+	ai: AiModel<'inferDocumentType'>
 	db: {
 		getCampaignById: typeof CampaignDb.getById
 		getDocumentPath: typeof VaultDb.getDocumentPath
@@ -93,6 +91,7 @@ export const vaultOperations = ({
 			document.type
 				? succeed(document.type)
 				: ai.inferDocumentType({
+						model: ai.model,
 						path: document.path,
 						title: document.title,
 						content: document.content

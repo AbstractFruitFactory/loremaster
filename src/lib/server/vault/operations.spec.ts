@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flip, runPromise, runSync, succeed } from 'effect/Effect'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { inferDocumentType } from '../ai/infer-document-type'
+import type { InferDocumentType } from '../ai/provider'
+import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
 import { filesystemVaultStorage } from './storage/filesystem'
 import { parseVaultDocument } from './markdown'
@@ -19,6 +20,7 @@ const campaign: Campaign = {
 	description: 'A gothic campaign.',
 	createdAt: '2026-08-28T00:00:00.000Z'
 }
+const documentTypeModel = 'mock-document-type-v1'
 
 describe('vault operations', () => {
 	let root: string
@@ -27,6 +29,7 @@ describe('vault operations', () => {
 	let operations: ReturnType<typeof vaultOperations>
 	let outgoingLinks: Map<string, string[]>
 	let contextIndex: ContextIndex
+	let inferDocumentType: InferDocumentType
 	let storage: ReturnType<typeof filesystemVaultStorage>
 
 	beforeEach(async () => {
@@ -35,6 +38,7 @@ describe('vault operations', () => {
 		indexedDocuments = new Map()
 		outgoingLinks = new Map()
 		storage = filesystemVaultStorage(root)
+		inferDocumentType = vi.fn(mockAiProvider.inferDocumentType)
 		contextIndex = {
 			deleteDocumentIndex: vi.fn(() => succeed(undefined)),
 			indexDocument: vi.fn(() => succeed(undefined)),
@@ -61,7 +65,10 @@ describe('vault operations', () => {
 		}
 
 		operations = vaultOperations({
-			ai: { inferDocumentType },
+			ai: {
+				inferDocumentType,
+				model: documentTypeModel
+			},
 			db,
 			contextIndex,
 			storage
@@ -143,6 +150,12 @@ id: character-mara
 		const document = await runPromise(operations.indexDocument(campaign.id, 'NPCs/Mara.md'))
 
 		expect(document.type).toBe('npc')
+		expect(inferDocumentType).toHaveBeenCalledWith({
+			model: documentTypeModel,
+			path: 'NPCs/Mara.md',
+			title: 'Mara',
+			content: '# Mara'
+		})
 		expect(contextIndex.indexDocument).toHaveBeenCalledWith(campaign.id, document)
 		expect(await readFile(join(root, campaign.id, 'NPCs', 'Mara.md'), 'utf8')).toContain(
 			'type: npc'

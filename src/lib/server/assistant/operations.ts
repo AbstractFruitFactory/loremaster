@@ -1,15 +1,14 @@
 import { flatMap, map, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
+import type { AiModel } from '../ai/provider'
 import type { contextOperations } from '../context/operations'
 import type { ContextConversationMessage, ContextItem } from '../context/types'
 import { fail, type Failure } from '../failure'
 import { assistantPrompt } from './prompt'
-import type { AssistantResponse, GenerateAssistant, LoreSource } from './types'
+import type { AssistantResponse, LoreSource } from './types'
 
 type AssistantDependencies = {
-	ai: {
-		generateAssistant: GenerateAssistant
-	}
+	ai: AiModel<'generateAssistant'>
 	context: Pick<ReturnType<typeof contextOperations>, 'buildAssistantContext'>
 }
 
@@ -43,13 +42,14 @@ export const assistantOperations = ({ ai, context }: AssistantDependencies) => {
 			context.buildAssistantContext({ campaignId, message: request, history }),
 			flatMap(({ items }) =>
 				pipe(
-					ai.generateAssistant(
-						assistantPrompt(
+					ai.generateAssistant({
+						...assistantPrompt(
 							request,
 							history,
 							items.map(({ fragment }) => fragment)
-						)
-					),
+						),
+						model: ai.model
+					}),
 					map(
 						(response) =>
 							({

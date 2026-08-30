@@ -1,10 +1,11 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
+import type { GenerateAssistant } from '../ai/provider'
 import type { ContextItem } from '../context/types'
 import { assistantOperations } from './operations'
-import type { GenerateAssistant } from './types'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
+const assistantModel = 'mock-assistant-v1'
 const items: ContextItem[] = [
 	{
 		fragment: {
@@ -30,7 +31,7 @@ describe('assistant operations', () => {
 			succeed({ message: 'Varek watches the western gate.' })
 		) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant },
+			ai: { generateAssistant, model: assistantModel },
 			context: { buildAssistantContext }
 		})
 
@@ -47,6 +48,7 @@ describe('assistant operations', () => {
 		})
 		expect(generateAssistant).toHaveBeenCalledWith(
 			expect.objectContaining({
+				model: assistantModel,
 				prompt: expect.stringMatching(
 					/Section: Duties[\s\S]*# Varek[\s\S]*Dungeon Master: Tell me about Westgate/
 				)
@@ -71,7 +73,7 @@ describe('assistant operations', () => {
 			})
 		) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant },
+			ai: { generateAssistant, model: assistantModel },
 			context: { buildAssistantContext }
 		})
 
@@ -88,7 +90,7 @@ describe('assistant operations', () => {
 		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant },
+			ai: { generateAssistant, model: assistantModel },
 			context: { buildAssistantContext }
 		})
 

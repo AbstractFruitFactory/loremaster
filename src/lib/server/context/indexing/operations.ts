@@ -1,6 +1,6 @@
 import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type { EmbedTexts } from '../../ai/embeddings'
+import type { AiModel } from '../../ai/provider'
 import type * as ContextDb from '../../db/context'
 import type * as VectorDb from '../../db/vector'
 import { fail, type Failure } from '../../failure'
@@ -10,10 +10,7 @@ import { documentMentionNames } from '../mentions'
 import type { ContextSource, SemanticVectorRecord } from '../types'
 
 type ContextIndexDependencies = {
-	ai: {
-		embedTexts: EmbedTexts
-		model: string
-	}
+	ai: AiModel<'embedTexts'>
 	db: {
 		deleteDocumentFragments: typeof ContextDb.deleteDocumentFragments
 		deleteDocumentNames: typeof ContextDb.deleteDocumentNames
@@ -88,6 +85,7 @@ export const contextIndexOperations = ({ ai, db }: ContextIndexDependencies) => 
 
 		return gen(function* () {
 			const embeddings = yield* ai.embedTexts({
+				model: ai.model,
 				values: contentToEmbed.map(({ content }) => content)
 			})
 

@@ -1,6 +1,6 @@
 import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type { EmbedTexts } from '../ai/embeddings'
+import type { AiModel } from '../ai/provider'
 import type * as ContextDb from '../db/context'
 import type * as VaultDb from '../db/vault'
 import type * as VectorDb from '../db/vector'
@@ -26,10 +26,7 @@ export const DEFAULT_SEMANTIC_MIN_SCORE = 0.1
 const isZeroVector = (vector: number[]) => vector.every((value) => value === 0)
 
 type ContextOperationsDependencies = {
-	ai: {
-		embedTexts: EmbedTexts
-		model: string
-	}
+	ai: AiModel<'embedTexts'>
 	db: {
 		getFragmentsByIds: typeof ContextDb.getFragmentsByIds
 		getFragmentsForDocuments: typeof ContextDb.getFragmentsForDocuments
@@ -103,7 +100,7 @@ export const contextOperations = ({
 
 	const searchSemantic = (campaignId: string, message: string) =>
 		gen(function* () {
-			const [queryVector] = yield* ai.embedTexts({ values: [message] })
+			const [queryVector] = yield* ai.embedTexts({ model: ai.model, values: [message] })
 			const results = queryVector ? yield* searchSemanticIndex(campaignId, queryVector) : []
 			const fragmentIds = results.map(({ fragmentId }) => fragmentId)
 			const sources = yield* db.getFragmentsByIds(campaignId, fragmentIds)

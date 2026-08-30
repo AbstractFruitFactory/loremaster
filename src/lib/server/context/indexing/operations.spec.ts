@@ -1,16 +1,14 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import {
-	EMBEDDING_MODEL,
-	embedTexts as createEmbeddings,
-	type EmbedTexts
-} from '../../ai/embeddings'
+import type { EmbedTexts } from '../../ai/provider'
+import { mockAiProvider } from '../../ai/providers/mock'
 import type { CachedEmbedding } from '../../db/context'
 import type { VaultDocument } from '../../vault/types'
 import type { ContextSource, SemanticVectorRecord } from '../types'
 import { contextIndexOperations } from './operations'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
+const embeddingModel = 'mock-token-hash-v1'
 const document: VaultDocument = {
 	id: 'varek',
 	path: 'Characters/Varek.md',
@@ -21,7 +19,7 @@ const document: VaultDocument = {
 	links: ['Westgate']
 }
 
-const createIndex = (embedTexts: EmbedTexts = vi.fn(createEmbeddings)) => {
+const createIndex = (embedTexts: EmbedTexts = vi.fn(mockAiProvider.embedTexts)) => {
 	const cache = new Map<string, number[]>()
 	const db = {
 		deleteDocumentFragments: vi.fn((_campaignId: string, _documentId: string) =>
@@ -69,7 +67,7 @@ const createIndex = (embedTexts: EmbedTexts = vi.fn(createEmbeddings)) => {
 		db,
 		embedTexts,
 		index: contextIndexOperations({
-			ai: { embedTexts, model: EMBEDDING_MODEL },
+			ai: { embedTexts, model: embeddingModel },
 			db
 		})
 	}
@@ -112,7 +110,10 @@ describe('context index operations', () => {
 			])
 		)
 
-		expect(embedTexts).toHaveBeenCalledWith({ values: [sharedContent] })
+		expect(embedTexts).toHaveBeenCalledWith({
+			model: embeddingModel,
+			values: [sharedContent]
+		})
 		expect(db.replaceCampaignNames).toHaveBeenCalledWith(campaignId, [
 			{ documentId: 'first', normalizedNames: ['varek', 'the gatekeeper'] },
 			{ documentId: 'second', normalizedNames: ['varek', 'the gatekeeper'] }

@@ -1,8 +1,5 @@
 import { resolve } from 'node:path'
-import * as documentAi from './ai/infer-document-type'
-import * as embeddings from './ai/embeddings'
-import * as ai from './ai/generate'
-import * as assistantAi from './ai/assistant'
+import { mockAiProvider } from './ai/providers/mock'
 import { assistantOperations } from './assistant/operations'
 import { campaignOperations } from './campaign/operations'
 import { contextIndexOperations } from './context/indexing/operations'
@@ -15,15 +12,25 @@ import { loreOperations } from './lore/operations'
 import { filesystemVaultStorage } from './vault/storage/filesystem'
 import { vaultOperations } from './vault/operations'
 
+const aiModels = {
+	assistant: 'mock-assistant-v1',
+	campaignSummary: 'mock-text-v1',
+	documentType: 'mock-document-type-v1',
+	embeddings: 'mock-token-hash-v1'
+}
+
 export const campaign = campaignOperations({
-	ai,
+	ai: {
+		generateText: mockAiProvider.generateText,
+		model: aiModels.campaignSummary
+	},
 	db: campaignDb
 })
 
 const contextIndex = contextIndexOperations({
 	ai: {
-		embedTexts: embeddings.embedTexts,
-		model: embeddings.EMBEDDING_MODEL
+		embedTexts: mockAiProvider.embedTexts,
+		model: aiModels.embeddings
 	},
 	db: {
 		...contextDb,
@@ -32,7 +39,10 @@ const contextIndex = contextIndexOperations({
 })
 
 export const vault = vaultOperations({
-	ai: documentAi,
+	ai: {
+		inferDocumentType: mockAiProvider.inferDocumentType,
+		model: aiModels.documentType
+	},
 	db: {
 		getCampaignById: campaignDb.getById,
 		...vaultDb
@@ -43,8 +53,8 @@ export const vault = vaultOperations({
 
 export const context = contextOperations({
 	ai: {
-		embedTexts: embeddings.embedTexts,
-		model: embeddings.EMBEDDING_MODEL
+		embedTexts: mockAiProvider.embedTexts,
+		model: aiModels.embeddings
 	},
 	db: {
 		...contextDb,
@@ -53,5 +63,11 @@ export const context = contextOperations({
 	}
 })
 
-export const assistant = assistantOperations({ ai: assistantAi, context })
+export const assistant = assistantOperations({
+	ai: {
+		generateAssistant: mockAiProvider.generateAssistant,
+		model: aiModels.assistant
+	},
+	context
+})
 export const lore = loreOperations({ vault })

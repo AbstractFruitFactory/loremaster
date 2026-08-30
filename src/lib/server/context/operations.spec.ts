@@ -1,12 +1,12 @@
 import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import { EMBEDDING_MODEL } from '../ai/embeddings'
 import type { LexicalFragmentMatch } from '../db/context'
 import type { LinkedDocument } from '../db/vault'
 import { contextOperations } from './operations'
 import type { ContextSource, SemanticSearchResult } from './types'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
+const embeddingModel = 'mock-token-hash-v1'
 
 const source = (documentId: string, position = 0): ContextSource => ({
 	fragment: {
@@ -60,7 +60,7 @@ const createContext = ({
 	}
 	const ai = {
 		embedTexts: vi.fn(() => succeed([queryVector])),
-		model: EMBEDDING_MODEL
+		model: embeddingModel
 	}
 
 	return { ai, context: contextOperations({ ai, db }), db }
@@ -134,7 +134,7 @@ describe('context operations', () => {
 	})
 
 	it('hydrates semantic matches, drops stale vectors, and isolates the embedding model', async () => {
-		const { context, db } = createContext({
+		const { ai, context, db } = createContext({
 			semanticResults: [
 				{ fragmentId: 'varek:fragment:0', score: 0.8 },
 				{ fragmentId: 'stale', score: 1 }
@@ -150,7 +150,11 @@ describe('context operations', () => {
 		)
 
 		expect(db.getFragmentsByIds).toHaveBeenCalledWith(campaignId, ['varek:fragment:0', 'stale'])
-		expect(db.searchVectors).toHaveBeenCalledWith(campaignId, [1], 10, 0.1, EMBEDDING_MODEL)
+		expect(ai.embedTexts).toHaveBeenCalledWith({
+			model: embeddingModel,
+			values: ['Who keeps watch?']
+		})
+		expect(db.searchVectors).toHaveBeenCalledWith(campaignId, [1], 10, 0.1, embeddingModel)
 		expect(result.items).toMatchObject([
 			{ fragment: { documentId: 'varek' }, score: 48, reasons: ['semantic-match'] }
 		])
