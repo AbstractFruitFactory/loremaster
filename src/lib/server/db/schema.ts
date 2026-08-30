@@ -186,19 +186,3 @@ export const vaultFragmentEmbeddings = pgTable(
 		)
 	]
 )
-
-export const characters = pgTable(
-	'characters',
-	{
-		id: uuid('id').primaryKey().defaultRandom(),
-		campaignId: uuid('campaign_id')
-			.notNull()
-			.references(() => campaigns.id, { onDelete: 'cascade' }),
-		name: text('name').notNull(),
-		documentId: text('document_id').notNull()
-	},
-	(table) => [
-		uniqueIndex('characters_campaign_document_id_unique').on(table.campaignId, table.documentId),
-		index('characters_campaign_id_index').on(table.campaignId)
-	]
-)
