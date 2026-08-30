@@ -11,6 +11,7 @@ import * as campaignDb from './db/campaign'
 import * as contextDb from './db/context'
 import * as vaultDb from './db/vault'
 import * as vectorDb from './db/vector'
+import { loreOperations } from './lore/operations'
 import { filesystemVaultStorage } from './vault/storage/filesystem'
 import { vaultOperations } from './vault/operations'
 
@@ -53,3 +54,4 @@ export const context = contextOperations({
 })
 
 export const assistant = assistantOperations({ ai: assistantAi, context })
+export const lore = loreOperations({ vault })
