@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flip, runPromise, runSync, succeed } from 'effect/Effect'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { inferDocumentType } from '../ai/infer-document-type'
 import type { Campaign } from '../campaign/types'
 import { filesystemVaultStorage } from './storage/filesystem'
 import { parseVaultDocument } from './markdown'
@@ -10,6 +11,7 @@ import { vaultOperations } from './operations'
 import type { VaultDocumentIndex } from './types'
 
 type VaultDatabase = Parameters<typeof vaultOperations>[0]['db']
+type ContextIndex = Parameters<typeof vaultOperations>[0]['contextIndex']
 
 const campaign: Campaign = {
 	id: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
@@ -20,18 +22,30 @@ const campaign: Campaign = {
 
 describe('vault operations', () => {
 	let root: string
+	let backlinks: Map<string, string[]>
 	let indexedDocuments: Map<string, VaultDocumentIndex>
 	let operations: ReturnType<typeof vaultOperations>
+	let outgoingLinks: Map<string, string[]>
+	let contextIndex: ContextIndex
 	let storage: ReturnType<typeof filesystemVaultStorage>
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'loremaster-vault-'))
+		backlinks = new Map()
 		indexedDocuments = new Map()
+		outgoingLinks = new Map()
 		storage = filesystemVaultStorage(root)
+		contextIndex = {
+			deleteDocumentIndex: vi.fn(() => succeed(undefined)),
+			indexDocument: vi.fn(() => succeed(undefined)),
+			reindexCampaign: vi.fn(() => succeed(undefined))
+		}
 
 		const db: VaultDatabase = {
 			getCampaignById: () => succeed(campaign),
 			getDocumentPath: (_campaignId, documentId) => succeed(indexedDocuments.get(documentId)?.path),
+			getOutgoingLinks: (_campaignId, documentId) => succeed(outgoingLinks.get(documentId) ?? []),
+			getBacklinks: (_campaignId, documentId) => succeed(backlinks.get(documentId) ?? []),
 			indexDocument: (_campaignId, document) => {
 				indexedDocuments.set(document.id, document)
 				return succeed(undefined)
@@ -46,7 +60,12 @@ describe('vault operations', () => {
 			}
 		}
 
-		operations = vaultOperations({ db, storage })
+		operations = vaultOperations({
+			ai: { inferDocumentType },
+			db,
+			contextIndex,
+			storage
+		})
 	})
 
 	afterEach(async () => {
@@ -62,21 +81,24 @@ describe('vault operations', () => {
 		const created = await runPromise(
 			operations.createDocument(campaign.id, {
 				path: 'Characters/Varek.md',
-				type: 'character',
+				type: 'npc',
 				aliases: ['Varek the Innkeeper'],
 				content: '# Varek\n\nLives in [[Westgate]].'
 			})
 		)
 		const loaded = await runPromise(operations.getDocument(campaign.id, created.id))
+		const [fullDocument] = await runPromise(operations.getDocuments(campaign.id))
 		const [listed] = await runPromise(operations.listDocuments(campaign.id))
 
 		expect(loaded).toEqual(created)
+		expect(fullDocument).toEqual(created)
 		expect(listed).not.toHaveProperty('content')
+		expect(contextIndex.indexDocument).toHaveBeenCalledWith(campaign.id, created)
 		expect(indexedDocuments.get(created.id)).toEqual({
 			id: created.id,
 			path: 'Characters/Varek.md',
 			title: 'Varek',
-			type: 'character',
+			type: 'npc',
 			links: ['Westgate']
 		})
 		expect(
@@ -93,6 +115,7 @@ describe('vault operations', () => {
 		const created = await runPromise(
 			operations.createDocument(campaign.id, {
 				path: 'Characters/Varek.md',
+				type: 'npc',
 				content: '# Varek'
 			})
 		)
@@ -104,27 +127,95 @@ describe('vault operations', () => {
 		expect(list).not.toHaveBeenCalled()
 	})
 
+	it('synchronizes the context index when indexing an imported document', async () => {
+		await runPromise(
+			storage.write(
+				campaign.id,
+				'NPCs/Mara.md',
+				`---
+id: character-mara
+---
+
+# Mara`
+			)
+		)
+
+		const document = await runPromise(operations.indexDocument(campaign.id, 'NPCs/Mara.md'))
+
+		expect(document.type).toBe('npc')
+		expect(contextIndex.indexDocument).toHaveBeenCalledWith(campaign.id, document)
+		expect(await readFile(join(root, campaign.id, 'NPCs', 'Mara.md'), 'utf8')).toContain(
+			'type: npc'
+		)
+	})
+
 	it('replaces indexed links when a document changes', async () => {
 		const created = await runPromise(
 			operations.createDocument(campaign.id, {
 				path: 'Characters/Varek.md',
+				type: 'npc',
 				content: '# Varek\n\nLives in [[Westgate]].'
 			})
 		)
 
 		await runPromise(
 			operations.updateDocument(campaign.id, created.id, {
+				type: 'npc',
 				content: '# Varek\n\nWorks with [[Ashen Council|the council]].'
 			})
 		)
 
 		expect(indexedDocuments.get(created.id)?.links).toEqual(['Ashen Council'])
+		expect(contextIndex.indexDocument).toHaveBeenLastCalledWith(
+			campaign.id,
+			expect.objectContaining({ id: created.id, links: ['Ashen Council'] })
+		)
+	})
+
+	it('removes derived context when deleting a document', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+
+		await runPromise(operations.deleteDocument(campaign.id, created.id))
+
+		expect(contextIndex.deleteDocumentIndex).toHaveBeenCalledWith(campaign.id, created.id)
+	})
+
+	it('returns resolved outgoing links and backlinks from the vault index', async () => {
+		const varek = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+		const mara = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Mara.md',
+				type: 'npc',
+				content: '# Mara'
+			})
+		)
+		outgoingLinks.set(varek.id, [mara.id])
+		backlinks.set(mara.id, [varek.id])
+
+		const outgoing = await runPromise(operations.getOutgoingLinks(campaign.id, varek.id))
+		const incoming = await runPromise(operations.getBacklinks(campaign.id, mara.id))
+
+		expect(outgoing).toEqual([mara.id])
+		expect(incoming).toEqual([varek.id])
 	})
 
 	it('does not overwrite an existing document path', async () => {
 		await runPromise(
 			operations.createDocument(campaign.id, {
 				path: 'Characters/Varek.md',
+				type: 'npc',
 				content: '# Varek'
 			})
 		)
@@ -133,6 +224,7 @@ describe('vault operations', () => {
 			flip(
 				operations.createDocument(campaign.id, {
 					path: 'Characters/Varek.md',
+					type: 'npc',
 					content: '# Replacement'
 				})
 			)
@@ -179,6 +271,7 @@ type: location
 			id: 'stale',
 			path: 'Lore/Stale.md',
 			title: 'Stale',
+			type: 'lore',
 			links: []
 		})
 
@@ -194,6 +287,7 @@ type: location
 		expect(documents).toHaveLength(2)
 		expect(creation?.id).toBeTruthy()
 		expect(persistedCreation.id).toBe(creation?.id)
+		expect(persistedCreation.type).toBe('lore')
 		expect(await readFile(join(root, campaign.id, 'Lore', 'Creation.md'), 'utf8')).toContain(
 			'tags:\n  - origin'
 		)
@@ -203,6 +297,7 @@ type: location
 			title: 'Westgate',
 			type: 'location'
 		})
+		expect(contextIndex.reindexCampaign).toHaveBeenCalledWith(campaign.id, documents)
 	})
 
 	it('rejects duplicate document IDs before returning or rebuilding the index', async () => {

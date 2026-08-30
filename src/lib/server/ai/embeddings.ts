@@ -4,11 +4,9 @@ import type { Failure } from '../failure'
 export const EMBEDDING_DIMENSIONS = 64
 export const EMBEDDING_MODEL = 'mock-token-hash-v1'
 
-export type EmbedTextsInput = {
+export type EmbedTexts = (input: {
 	values: string[]
-}
-
-export type EmbedTexts = (input: EmbedTextsInput) => Effect<number[][], Failure<'ai', 'embedTexts'>>
+}) => Effect<number[][], Failure<'ai', 'embedTexts'>>
 
 const tokens = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 

@@ -1,10 +1,10 @@
 import { flip, runSync } from 'effect/Effect'
 import { describe, expect, it } from 'vitest'
 import {
-	addDocumentId,
 	extractWikiLinks,
 	parseVaultDocument,
-	serializeVaultDocument
+	serializeVaultDocument,
+	updateDocumentFrontmatter
 } from './markdown'
 
 const parseDocument = (path: string, source: string) => runSync(parseVaultDocument(path, source))
@@ -72,7 +72,7 @@ Varek owns [[The Black Crown]].`
 		})
 	})
 
-	it('preserves existing Obsidian properties when adding a missing ID', () => {
+	it('preserves existing Obsidian properties when adding required metadata', () => {
 		const source = `---
 tags:
   - npc
@@ -80,9 +80,10 @@ custom: retained
 ---
 
 # Varek`
-		const identified = runSync(addDocumentId(source, 'char_varek'))
+		const identified = runSync(updateDocumentFrontmatter(source, { id: 'char_varek', type: 'npc' }))
 
 		expect(identified).toContain('id: char_varek')
+		expect(identified).toContain('type: npc')
 		expect(identified).toContain('tags:\n  - npc')
 		expect(identified).toContain('custom: retained')
 		expect(parseDocument('Characters/Varek.md', identified).content).toBe('# Varek')

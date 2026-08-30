@@ -116,18 +116,21 @@ export const serializeVaultDocument = (frontmatter: VaultFrontmatter, content: s
 	return `---\n${stringify(metadata).trimEnd()}\n---\n\n${content.replace(/^\r?\n/, '')}`
 }
 
-export const addDocumentId = (source: string, id: string) => {
+export const updateDocumentFrontmatter = (
+	source: string,
+	frontmatter: Pick<Required<VaultFrontmatter>, 'id' | 'type'>
+) => {
 	const match = source.match(frontmatterPattern)
 
 	if (!match) {
-		return succeed(serializeVaultDocument({ id }, source))
+		return succeed(serializeVaultDocument(frontmatter, source))
 	}
 
 	return pipe(
 		parseYamlRecord(match[1]),
 		map(
 			(metadata) =>
-				`---\n${stringify({ ...metadata, id }).trimEnd()}\n---\n${source.slice(match[0].length)}`
+				`---\n${stringify({ ...metadata, ...frontmatter }).trimEnd()}\n---\n${source.slice(match[0].length)}`
 		)
 	)
 }

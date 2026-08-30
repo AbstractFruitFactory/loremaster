@@ -1,15 +1,14 @@
 import { randomUUID } from 'node:crypto'
-import { all, flatMap, map, succeed } from 'effect/Effect'
+import { all, flatMap, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
+import type * as DocumentAi from '../ai/infer-document-type'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
-import { fail } from '../failure'
-import { addDocumentId, parseVaultDocument, serializeVaultDocument } from './markdown'
+import { fail, type Failure } from '../failure'
+import { parseVaultDocument, serializeVaultDocument, updateDocumentFrontmatter } from './markdown'
 import type { VaultStorage } from './storage/storage'
 import type {
-	CreateVaultDocumentInput,
 	ParsedVaultDocument,
-	UpdateVaultDocumentInput,
 	VaultDocument,
 	VaultDocumentIndex,
 	VaultDocumentSummary
@@ -53,15 +52,27 @@ const checkDuplicateIds = (campaignId: string, documents: VaultDocument[]) => {
 }
 
 export const vaultOperations = ({
+	ai,
 	db,
+	contextIndex,
 	storage
 }: {
+	ai: {
+		inferDocumentType: typeof DocumentAi.inferDocumentType
+	}
 	db: {
 		getCampaignById: typeof CampaignDb.getById
 		getDocumentPath: typeof VaultDb.getDocumentPath
+		getOutgoingLinks: typeof VaultDb.getOutgoingLinks
+		getBacklinks: typeof VaultDb.getBacklinks
 		indexDocument: typeof VaultDb.indexDocument
 		deleteDocumentIndex: typeof VaultDb.deleteDocumentIndex
 		replaceCampaignIndex: typeof VaultDb.replaceCampaignIndex
+	}
+	contextIndex: {
+		deleteDocumentIndex: (campaignId: string, documentId: string) => Effect<void, Failure>
+		indexDocument: (campaignId: string, document: VaultDocument) => Effect<void, Failure>
+		reindexCampaign: (campaignId: string, documents: VaultDocument[]) => Effect<void, Failure>
 	}
 	storage: VaultStorage
 }) => {
@@ -73,26 +84,38 @@ export const vaultOperations = ({
 			)
 		)
 
-	const ensureDocumentId = (campaignId: string, source: string, document: ParsedVaultDocument) => {
-		if (document.id) {
-			return succeed(document as VaultDocument)
-		}
+	const ensureDocumentMetadata = (
+		campaignId: string,
+		source: string,
+		document: ParsedVaultDocument
+	) =>
+		pipe(
+			document.type
+				? succeed(document.type)
+				: ai.inferDocumentType({
+						path: document.path,
+						title: document.title,
+						content: document.content
+					}),
+			flatMap((type) => {
+				const normalizedDocument: VaultDocument = {
+					...document,
+					id: document.id ?? randomUUID(),
+					type
+				}
 
-		const identifiedDocument: VaultDocument = {
-			...document,
-			id: randomUUID()
-		}
+				if (document.id && document.type) return succeed(normalizedDocument)
 
-		return pipe(
-			addDocumentId(source, identifiedDocument.id),
-			flatMap((identifiedSource) =>
-				pipe(
-					storage.write(campaignId, document.path, identifiedSource),
-					map(() => identifiedDocument)
+				return pipe(
+					updateDocumentFrontmatter(source, {
+						id: normalizedDocument.id,
+						type: normalizedDocument.type
+					}),
+					flatMap((normalizedSource) => storage.write(campaignId, document.path, normalizedSource)),
+					map(() => normalizedDocument)
 				)
-			)
+			})
 		)
-	}
 
 	const loadDocumentAtPath = (campaignId: string, path: string) =>
 		pipe(
@@ -100,7 +123,7 @@ export const vaultOperations = ({
 			flatMap((source) =>
 				pipe(
 					parseVaultDocument(path, source),
-					flatMap((document) => ensureDocumentId(campaignId, source, document))
+					flatMap((document) => ensureDocumentMetadata(campaignId, source, document))
 				)
 			)
 		)
@@ -134,12 +157,21 @@ export const vaultOperations = ({
 			flatMap((document) =>
 				pipe(
 					db.indexDocument(campaignId, toDocumentIndex(document)),
+					flatMap(() => contextIndex.indexDocument(campaignId, document)),
 					map(() => document)
 				)
 			)
 		)
 
-	const createDocument = (campaignId: string, input: CreateVaultDocumentInput) => {
+	const createDocument = (
+		campaignId: string,
+		input: {
+			path: string
+			type: VaultDocument['type']
+			aliases?: string[]
+			content: string
+		}
+	) => {
 		if (!isValidDocumentPath(input.path)) {
 			return fail('vault', 'createDocument', {
 				campaignId,
@@ -171,6 +203,7 @@ export const vaultOperations = ({
 			flatMap((document) =>
 				pipe(
 					db.indexDocument(campaignId, toDocumentIndex(document)),
+					flatMap(() => contextIndex.indexDocument(campaignId, document)),
 					map(() => document)
 				)
 			)
@@ -186,7 +219,11 @@ export const vaultOperations = ({
 	const updateDocument = (
 		campaignId: string,
 		documentId: string,
-		input: UpdateVaultDocumentInput
+		input: {
+			type: VaultDocument['type']
+			aliases?: string[]
+			content: string
+		}
 	) =>
 		pipe(
 			ensureCampaign(campaignId),
@@ -205,6 +242,7 @@ export const vaultOperations = ({
 			flatMap((document) =>
 				pipe(
 					db.indexDocument(campaignId, toDocumentIndex(document)),
+					flatMap(() => contextIndex.indexDocument(campaignId, document)),
 					map(() => document)
 				)
 			)
@@ -217,7 +255,8 @@ export const vaultOperations = ({
 			flatMap((document) =>
 				pipe(
 					storage.delete(campaignId, document.path),
-					flatMap(() => db.deleteDocumentIndex(campaignId, document.id))
+					flatMap(() => db.deleteDocumentIndex(campaignId, document.id)),
+					flatMap(() => contextIndex.deleteDocumentIndex(campaignId, document.id))
 				)
 			)
 		)
@@ -229,6 +268,24 @@ export const vaultOperations = ({
 			map((documents) => documents.map(toDocumentSummary))
 		)
 
+	const getDocuments = (campaignId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => loadDocuments(campaignId))
+		)
+
+	const getOutgoingLinks = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => db.getOutgoingLinks(campaignId, documentId))
+		)
+
+	const getBacklinks = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => db.getBacklinks(campaignId, documentId))
+		)
+
 	const reindexCampaign = (campaignId: string) =>
 		pipe(
 			ensureCampaign(campaignId),
@@ -236,6 +293,7 @@ export const vaultOperations = ({
 			flatMap((documents) =>
 				pipe(
 					db.replaceCampaignIndex(campaignId, documents.map(toDocumentIndex)),
+					flatMap(() => contextIndex.reindexCampaign(campaignId, documents)),
 					map(() => documents)
 				)
 			)
@@ -244,7 +302,10 @@ export const vaultOperations = ({
 	return {
 		createDocument,
 		deleteDocument,
+		getBacklinks,
 		getDocument,
+		getDocuments,
+		getOutgoingLinks,
 		indexDocument,
 		listDocuments,
 		reindexCampaign,

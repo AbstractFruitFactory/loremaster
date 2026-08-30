@@ -1,11 +1,16 @@
-import { and, eq, inArray } from 'drizzle-orm'
-import { map, tryPromise } from 'effect/Effect'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
+import { map, succeed, tryPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { resolveVaultLinks } from '../vault/links'
 import type { VaultDocumentIndex } from '../vault/types'
 import { failure } from '../failure'
 import { db } from '.'
 import { vaultDocuments, vaultLinks } from './schema'
+
+export type LinkedDocument = {
+	seedDocumentId: string
+	documentId: string
+}
 
 const documentValues = (campaignId: string, document: VaultDocumentIndex) => ({
 	campaignId,
@@ -46,6 +51,97 @@ export const getDocumentPath = (campaignId: string, documentId: string) =>
 		}),
 		map(([document]): string | undefined => document?.path)
 	)
+
+export const getOutgoingLinks = (campaignId: string, documentId: string) =>
+	pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({ documentId: vaultLinks.targetDocumentId })
+					.from(vaultLinks)
+					.where(
+						and(
+							eq(vaultLinks.campaignId, campaignId),
+							eq(vaultLinks.sourceDocumentId, documentId),
+							isNotNull(vaultLinks.targetDocumentId)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultOutgoingLinks', cause)
+		}),
+		map((links) => links.flatMap(({ documentId }) => (documentId === null ? [] : [documentId])))
+	)
+
+export const getBacklinks = (campaignId: string, documentId: string) =>
+	pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({ documentId: vaultLinks.sourceDocumentId })
+					.from(vaultLinks)
+					.where(
+						and(eq(vaultLinks.campaignId, campaignId), eq(vaultLinks.targetDocumentId, documentId))
+					),
+			catch: (cause) => failure('database', 'getVaultBacklinks', cause)
+		}),
+		map((links) => links.map(({ documentId }) => documentId))
+	)
+
+export const getOutgoingLinksForDocuments = (campaignId: string, documentIds: string[]) => {
+	if (!documentIds.length) return succeed([])
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						seedDocumentId: vaultLinks.sourceDocumentId,
+						documentId: vaultLinks.targetDocumentId
+					})
+					.from(vaultLinks)
+					.where(
+						and(
+							eq(vaultLinks.campaignId, campaignId),
+							inArray(vaultLinks.sourceDocumentId, documentIds),
+							isNotNull(vaultLinks.targetDocumentId)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultOutgoingLinksForDocuments', cause)
+		}),
+		map((links): LinkedDocument[] =>
+			links.flatMap(({ seedDocumentId, documentId }) =>
+				documentId === null ? [] : [{ seedDocumentId, documentId }]
+			)
+		)
+	)
+}
+
+export const getBacklinksForDocuments = (campaignId: string, documentIds: string[]) => {
+	if (!documentIds.length) return succeed([])
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						seedDocumentId: vaultLinks.targetDocumentId,
+						documentId: vaultLinks.sourceDocumentId
+					})
+					.from(vaultLinks)
+					.where(
+						and(
+							eq(vaultLinks.campaignId, campaignId),
+							inArray(vaultLinks.targetDocumentId, documentIds)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultBacklinksForDocuments', cause)
+		}),
+		map((links): LinkedDocument[] =>
+			links.flatMap(({ seedDocumentId, documentId }) =>
+				seedDocumentId === null ? [] : [{ seedDocumentId, documentId }]
+			)
+		)
+	)
+}
 
 export const indexDocument = (campaignId: string, document: VaultDocumentIndex) =>
 	tryPromise({

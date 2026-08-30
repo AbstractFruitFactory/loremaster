@@ -10,7 +10,7 @@ export type VaultDocument = {
 	id: string
 	path: string
 	title: string
-	type?: DocumentType
+	type: DocumentType
 	aliases?: string[]
 	content: string
 	links: string[]
@@ -18,21 +18,9 @@ export type VaultDocument = {
 
 export type VaultDocumentSummary = Omit<VaultDocument, 'content'>
 
-export type ParsedVaultDocument = Omit<VaultDocument, 'id'> & {
+export type ParsedVaultDocument = Omit<VaultDocument, 'id' | 'type'> & {
 	id?: string
-}
-
-export type CreateVaultDocumentInput = {
-	path: string
 	type?: DocumentType
-	aliases?: string[]
-	content: string
-}
-
-export type UpdateVaultDocumentInput = {
-	type?: DocumentType
-	aliases?: string[]
-	content: string
 }
 
 export type VaultLinkIndex = {
