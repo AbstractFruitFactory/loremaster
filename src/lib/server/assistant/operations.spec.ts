@@ -1,0 +1,104 @@
+import { flip, runPromise, succeed } from 'effect/Effect'
+import { describe, expect, it, vi } from 'vitest'
+import type { ContextItem } from '../context/types'
+import { assistantOperations } from './operations'
+import type { GenerateAssistant } from './types'
+
+const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
+const items: ContextItem[] = [
+	{
+		fragment: {
+			id: 'character-varek',
+			campaignId,
+			documentId: 'character-varek',
+			title: 'Varek',
+			documentType: 'npc',
+			heading: 'Duties',
+			content: '# Varek\n\nVarek keeps watch over the western gate.',
+			position: 0,
+			contentHash: 'varek-hash'
+		},
+		score: 156,
+		reasons: ['direct-mention', 'lexical-match']
+	}
+]
+
+describe('assistant operations', () => {
+	it('answers with retrieved lore context and sources', async () => {
+		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const generateAssistant = vi.fn(() =>
+			succeed({ message: 'Varek watches the western gate.' })
+		) as GenerateAssistant
+		const assistant = assistantOperations({
+			ai: { generateAssistant },
+			context: { buildAssistantContext }
+		})
+
+		const history = [
+			{ role: 'user' as const, content: 'Tell me about Westgate.' },
+			{ role: 'assistant' as const, content: 'Westgate is the western entrance.' }
+		]
+		const response = await runPromise(assistant.chat(campaignId, 'What does Varek guard?', history))
+
+		expect(buildAssistantContext).toHaveBeenCalledWith({
+			campaignId,
+			message: 'What does Varek guard?',
+			history
+		})
+		expect(generateAssistant).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringMatching(
+					/Section: Duties[\s\S]*# Varek[\s\S]*Dungeon Master: Tell me about Westgate/
+				)
+			})
+		)
+		expect(response).toEqual({
+			message: 'Varek watches the western gate.',
+			sources: [{ id: 'character-varek', title: 'Varek', type: 'npc' }]
+		})
+	})
+
+	it('returns optional lore proposals selected by the AI edge', async () => {
+		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const generateAssistant = vi.fn(() =>
+			succeed({
+				message: 'I drafted a warning bell.',
+				proposal: {
+					title: 'The Westgate Bell',
+					category: 'item' as const,
+					content: 'The bell rings when danger reaches Westgate.'
+				}
+			})
+		) as GenerateAssistant
+		const assistant = assistantOperations({
+			ai: { generateAssistant },
+			context: { buildAssistantContext }
+		})
+
+		const response = await runPromise(assistant.chat(campaignId, 'Create a warning bell', []))
+
+		expect(response.proposal).toEqual({
+			title: 'The Westgate Bell',
+			category: 'item',
+			content: 'The bell rings when danger reaches Westgate.'
+		})
+	})
+
+	it('rejects an empty message before building context', async () => {
+		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
+		const assistant = assistantOperations({
+			ai: { generateAssistant },
+			context: { buildAssistantContext }
+		})
+
+		const result = await runPromise(flip(assistant.chat(campaignId, '   ', [])))
+
+		expect(result).toMatchObject({
+			domain: 'assistant',
+			operation: 'chat',
+			cause: { reason: 'emptyMessage' }
+		})
+		expect(buildAssistantContext).not.toHaveBeenCalled()
+	})
+})

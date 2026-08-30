@@ -2,6 +2,8 @@ import { resolve } from 'node:path'
 import * as documentAi from './ai/infer-document-type'
 import * as embeddings from './ai/embeddings'
 import * as ai from './ai/generate'
+import * as assistantAi from './ai/assistant'
+import { assistantOperations } from './assistant/operations'
 import { campaignOperations } from './campaign/operations'
 import { contextIndexOperations } from './context/indexing/operations'
 import { contextOperations } from './context/operations'
@@ -49,3 +51,5 @@ export const context = contextOperations({
 		...vectorDb
 	}
 })
+
+export const assistant = assistantOperations({ ai: assistantAi, context })
