@@ -1,6 +1,10 @@
+/// <reference types="vitest/config" />
 import adapter from '@sveltejs/adapter-auto'
 import { sveltekit } from '@sveltejs/kit/vite'
 import { defineConfig } from 'vitest/config'
+import path from 'node:path'
+import { storybookTest } from '@storybook/addon-vitest/vitest-plugin'
+import { playwright } from '@vitest/browser-playwright'
 
 export default defineConfig({
 	plugins: [
@@ -16,7 +20,6 @@ export default defineConfig({
 			experimental: {
 				remoteFunctions: true
 			},
-
 			// adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
 			// If your environment is not supported, or you settled on a specific environment, switch out the adapter.
 			// See https://svelte.dev/docs/kit/adapters for more information about adapters.
@@ -24,7 +27,9 @@ export default defineConfig({
 		})
 	],
 	test: {
-		expect: { requireAssertions: true },
+		expect: {
+			requireAssertions: true
+		},
 		projects: [
 			{
 				extends: './vite.config.ts',
@@ -33,6 +38,27 @@ export default defineConfig({
 					environment: 'node',
 					include: ['src/**/*.{test,spec}.{js,ts}'],
 					exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+				}
+			},
+			{
+				extends: true,
+				plugins: [
+					storybookTest({
+						configDir: path.join(import.meta.dirname, '.storybook')
+					})
+				],
+				test: {
+					name: 'storybook',
+					browser: {
+						enabled: true,
+						headless: true,
+						provider: playwright({}),
+						instances: [
+							{
+								browser: 'chromium'
+							}
+						]
+					}
 				}
 			}
 		]
