@@ -3,12 +3,15 @@ import { error } from '@sveltejs/kit'
 import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
-import { vault } from '#lib/server/app.js'
+import { documentTypes } from '#lib/document.js'
+import { assistant, lore, vault } from '#lib/server/app.js'
+import type { AssistantResponse } from '#lib/server/assistant/types.js'
+import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
 const aliases = z.array(z.string().trim().min(1).max(200)).max(50).optional()
-const documentType = z.string().trim().min(1).max(100).optional()
+const documentType = z.enum(documentTypes)
 const documentReference = z
 	.object({
 		campaignId,
@@ -33,6 +36,122 @@ const updateDocumentInput = z
 		content: z.string().max(1_000_000)
 	})
 	.strict()
+const loreReference = z
+	.object({
+		campaignId,
+		loreId: documentId
+	})
+	.strict()
+const createLoreInput = z
+	.object({
+		campaignId,
+		title: z.string().trim().min(1).max(200),
+		category: documentType,
+		content: z.string().trim().min(1).max(1_000_000)
+	})
+	.strict()
+const askLoremasterInput = z
+	.object({
+		campaignId,
+		message: z.string().trim().min(1).max(2_000),
+		history: z
+			.array(
+				z
+					.object({
+						role: z.enum(['user', 'assistant']),
+						content: z.string().trim().min(1).max(2_000)
+					})
+					.strict()
+			)
+			.max(12)
+	})
+	.strict()
+
+export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
+	runPromise(
+		pipe(
+			lore.listLore(id),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${id}" was not found`)
+					}
+
+					error(500, 'Unable to load campaign lore')
+				},
+				onSuccess: (entries) => entries
+			})
+		)
+	)
+)
+
+export const getLore = query(loreReference, ({ campaignId, loreId }): Promise<LoreEntry> =>
+	runPromise(
+		pipe(
+			lore.getLore(campaignId, loreId),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${campaignId}" was not found`)
+					}
+
+					if (failure.domain === 'vault' && failure.operation === 'getDocument') {
+						error(404, `Lore "${loreId}" was not found`)
+					}
+
+					error(500, 'Unable to load lore')
+				},
+				onSuccess: (entry) => entry
+			})
+		)
+	)
+)
+
+export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =>
+	runPromise(
+		pipe(
+			lore.createLore(input.campaignId, input),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${input.campaignId}" was not found`)
+					}
+
+					if (failure.domain === 'vault' && failure.operation === 'createDocument') {
+						error(409, `Lore named "${input.title}" already exists in this category`)
+					}
+
+					error(500, 'Unable to add lore')
+				},
+				onSuccess: (entry) => {
+					void listLore(input.campaignId).refresh()
+					getLore({ campaignId: input.campaignId, loreId: entry.id }).set(entry)
+					return entry
+				}
+			})
+		)
+	)
+)
+
+export const askLoremaster = command(
+	askLoremasterInput,
+	({ campaignId, message, history }): Promise<AssistantResponse> =>
+		runPromise(
+			pipe(
+				assistant.chat(campaignId, message, history),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${campaignId}" was not found`)
+						}
+
+						error(500, 'Loremaster could not respond')
+					},
+					onSuccess: (response) => response
+				})
+			)
+		)
+)
 
 export const listDocuments = query(campaignId, (id) =>
 	runPromise(

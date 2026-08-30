@@ -1,354 +1,415 @@
 <script lang="ts">
 	import Button from '#lib/components/button/Button.svelte'
+	import type { DocumentType } from '#lib/document.js'
+	import { getCampaign } from '../../data.remote'
 	import type { PageProps } from './$types'
-	import {
-		createDocument,
-		deleteDocument,
-		getDocument,
-		listDocuments,
-		reindexCampaignVault,
-		updateDocument
-	} from './data.remote'
+	import { askLoremaster, createLore, getLore, listLore } from './data.remote'
+
+	type Category = DocumentType
+	type CategoryFilter = Category | 'all'
+	type LoreEntry = Awaited<ReturnType<typeof getLore>>
+	type Source = Awaited<ReturnType<typeof askLoremaster>>['sources'][number]
+	type ConversationMessage = {
+		id: string
+		role: 'user' | 'assistant'
+		content: string
+		sources: Source[]
+	}
+	type Proposal = {
+		title: string
+		category: Category
+		content: string
+	}
+
+	const categories: Array<{ value: CategoryFilter; label: string }> = [
+		{ value: 'all', label: 'All lore' },
+		{ value: 'player', label: 'Players' },
+		{ value: 'npc', label: 'NPCs' },
+		{ value: 'location', label: 'Locations' },
+		{ value: 'session', label: 'Sessions' },
+		{ value: 'item', label: 'Items' },
+		{ value: 'lore', label: 'Lore' },
+		{ value: 'event', label: 'Events' }
+	]
 
 	let { params }: PageProps = $props()
 
 	const campaignId = $derived(params.campaignId)
-	const documents = $derived(listDocuments(campaignId))
+	const campaign = $derived(getCampaign(campaignId))
+	const lore = $derived(listLore(campaignId))
 
-	type VaultDocument = Awaited<ReturnType<typeof getDocument>>
-	type Action = 'opening' | 'creating' | 'saving' | 'deleting' | 'reindexing'
-
-	let selectedDocument = $state.raw<VaultDocument | null>(null)
-	let draftType = $state('')
-	let draftAliases = $state('')
-	let draftContent = $state('')
-	let newPath = $state('')
-	let newType = $state('')
-	let newAliases = $state('')
-	let newContent = $state('')
-	let pendingAction = $state<Action | null>(null)
+	let search = $state('')
+	let category = $state<CategoryFilter>('all')
+	let selectedLore = $state.raw<LoreEntry | null>(null)
+	let messages = $state.raw<ConversationMessage[]>([])
+	let proposal = $state<Proposal | null>(null)
+	let message = $state('')
+	let openingLoreId = $state<string | null>(null)
+	let isResponding = $state(false)
+	let isAddingLore = $state(false)
 	let statusMessage = $state('')
 	let actionError = $state('')
+	let proposalError = $state('')
 
-	const parseAliases = (value: string) => {
-		const aliases = value
-			.split(',')
-			.map((alias) => alias.trim())
-			.filter(Boolean)
+	const filteredLore = $derived.by(() => {
+		const normalizedSearch = search.trim().toLocaleLowerCase()
 
-		return aliases.length ? aliases : undefined
-	}
+		return (lore.current ?? []).filter(
+			(entry) =>
+				(category === 'all' || entry.category === category) &&
+				(!normalizedSearch || entry.title.toLocaleLowerCase().includes(normalizedSearch))
+		)
+	})
 
 	const getErrorMessage = (error: unknown, fallback: string) =>
 		error instanceof Error ? error.message : fallback
 
-	const populateDraft = (document: VaultDocument) => {
-		selectedDocument = document
-		draftType = document.type ?? ''
-		draftAliases = document.aliases?.join(', ') ?? ''
-		draftContent = document.content
-	}
+	const createMessageId = () => crypto.randomUUID()
 
-	const openDocument = async (documentId: string) => {
-		pendingAction = 'opening'
+	const openLore = async (loreId: string) => {
+		openingLoreId = loreId
 		actionError = ''
-		statusMessage = ''
 
 		try {
-			const document = await getDocument({ campaignId, documentId })
-			populateDraft(document)
-			statusMessage = `Opened ${document.title}`
+			selectedLore = await getLore({ campaignId, loreId })
 		} catch (error) {
-			actionError = getErrorMessage(error, 'Unable to open the document')
+			actionError = getErrorMessage(error, 'Unable to open this lore entry')
 		} finally {
-			pendingAction = null
+			openingLoreId = null
 		}
 	}
 
-	const handleCreate = async (event: SubmitEvent) => {
+	const handleAsk = async (event: SubmitEvent) => {
 		event.preventDefault()
-		pendingAction = 'creating'
-		actionError = ''
+		const submittedMessage = message.trim()
+		if (!submittedMessage || isResponding) return
+
+		const history = messages.slice(-12).map(({ role, content }) => ({ role, content }))
+		messages = [
+			...messages,
+			{ id: createMessageId(), role: 'user', content: submittedMessage, sources: [] }
+		]
+		message = ''
+		isResponding = true
 		statusMessage = ''
+		actionError = ''
+		proposalError = ''
 
 		try {
-			const document = await createDocument({
+			const response = await askLoremaster({
 				campaignId,
-				path: newPath,
-				type: newType.trim() || undefined,
-				aliases: parseAliases(newAliases),
-				content: newContent
+				message: submittedMessage,
+				history
 			})
-			populateDraft(document)
-			newPath = ''
-			newType = ''
-			newAliases = ''
-			newContent = ''
-			statusMessage = `Created ${document.title}`
+			messages = [
+				...messages,
+				{
+					id: createMessageId(),
+					role: 'assistant',
+					content: response.message,
+					sources: response.sources
+				}
+			]
+
+			if (response.proposal) {
+				proposal = {
+					title: response.proposal.title,
+					category: response.proposal.category,
+					content: response.proposal.content
+				}
+			}
 		} catch (error) {
-			actionError = getErrorMessage(error, 'Unable to create the document')
+			actionError = getErrorMessage(error, 'Loremaster could not respond')
 		} finally {
-			pendingAction = null
+			isResponding = false
 		}
 	}
 
-	const handleSave = async (event: SubmitEvent) => {
+	const handleAddLore = async (event: SubmitEvent) => {
 		event.preventDefault()
-		if (!selectedDocument) return
+		if (!proposal || isAddingLore) return
 
-		pendingAction = 'saving'
+		const title = proposal.title.trim()
+		const content = proposal.content.trim()
+		if (!title) {
+			proposalError = 'Give this lore entry a title before adding it.'
+			return
+		}
+
+		if (!content) {
+			proposalError = 'Add some lore content before saving.'
+			return
+		}
+
+		isAddingLore = true
+		proposalError = ''
 		actionError = ''
 		statusMessage = ''
 
 		try {
-			const document = await updateDocument({
+			const createdLore = await createLore({
 				campaignId,
-				documentId: selectedDocument.id,
-				type: draftType.trim() || undefined,
-				aliases: parseAliases(draftAliases),
-				content: draftContent
+				title,
+				category: proposal.category,
+				content
 			})
-			populateDraft(document)
-			statusMessage = `Saved ${document.title}`
+			selectedLore = createdLore
+			proposal = null
+			statusMessage = `Added “${createdLore.title}” to your lore.`
 		} catch (error) {
-			actionError = getErrorMessage(error, 'Unable to save the document')
+			proposalError = getErrorMessage(error, 'Unable to add this lore entry')
 		} finally {
-			pendingAction = null
+			isAddingLore = false
 		}
 	}
 
-	const handleDelete = async () => {
-		if (!selectedDocument || !confirm(`Delete "${selectedDocument.path}"?`)) return
-
-		pendingAction = 'deleting'
-		actionError = ''
-		statusMessage = ''
-		const deletedTitle = selectedDocument.title
-
-		try {
-			await deleteDocument({
-				campaignId,
-				documentId: selectedDocument.id
-			})
-			selectedDocument = null
-			draftType = ''
-			draftAliases = ''
-			draftContent = ''
-			statusMessage = `Deleted ${deletedTitle}`
-		} catch (error) {
-			actionError = getErrorMessage(error, 'Unable to delete the document')
-		} finally {
-			pendingAction = null
-		}
-	}
-
-	const handleReindex = async () => {
-		pendingAction = 'reindexing'
-		actionError = ''
-		statusMessage = ''
-
-		try {
-			const indexedDocuments = await reindexCampaignVault(campaignId)
-			const updatedSelection = selectedDocument
-				? indexedDocuments.find((document) => document.id === selectedDocument?.id)
-				: undefined
-
-			if (updatedSelection) populateDraft(updatedSelection)
-			statusMessage = `Reindexed ${indexedDocuments.length} document${indexedDocuments.length === 1 ? '' : 's'}`
-		} catch (error) {
-			actionError = getErrorMessage(error, 'Unable to reindex the vault')
-		} finally {
-			pendingAction = null
-		}
+	const cancelProposal = () => {
+		proposal = null
+		proposalError = ''
 	}
 </script>
 
 <svelte:head>
-	<title>Campaign vault | Loremaster</title>
-	<meta name="description" content="Manage Markdown knowledge documents for this campaign." />
+	<title>{campaign.current?.name ?? 'Campaign'} | Loremaster</title>
+	<meta name="description" content="Explore campaign lore and collaborate with Loremaster." />
 </svelte:head>
 
-<main aria-busy={pendingAction !== null}>
-	<header>
+<main>
+	<header class="campaign-header">
 		<a href="/">← Campaigns</a>
 		<div>
-			<p class="eyebrow">Knowledge vault</p>
-			<h1>Campaign documents</h1>
+			<p class="eyebrow">Loremaster workspace</p>
+			<h1>{campaign.current?.name ?? 'Campaign'}</h1>
+			{#if campaign.current?.description}
+				<p class="campaign-description">{campaign.current.description}</p>
+			{/if}
 		</div>
-		<Button variant="secondary" onclick={handleReindex} disabled={pendingAction !== null}>
-			{pendingAction === 'reindexing' ? 'Reindexing…' : 'Reindex vault'}
-		</Button>
 	</header>
 
-	<div class="status" aria-live="polite">
+	{#if campaign.error}
+		<p class="page-error" role="alert">Unable to load this campaign.</p>
+	{/if}
+
+	<div class="announcements" aria-live="polite" aria-atomic="true">
 		{#if statusMessage}
-			<p>{statusMessage}</p>
+			<p class="success">{statusMessage}</p>
+		{/if}
+		{#if actionError}
+			<p class="error" role="alert">{actionError}</p>
 		{/if}
 	</div>
 
-	{#if actionError}
-		<p class="error" role="alert">{actionError}</p>
-	{/if}
-
-	<div class="vault">
-		<aside aria-labelledby="documents-heading">
-			<div class="section-heading">
-				<h2 id="documents-heading">Documents</h2>
-				{#if documents.current}
-					<span>{documents.current.length}</span>
+	<div class="workspace">
+		<aside class="library" aria-labelledby="library-heading">
+			<div class="panel-heading">
+				<div>
+					<p class="eyebrow">Campaign knowledge</p>
+					<h2 id="library-heading">Lore library</h2>
+				</div>
+				{#if lore.current}
+					<span class="count">{filteredLore.length}</span>
 				{/if}
 			</div>
 
-			{#if documents.error}
-				<p class="error" role="alert">Unable to load documents.</p>
-			{:else if documents.loading && !documents.current}
-				<p role="status">Loading documents…</p>
-			{:else if documents.current?.length}
-				<ul class="document-list">
-					{#each documents.current as document (document.id)}
-						<li>
-							<Button
-								disabled={pendingAction !== null}
-								aria-pressed={selectedDocument?.id === document.id}
-								onclick={() => openDocument(document.id)}
-							>
-								<strong>{document.title}</strong>
-								<span>{document.path}</span>
-							</Button>
-						</li>
+			<label>
+				Search lore
+				<input type="search" bind:value={search} placeholder="Search by title" autocomplete="off" />
+			</label>
+
+			<label>
+				Category
+				<select bind:value={category}>
+					{#each categories as option (option.value)}
+						<option value={option.value}>{option.label}</option>
 					{/each}
-				</ul>
-			{:else}
-				<p>No documents yet.</p>
-			{/if}
+				</select>
+			</label>
 
-			<hr />
-
-			<h2 id="new-document-heading">New document</h2>
-			<form class="create-form" onsubmit={handleCreate} aria-labelledby="new-document-heading">
-				<label>
-					Path
-					<input
-						bind:value={newPath}
-						required
-						minlength="4"
-						maxlength="500"
-						placeholder="Characters/Varek.md"
-						autocomplete="off"
-					/>
-				</label>
-
-				<label>
-					Type <span class="optional">(optional)</span>
-					<input bind:value={newType} maxlength="100" autocomplete="off" />
-				</label>
-
-				<label>
-					Aliases <span class="optional">(comma-separated)</span>
-					<input bind:value={newAliases} autocomplete="off" />
-				</label>
-
-				<label>
-					Markdown body
-					<textarea bind:value={newContent} rows="7"></textarea>
-				</label>
-
-				<Button type="submit" disabled={pendingAction !== null}>
-					{pendingAction === 'creating' ? 'Creating…' : 'Create document'}
-				</Button>
-			</form>
+			<div class="library-results">
+				{#if lore.error}
+					<p class="error" role="alert">Unable to load campaign lore.</p>
+				{:else if lore.loading && !lore.current}
+					<p role="status">Loading lore…</p>
+				{:else if filteredLore.length}
+					<ul class="lore-list">
+						{#each filteredLore as entry (entry.id)}
+							<li>
+								<Button
+									variant="secondary"
+									disabled={openingLoreId !== null}
+									aria-pressed={selectedLore?.id === entry.id}
+									onclick={() => openLore(entry.id)}
+								>
+									{openingLoreId === entry.id ? 'Opening…' : entry.title}
+								</Button>
+							</li>
+						{/each}
+					</ul>
+				{:else if lore.current?.length}
+					<p>No lore matches these filters.</p>
+				{:else}
+					<p>No lore yet. Ask Loremaster to help create your first entry.</p>
+				{/if}
+			</div>
 		</aside>
 
-		<section class="editor" aria-labelledby="editor-heading">
-			{#if selectedDocument}
-				<div class="editor-heading">
-					<div>
-						<p class="path">{selectedDocument.path}</p>
-						<h2 id="editor-heading">{selectedDocument.title}</h2>
-					</div>
-					<Button variant="danger" onclick={handleDelete} disabled={pendingAction !== null}>
-						{pendingAction === 'deleting' ? 'Deleting…' : 'Delete'}
-					</Button>
+		<section class="conversation" aria-labelledby="conversation-heading">
+			<div class="panel-heading">
+				<div>
+					<p class="eyebrow">Creative companion</p>
+					<h2 id="conversation-heading">Ask Loremaster</h2>
 				</div>
+				<span class="presence">Ready</span>
+			</div>
 
-				<form class="edit-form" onsubmit={handleSave}>
-					<div class="metadata">
+			<div class="message-feed" aria-live="polite">
+				{#if messages.length === 0}
+					<div class="welcome">
+						<p class="welcome-mark" aria-hidden="true">✦</p>
+						<h3>Shape your world through conversation</h3>
+						<p>
+							Ask questions, explore connections, or naturally establish and change lore. You will
+							review any proposed canon before adding it.
+						</p>
+					</div>
+				{:else}
+					<ol class="messages">
+						{#each messages as conversationMessage (conversationMessage.id)}
+							<li class={conversationMessage.role}>
+								<p class="speaker">
+									{conversationMessage.role === 'user' ? 'You' : 'Loremaster'}
+								</p>
+								<div class="message-content">{conversationMessage.content}</div>
+								{#if conversationMessage.sources.length}
+									<div class="sources" aria-label="Answer sources">
+										<span>Sources</span>
+										{#each conversationMessage.sources as source (source.id)}
+											<Button
+												variant="secondary"
+												disabled={openingLoreId !== null}
+												onclick={() => openLore(source.id)}
+											>
+												{source.title}
+											</Button>
+										{/each}
+									</div>
+								{/if}
+							</li>
+						{/each}
+						{#if isResponding}
+							<li class="assistant pending" role="status">
+								<p class="speaker">Loremaster</p>
+								<p>Considering your campaign…</p>
+							</li>
+						{/if}
+					</ol>
+				{/if}
+			</div>
+
+			{#if proposal}
+				<form class="proposal" onsubmit={handleAddLore} aria-labelledby="proposal-heading">
+					<div class="proposal-heading">
+						<div>
+							<p class="eyebrow">Review before adding</p>
+							<h3 id="proposal-heading">Lore proposal</h3>
+						</div>
+						<span>Draft</span>
+					</div>
+
+					<div class="proposal-fields">
 						<label>
-							Type <span class="optional">(optional)</span>
-							<input bind:value={draftType} maxlength="100" autocomplete="off" />
+							Title
+							<input
+								bind:value={proposal.title}
+								required
+								maxlength="200"
+								autocomplete="off"
+								placeholder="Name this lore entry"
+							/>
 						</label>
-
 						<label>
-							Aliases <span class="optional">(comma-separated)</span>
-							<input bind:value={draftAliases} autocomplete="off" />
+							Category
+							<select bind:value={proposal.category}>
+								{#each categories.slice(1) as option (option.value)}
+									<option value={option.value}>{option.label}</option>
+								{/each}
+							</select>
 						</label>
 					</div>
 
 					<label>
-						Markdown body
-						<textarea class="markdown" bind:value={draftContent} rows="24"></textarea>
+						Content
+						<textarea bind:value={proposal.content} required rows="8"></textarea>
 					</label>
 
-					<Button type="submit" disabled={pendingAction !== null}>
-						{pendingAction === 'saving' ? 'Saving…' : 'Save document'}
-					</Button>
-				</form>
-
-				<div class="links">
-					<h3>Extracted links</h3>
-					{#if selectedDocument.links.length}
-						<ul>
-							{#each selectedDocument.links as link (link)}
-								<li><code>{link}</code></li>
-							{/each}
-						</ul>
-					{:else}
-						<p>No links extracted.</p>
+					{#if proposalError}
+						<p class="error proposal-error" role="alert">{proposalError}</p>
 					{/if}
+
+					<div class="proposal-actions">
+						<Button type="submit" disabled={isAddingLore}>
+							{isAddingLore ? 'Adding…' : 'Add to lore'}
+						</Button>
+						<Button
+							type="button"
+							variant="secondary"
+							onclick={cancelProposal}
+							disabled={isAddingLore}
+						>
+							Cancel
+						</Button>
+					</div>
+				</form>
+			{/if}
+
+			<form class="composer" onsubmit={handleAsk}>
+				<label class="message-label" for="loremaster-message">
+					Ask a question or shape your lore
+				</label>
+				<textarea
+					id="loremaster-message"
+					bind:value={message}
+					required
+					maxlength="2000"
+					rows="4"
+					disabled={isResponding}
+					placeholder="Ask about your world, or describe lore to establish or change…"></textarea>
+				<div class="composer-actions">
+					<span>{message.length}/2000</span>
+					<Button type="submit" disabled={isResponding || !message.trim()}>
+						{isResponding ? 'Thinking…' : 'Send to Loremaster'}
+					</Button>
 				</div>
+			</form>
+		</section>
+
+		<aside class="context" aria-labelledby="context-heading" aria-busy={openingLoreId !== null}>
+			<p class="eyebrow">Current context</p>
+			{#if selectedLore}
+				<div class="context-heading">
+					<span class="category">{selectedLore.category}</span>
+					<h2 id="context-heading">{selectedLore.title}</h2>
+				</div>
+				<div class="lore-content">{selectedLore.content}</div>
 			{:else}
-				<div class="empty-editor">
-					<h2 id="editor-heading">Select a document</h2>
-					<p>Open a document from the list or create one to begin editing.</p>
+				<div class="empty-context">
+					<p class="context-mark" aria-hidden="true">◎</p>
+					<h2 id="context-heading">Lore appears here</h2>
+					<p>
+						Select an entry from the library or an answer source to keep its details beside your
+						conversation.
+					</p>
 				</div>
 			{/if}
-		</section>
+		</aside>
 	</div>
 </main>
 
 <style>
-	:global(body) {
-		margin: 0;
-		background: #f5f3ef;
-		color: #25231f;
-		font-family:
-			Inter,
-			ui-sans-serif,
-			system-ui,
-			-apple-system,
-			BlinkMacSystemFont,
-			'Segoe UI',
-			sans-serif;
-	}
-
 	main {
-		width: min(90rem, calc(100% - 2rem));
+		width: min(96rem, calc(100% - 2rem));
 		margin: 0 auto;
-		padding: 1.5rem 0 3rem;
-	}
-
-	header {
-		display: grid;
-		grid-template-columns: auto 1fr auto;
-		gap: 1rem;
-		align-items: center;
-		margin-bottom: 1rem;
-	}
-
-	header a {
-		color: #42513c;
-		font-weight: 700;
-		text-decoration: none;
+		padding: var(--spacing-lg) 0 var(--spacing-2xl);
 	}
 
 	h1,
@@ -359,233 +420,488 @@
 	}
 
 	h1 {
+		margin-bottom: var(--spacing-xs);
+		font-size: clamp(1.7rem, 4vw, 2.5rem);
+		line-height: 1.1;
+	}
+
+	h2,
+	h3 {
 		margin-bottom: 0;
-		font-size: clamp(1.6rem, 4vw, 2.4rem);
 	}
 
 	h2 {
-		margin-bottom: 0.9rem;
-		font-size: 1.1rem;
+		font-size: 1.15rem;
 	}
 
 	h3 {
 		font-size: 1rem;
 	}
 
-	.eyebrow {
-		margin-bottom: 0.25rem;
-		color: #6b6255;
-		font-size: 0.72rem;
+	.campaign-header {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr);
+		gap: var(--spacing-lg);
+		align-items: start;
+		margin-bottom: var(--spacing-md);
+	}
+
+	.campaign-header > a {
+		margin-top: 0.3rem;
+		color: var(--color-main);
 		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.campaign-header > a:hover {
+		text-decoration: underline;
+	}
+
+	.campaign-description {
+		max-width: 52rem;
+		margin-bottom: 0;
+		color: var(--color-muted);
+	}
+
+	.eyebrow {
+		margin-bottom: var(--spacing-xs);
+		color: var(--color-muted);
+		font-size: 0.7rem;
+		font-weight: 750;
 		letter-spacing: 0.12em;
 		text-transform: uppercase;
 	}
 
-	.status {
-		min-height: 1.5rem;
-		color: #3f6938;
+	.announcements {
+		min-height: 1.75rem;
 	}
 
-	.status p {
-		margin-bottom: 0.5rem;
+	.announcements p,
+	.page-error {
+		margin-bottom: var(--spacing-sm);
+		font-weight: 650;
 	}
 
-	.error {
+	.success {
+		color: #35652f;
+	}
+
+	.error,
+	.page-error {
 		color: #a12727;
 	}
 
-	.vault {
+	.workspace {
 		display: grid;
-		grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
-		min-height: 42rem;
+		grid-template-areas: 'library conversation context';
+		grid-template-columns: minmax(14rem, 19rem) minmax(27rem, 1fr) minmax(16rem, 22rem);
+		min-height: 46rem;
 		overflow: hidden;
-		border: 1px solid #d8d2c8;
-		border-radius: 0.75rem;
-		background: #fff;
+		border: 1px solid var(--color-border);
+		border-radius: var(--border-radius-lg);
+		background: var(--color-surface);
+		box-shadow: var(--shadow-md);
 	}
 
-	aside,
-	.editor {
-		padding: 1.25rem;
+	.library,
+	.context,
+	.conversation {
+		min-width: 0;
+		padding: var(--spacing-lg);
 	}
 
-	aside {
-		overflow-y: auto;
-		border-right: 1px solid #d8d2c8;
-		background: #fbfaf8;
+	.library {
+		grid-area: library;
+		border-right: 1px solid var(--color-border);
+		background: #faf9f6;
 	}
 
-	.section-heading,
-	.editor-heading {
+	.conversation {
+		display: flex;
+		grid-area: conversation;
+		flex-direction: column;
+		padding-bottom: var(--spacing-md);
+	}
+
+	.context {
+		grid-area: context;
+		border-left: 1px solid var(--color-border);
+		background: #faf9f6;
+	}
+
+	.panel-heading,
+	.proposal-heading {
 		display: flex;
 		justify-content: space-between;
-		gap: 1rem;
+		gap: var(--spacing-md);
 		align-items: start;
 	}
 
-	.section-heading span {
-		padding: 0.15rem 0.45rem;
-		border-radius: 999px;
-		background: #e7e3dc;
-		font-size: 0.8rem;
+	.panel-heading {
+		margin-bottom: var(--spacing-lg);
 	}
 
-	.document-list,
-	.links ul {
-		margin: 0;
-		padding: 0;
-		list-style: none;
+	.count,
+	.presence,
+	.proposal-heading > span,
+	.category {
+		padding: 0.2rem 0.55rem;
+		border-radius: var(--border-radius-full);
+		font-size: 0.73rem;
+		font-weight: 750;
 	}
 
-	.document-list {
-		display: grid;
-		gap: 0.4rem;
+	.count {
+		background: #e5e2db;
 	}
 
-	.document-list :global(button.button) {
-		display: grid;
-		width: 100%;
-		justify-content: normal;
-		justify-items: start;
-		gap: 0.2rem;
-		padding: 0.7rem;
-		border: 1px solid transparent;
-		border-radius: 0.4rem;
-		background: transparent;
-		color: inherit;
-		box-shadow: none;
-		text-align: left;
-		filter: none;
-		transform: none;
-	}
-
-	.document-list :global(button.button strong),
-	.document-list :global(button.button span) {
-		width: 100%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-
-	.document-list :global(button.button span) {
-		color: #6b665e;
-		font-size: 0.82rem;
-		font-weight: 400;
-	}
-
-	.document-list :global(button.button:hover:not(:disabled)),
-	.document-list :global(button.button[aria-pressed='true']) {
-		border-color: #aeb7a9;
-		background: #edf1eb;
-		box-shadow: none;
-		filter: none;
-		transform: none;
-	}
-
-	.document-list :global(button.button:active:not(:disabled)) {
-		box-shadow: none;
-		filter: none;
-		transform: none;
-	}
-
-	.path,
-	.optional {
-		color: #6b665e;
-		font-size: 0.82rem;
-		font-weight: 400;
-	}
-
-	hr {
-		margin: 1.5rem 0;
-		border: 0;
-		border-top: 1px solid #d8d2c8;
-	}
-
-	form {
-		display: grid;
-		gap: 0.9rem;
+	.presence {
+		background: #e6efe2;
+		color: #35652f;
 	}
 
 	label {
 		display: grid;
 		gap: 0.35rem;
-		font-size: 0.9rem;
+		font-size: 0.86rem;
 		font-weight: 650;
 	}
 
+	.library > label + label {
+		margin-top: var(--spacing-sm);
+	}
+
 	input,
+	select,
 	textarea {
-		box-sizing: border-box;
 		width: 100%;
-		padding: 0.65rem 0.7rem;
+		padding: 0.65rem 0.75rem;
 		border: 1px solid #aaa298;
-		border-radius: 0.35rem;
-		background: #fff;
-		color: inherit;
-		font: inherit;
+		border-radius: var(--border-radius-md);
+		background: var(--color-surface);
 	}
 
 	textarea {
 		resize: vertical;
-	}
-
-	.markdown {
-		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 		line-height: 1.55;
 	}
 
-	.metadata {
+	.library-results {
+		margin-top: var(--spacing-lg);
+		color: var(--color-muted);
+	}
+
+	.lore-list,
+	.messages {
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.lore-list {
 		display: grid;
-		grid-template-columns: minmax(10rem, 0.5fr) minmax(14rem, 1fr);
-		gap: 0.9rem;
+		gap: 0.35rem;
 	}
 
-	.path {
-		margin-bottom: 0.25rem;
+	.lore-list :global(button.button) {
+		width: 100%;
+		justify-content: flex-start;
+		overflow: hidden;
+		border-color: transparent;
+		background: transparent;
+		box-shadow: none;
+		color: var(--color-text);
+		text-align: left;
+		text-overflow: ellipsis;
+		filter: none;
+		transform: none;
 	}
 
-	.links {
-		margin-top: 1.5rem;
-		padding-top: 1rem;
-		border-top: 1px solid #e0dcd5;
+	.lore-list :global(button.button:hover:not(:disabled)),
+	.lore-list :global(button.button[aria-pressed='true']) {
+		border-color: #aeb7a9;
+		background: #e9eee6;
+		box-shadow: none;
+		filter: none;
+		transform: none;
 	}
 
-	.links ul {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.45rem;
+	.message-feed {
+		flex: 1;
+		min-height: 20rem;
 	}
 
-	.links li {
-		padding: 0.3rem 0.45rem;
-		border-radius: 0.3rem;
-		background: #eeeae3;
-	}
-
-	.empty-editor {
+	.welcome {
 		display: grid;
-		min-height: 30rem;
+		min-height: 23rem;
 		place-content: center;
-		color: #6b665e;
+		justify-items: center;
+		max-width: 34rem;
+		margin: 0 auto;
+		color: var(--color-muted);
 		text-align: center;
 	}
 
-	@media (max-width: 48rem) {
-		header {
-			grid-template-columns: 1fr;
+	.welcome h3 {
+		margin-bottom: var(--spacing-sm);
+		color: var(--color-text);
+		font-size: 1.25rem;
+	}
+
+	.welcome p:last-child,
+	.empty-context p:last-child {
+		margin-bottom: 0;
+	}
+
+	.welcome-mark,
+	.context-mark {
+		display: grid;
+		width: 2.75rem;
+		height: 2.75rem;
+		margin-bottom: var(--spacing-md);
+		place-items: center;
+		border: 1px solid #aeb7a9;
+		border-radius: var(--border-radius-full);
+		background: #eef2ec;
+		color: var(--color-main);
+		font-size: 1.25rem;
+	}
+
+	.messages {
+		display: grid;
+		gap: var(--spacing-md);
+		padding-bottom: var(--spacing-lg);
+	}
+
+	.messages > li {
+		max-width: 85%;
+		padding: var(--spacing-md);
+		border-radius: var(--border-radius-lg);
+	}
+
+	.messages > .user {
+		justify-self: end;
+		background: var(--color-main);
+		color: var(--color-surface);
+	}
+
+	.messages > .assistant {
+		justify-self: start;
+		border: 1px solid var(--color-border);
+		background: #faf9f6;
+	}
+
+	.messages > .pending {
+		color: var(--color-muted);
+	}
+
+	.messages p:last-child {
+		margin-bottom: 0;
+	}
+
+	.speaker {
+		margin-bottom: var(--spacing-xs);
+		font-size: 0.73rem;
+		font-weight: 750;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+	}
+
+	.message-content,
+	.lore-content {
+		white-space: pre-wrap;
+	}
+
+	.sources {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--spacing-sm);
+		align-items: center;
+		margin-top: var(--spacing-md);
+		padding-top: var(--spacing-sm);
+		border-top: 1px solid var(--color-border);
+	}
+
+	.sources > span {
+		color: var(--color-muted);
+		font-size: 0.75rem;
+		font-weight: 750;
+		text-transform: uppercase;
+	}
+
+	.sources :global(button.button) {
+		padding: 0.3rem 0.55rem;
+		font-size: 0.78rem;
+	}
+
+	.proposal {
+		display: grid;
+		gap: var(--spacing-md);
+		margin-bottom: var(--spacing-md);
+		padding: var(--spacing-lg);
+		border: 1px solid #aeb7a9;
+		border-radius: var(--border-radius-lg);
+		background: #f5f8f3;
+		box-shadow: var(--shadow-sm);
+	}
+
+	.proposal-heading > span {
+		background: #dfe8db;
+		color: #42513c;
+	}
+
+	.proposal-fields {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(9rem, 0.4fr);
+		gap: var(--spacing-md);
+	}
+
+	.proposal-error {
+		margin-bottom: 0;
+	}
+
+	.proposal-actions {
+		display: flex;
+		gap: var(--spacing-sm);
+	}
+
+	.composer {
+		display: grid;
+		gap: var(--spacing-sm);
+		padding-top: var(--spacing-md);
+		border-top: 1px solid var(--color-border);
+	}
+
+	.message-label {
+		margin-bottom: 0.35rem;
+		font-size: 0.8rem;
+		font-weight: 700;
+	}
+
+	.composer-actions {
+		display: flex;
+		justify-content: space-between;
+		gap: var(--spacing-md);
+		align-items: center;
+	}
+
+	.composer-actions > span {
+		color: var(--color-muted);
+		font-size: 0.75rem;
+	}
+
+	.context-heading {
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.category {
+		display: inline-block;
+		margin-bottom: var(--spacing-sm);
+		background: #e5e2db;
+		color: var(--color-muted);
+		text-transform: capitalize;
+	}
+
+	.lore-content {
+		color: #393630;
+		line-height: 1.75;
+	}
+
+	.empty-context {
+		display: grid;
+		min-height: 26rem;
+		place-content: center;
+		justify-items: center;
+		color: var(--color-muted);
+		text-align: center;
+	}
+
+	.empty-context h2 {
+		margin-bottom: var(--spacing-sm);
+		color: var(--color-text);
+	}
+
+	@media (max-width: 72rem) {
+		.workspace {
+			grid-template-areas:
+				'library library'
+				'conversation context';
+			grid-template-columns: minmax(27rem, 1fr) minmax(16rem, 21rem);
 		}
 
-		.vault {
-			grid-template-columns: 1fr;
-		}
-
-		aside {
+		.library {
 			border-right: 0;
-			border-bottom: 1px solid #d8d2c8;
+			border-bottom: 1px solid var(--color-border);
 		}
 
-		.metadata {
+		.library-results {
+			max-height: 14rem;
+			overflow-y: auto;
+		}
+	}
+
+	@media (max-width: 48rem) {
+		main {
+			width: min(100% - 1rem, 42rem);
+			padding-top: var(--spacing-md);
+		}
+
+		.campaign-header {
 			grid-template-columns: 1fr;
+			gap: var(--spacing-sm);
+		}
+
+		.workspace {
+			display: flex;
+			flex-direction: column;
+			overflow: visible;
+		}
+
+		.library,
+		.context {
+			border: 0;
+			border-bottom: 1px solid var(--color-border);
+		}
+
+		.context {
+			border-top: 1px solid var(--color-border);
+		}
+
+		.message-feed,
+		.welcome,
+		.empty-context {
+			min-height: 16rem;
+		}
+
+		.proposal-fields {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	@media (max-width: 30rem) {
+		.library,
+		.context,
+		.conversation,
+		.proposal {
+			padding: var(--spacing-md);
+		}
+
+		.messages > li {
+			max-width: 95%;
+		}
+
+		.proposal-actions {
+			align-items: stretch;
+			flex-direction: column;
+		}
+
+		.composer-actions {
+			align-items: stretch;
+			flex-direction: column;
+		}
+
+		.composer-actions > span {
+			align-self: flex-end;
 		}
 	}
 </style>

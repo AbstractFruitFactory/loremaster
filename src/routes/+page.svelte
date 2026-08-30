@@ -32,14 +32,14 @@
 
 <svelte:head>
 	<title>Campaigns | Loremaster</title>
-	<meta name="description" content="Create a campaign and open its knowledge vault." />
+	<meta name="description" content="Create campaigns and grow their lore with Loremaster." />
 </svelte:head>
 
 <main>
 	<header>
 		<p class="eyebrow">Loremaster</p>
 		<h1>Campaigns</h1>
-		<p>Create a campaign, then build its knowledge vault from Markdown documents.</p>
+		<p>Create a campaign, then shape its people, places, and history with Loremaster.</p>
 	</header>
 
 	<section aria-labelledby="new-campaign-heading">
