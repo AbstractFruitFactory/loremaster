@@ -8,10 +8,10 @@ import { contextDocumentNames, contextEmbeddingCache, contextFragments } from '.
 
 const DEFAULT_LEXICAL_RESULTS = 50
 const LEXICAL_RANK_SCALE = 2
-const LEXICAL_CONTENT_WEIGHT = 1
-const LEXICAL_HEADING_WEIGHT = 2
-const LEXICAL_ALIASES_WEIGHT = 3
-const LEXICAL_TITLE_WEIGHT = 5
+const LEXICAL_CONTENT_WEIGHT = 0.2
+const LEXICAL_HEADING_WEIGHT = 0.4
+const LEXICAL_ALIASES_WEIGHT = 0.6
+const LEXICAL_TITLE_WEIGHT = 1
 
 export type LexicalFragmentMatch = {
 	source: ContextSource
