@@ -40,21 +40,17 @@ export const assistantOperations = ({ ai, context }: AssistantDependencies) => {
 
 		return pipe(
 			context.buildAssistantContext({ campaignId, message: request, history }),
-			flatMap(({ items }) =>
+			flatMap((assistantContext) =>
 				pipe(
 					ai.generateAssistant({
-						...assistantPrompt(
-							request,
-							history,
-							items.map(({ fragment }) => fragment)
-						),
+						...assistantPrompt(request, history, assistantContext),
 						model: ai.model
 					}),
 					map(
 						(response) =>
 							({
 								...response,
-								sources: contextSources(items)
+								sources: contextSources(assistantContext.items)
 							}) satisfies AssistantResponse
 					)
 				)

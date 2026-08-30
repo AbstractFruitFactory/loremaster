@@ -26,7 +26,9 @@ const items: ContextItem[] = [
 
 describe('assistant operations', () => {
 	it('answers with retrieved lore context and sources', async () => {
-		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const buildAssistantContext = vi.fn(() =>
+			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+		)
 		const generateAssistant = vi.fn(() =>
 			succeed({ message: 'Varek watches the western gate.' })
 		) as GenerateAssistant
@@ -61,7 +63,9 @@ describe('assistant operations', () => {
 	})
 
 	it('returns optional lore proposals selected by the AI edge', async () => {
-		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const buildAssistantContext = vi.fn(() =>
+			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+		)
 		const generateAssistant = vi.fn(() =>
 			succeed({
 				message: 'I drafted a warning bell.',
@@ -86,8 +90,48 @@ describe('assistant operations', () => {
 		})
 	})
 
+	it('includes partial-order chronology without implying simultaneity', async () => {
+		const buildAssistantContext = vi.fn(() =>
+			succeed({
+				items,
+				timeline: {
+					events: [
+						{ documentId: 'a', title: 'Event A' },
+						{ documentId: 'b', title: 'Event B' },
+						{ documentId: 'c', title: 'Event C' },
+						{ documentId: 'd', title: 'Event D' }
+					],
+					edges: [
+						{ beforeDocumentId: 'a', afterDocumentId: 'b' },
+						{ beforeDocumentId: 'b', afterDocumentId: 'c' },
+						{ beforeDocumentId: 'b', afterDocumentId: 'd' }
+					],
+					layers: [['a'], ['b'], ['c', 'd']]
+				},
+				estimatedTokens: 30
+			})
+		)
+		const generateAssistant = vi.fn(() => succeed({ message: 'Event B came first.' }))
+		const assistant = assistantOperations({
+			ai: { generateAssistant, model: assistantModel },
+			context: { buildAssistantContext }
+		})
+
+		await runPromise(assistant.chat(campaignId, 'What happened next?', []))
+
+		expect(generateAssistant).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringMatching(
+					/unknown, not simultaneous[\s\S]*Event A -> Event B[\s\S]*Event B -> Event C[\s\S]*3\. Event C, Event D \(no known order within this group\)/
+				)
+			})
+		)
+	})
+
 	it('rejects an empty message before building context', async () => {
-		const buildAssistantContext = vi.fn(() => succeed({ items, estimatedTokens: 15 }))
+		const buildAssistantContext = vi.fn(() =>
+			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
 		const assistant = assistantOperations({
 			ai: { generateAssistant, model: assistantModel },

@@ -6,9 +6,11 @@ import { contextIndexOperations } from './context/indexing/operations'
 import { contextOperations } from './context/operations'
 import * as campaignDb from './db/campaign'
 import * as contextDb from './db/context'
+import * as timelineDb from './db/timeline'
 import * as vaultDb from './db/vault'
 import * as vectorDb from './db/vector'
 import { loreOperations } from './lore/operations'
+import { timelineOperations } from './timeline/operations'
 import { filesystemVaultStorage } from './vault/storage/filesystem'
 import { vaultOperations } from './vault/operations'
 
@@ -38,6 +40,8 @@ const contextIndex = contextIndexOperations({
 	}
 })
 
+export const timeline = timelineOperations({ db: timelineDb })
+
 export const vault = vaultOperations({
 	ai: {
 		inferDocumentType: mockAiProvider.inferDocumentType,
@@ -48,7 +52,8 @@ export const vault = vaultOperations({
 		...vaultDb
 	},
 	contextIndex,
-	storage: filesystemVaultStorage(resolve('data/campaigns'))
+	storage: filesystemVaultStorage(resolve('data/campaigns')),
+	timeline
 })
 
 export const context = contextOperations({
@@ -60,7 +65,8 @@ export const context = contextOperations({
 		...contextDb,
 		...vaultDb,
 		...vectorDb
-	}
+	},
+	timeline
 })
 
 export const assistant = assistantOperations({

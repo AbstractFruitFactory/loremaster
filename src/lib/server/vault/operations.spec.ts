@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
+import { timelineOperations } from '../timeline/operations'
 import { filesystemVaultStorage } from './storage/filesystem'
 import { parseVaultDocument } from './markdown'
 import { vaultOperations } from './operations'
@@ -71,7 +72,14 @@ describe('vault operations', () => {
 			},
 			db,
 			contextIndex,
-			storage
+			storage,
+			timeline: timelineOperations({
+				db: {
+					getTimelineEdges: () => succeed([]),
+					getTimelineEdgesForDocuments: () => succeed([]),
+					getTimelineEvents: () => succeed([])
+				}
+			})
 		})
 	})
 
@@ -106,6 +114,7 @@ describe('vault operations', () => {
 			path: 'Characters/Varek.md',
 			title: 'Varek',
 			type: 'npc',
+			after: [],
 			links: ['Westgate']
 		})
 		expect(
@@ -116,6 +125,44 @@ describe('vault operations', () => {
 				)
 			).id
 		).toBe(created.id)
+	})
+
+	it('indexes event precedence and rejects chronology cycles before writing', async () => {
+		const first = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Events/First.md',
+				type: 'event',
+				content: '# First'
+			})
+		)
+		const second = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Events/Second.md',
+				type: 'event',
+				after: [first.id],
+				content: '# Second'
+			})
+		)
+
+		expect(indexedDocuments.get(second.id)?.after).toEqual([first.id])
+
+		const failure = await runPromise(
+			flip(
+				operations.updateDocument(campaign.id, first.id, {
+					type: 'event',
+					after: [second.id],
+					content: '# First'
+				})
+			)
+		)
+		const unchanged = await runPromise(operations.getDocument(campaign.id, first.id))
+
+		expect(failure).toMatchObject({
+			domain: 'timeline',
+			operation: 'validateChronology',
+			cause: { reason: 'cycle' }
+		})
+		expect(unchanged.after).toEqual([])
 	})
 
 	it('loads an indexed document without listing the vault', async () => {
@@ -285,6 +332,7 @@ type: location
 			path: 'Lore/Stale.md',
 			title: 'Stale',
 			type: 'lore',
+			after: [],
 			links: []
 		})
 
@@ -311,6 +359,39 @@ type: location
 			type: 'location'
 		})
 		expect(contextIndex.reindexCampaign).toHaveBeenCalledWith(campaign.id, documents)
+	})
+
+	it('rebuilds event precedence metadata from Markdown', async () => {
+		await runPromise(
+			storage.write(
+				campaign.id,
+				'Events/First.md',
+				`---
+id: event-first
+type: event
+---
+
+# First`
+			)
+		)
+		await runPromise(
+			storage.write(
+				campaign.id,
+				'Events/Second.md',
+				`---
+id: event-second
+type: event
+after:
+  - event-first
+---
+
+# Second`
+			)
+		)
+
+		await runPromise(operations.reindexCampaign(campaign.id))
+
+		expect(indexedDocuments.get('event-second')?.after).toEqual(['event-first'])
 	})
 
 	it('rejects duplicate document IDs before returning or rebuilding the index', async () => {

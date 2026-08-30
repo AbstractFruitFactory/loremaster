@@ -2,19 +2,24 @@ import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { LexicalFragmentMatch } from '../db/context'
 import type { LinkedDocument } from '../db/vault'
+import type { TimelineContext } from '../timeline/types'
 import { contextOperations } from './operations'
 import type { ContextSource, SemanticSearchResult } from './types'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
 const embeddingModel = 'mock-token-hash-v1'
 
-const source = (documentId: string, position = 0): ContextSource => ({
+const source = (
+	documentId: string,
+	position = 0,
+	documentType: ContextSource['fragment']['documentType'] = 'lore'
+): ContextSource => ({
 	fragment: {
 		id: `${documentId}:fragment:${position}`,
 		campaignId,
 		documentId,
 		title: documentId === 'varek' ? 'Varek' : documentId,
-		documentType: 'lore',
+		documentType,
 		content: `${documentId} lore`,
 		position,
 		contentHash: `${documentId}-hash-${position}`
@@ -28,7 +33,8 @@ const createContext = ({
 	semanticResults = [],
 	outgoingLinks = [],
 	backlinks = [],
-	queryVector = [1]
+	queryVector = [1],
+	timelineContext = { events: [], edges: [], layers: [] }
 }: {
 	sources?: ContextSource[]
 	lexicalMatches?: LexicalFragmentMatch[]
@@ -36,6 +42,7 @@ const createContext = ({
 	outgoingLinks?: LinkedDocument[]
 	backlinks?: LinkedDocument[]
 	queryVector?: number[]
+	timelineContext?: TimelineContext
 } = {}) => {
 	const db = {
 		findDocumentIdsByNames: vi.fn((_campaignId: string, normalizedNames: string[]) =>
@@ -62,8 +69,11 @@ const createContext = ({
 		embedTexts: vi.fn(() => succeed([queryVector])),
 		model: embeddingModel
 	}
+	const timeline = {
+		getContext: vi.fn(() => succeed(timelineContext))
+	}
 
-	return { ai, context: contextOperations({ ai, db }), db }
+	return { ai, context: contextOperations({ ai, db, timeline }), db, timeline }
 }
 
 describe('context operations', () => {
@@ -172,5 +182,38 @@ describe('context operations', () => {
 		)
 
 		expect(db.searchVectors).not.toHaveBeenCalled()
+	})
+
+	it('loads bounded chronology for retrieved event documents', async () => {
+		const eventB = source('b', 0, 'event')
+		const timelineContext: TimelineContext = {
+			events: [
+				{ documentId: 'a', title: 'Event A' },
+				{ documentId: 'b', title: 'Event B' },
+				{ documentId: 'c', title: 'Event C' }
+			],
+			edges: [
+				{ beforeDocumentId: 'a', afterDocumentId: 'b' },
+				{ beforeDocumentId: 'b', afterDocumentId: 'c' }
+			],
+			layers: [['a'], ['b'], ['c']]
+		}
+		const { context, timeline } = createContext({
+			sources: [eventB],
+			lexicalMatches: [{ source: eventB, score: 6 }],
+			timelineContext
+		})
+
+		const result = await runPromise(
+			context.buildAssistantContext({
+				campaignId,
+				message: 'What happened around Event B?',
+				history: []
+			})
+		)
+
+		expect(timeline.getContext).toHaveBeenCalledWith(campaignId, ['b'])
+		expect(result.timeline).toEqual(timelineContext)
+		expect(result.estimatedTokens).toBeGreaterThan(0)
 	})
 })

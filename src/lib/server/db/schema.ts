@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+	check,
 	customType,
 	foreignKey,
 	index,
@@ -73,6 +74,40 @@ export const vaultLinks = pgTable(
 		}),
 		index('vault_links_campaign_source_index').on(table.campaignId, table.sourceDocumentId),
 		index('vault_links_campaign_target_index').on(table.campaignId, table.targetDocumentId)
+	]
+)
+
+export const eventChronologyEdges = pgTable(
+	'event_chronology_edges',
+	{
+		campaignId: uuid('campaign_id').notNull(),
+		beforeDocumentId: text('before_document_id').notNull(),
+		afterDocumentId: text('after_document_id').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.beforeDocumentId, table.afterDocumentId],
+			name: 'event_chronology_edges_campaign_before_after_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.beforeDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'event_chronology_edges_campaign_before_document_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.afterDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'event_chronology_edges_campaign_after_document_fk'
+		}).onDelete('cascade'),
+		check(
+			'event_chronology_edges_different_documents_check',
+			sql`${table.beforeDocumentId} <> ${table.afterDocumentId}`
+		),
+		index('event_chronology_edges_campaign_before_index').on(
+			table.campaignId,
+			table.beforeDocumentId
+		),
+		index('event_chronology_edges_campaign_after_index').on(table.campaignId, table.afterDocumentId)
 	]
 )
 

@@ -7,7 +7,7 @@ export const estimateTokens = (content: string) => Math.ceil(content.length / 4)
 export const selectWithinBudget = (
 	items: ContextItem[],
 	maxTokens = DEFAULT_CONTEXT_TOKEN_BUDGET
-): AssistantContext => {
+): Pick<AssistantContext, 'items' | 'estimatedTokens'> => {
 	const selected: ContextItem[] = []
 	let estimatedTokens = 0
 

@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
-import { all, flatMap, map, succeed, type Effect } from 'effect/Effect'
+import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import type { AiModel } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
 import { fail, type Failure } from '../failure'
+import type { timelineOperations } from '../timeline/operations'
 import { parseVaultDocument, serializeVaultDocument, updateDocumentFrontmatter } from './markdown'
 import type { VaultStorage } from './storage/storage'
 import type {
@@ -55,7 +56,8 @@ export const vaultOperations = ({
 	ai,
 	db,
 	contextIndex,
-	storage
+	storage,
+	timeline
 }: {
 	ai: AiModel<'inferDocumentType'>
 	db: {
@@ -73,6 +75,7 @@ export const vaultOperations = ({
 		reindexCampaign: (campaignId: string, documents: VaultDocument[]) => Effect<void, Failure>
 	}
 	storage: VaultStorage
+	timeline: Pick<ReturnType<typeof timelineOperations>, 'validateDocuments'>
 }) => {
 	const ensureCampaign = (campaignId: string) =>
 		pipe(
@@ -97,6 +100,14 @@ export const vaultOperations = ({
 						content: document.content
 					}),
 			flatMap((type) => {
+				if (document.after.length && type !== 'event') {
+					return fail('vault', 'parseDocument', {
+						path: document.path,
+						reason: 'eventPredecessorsOnNonEvent',
+						type
+					})
+				}
+
 				const normalizedDocument: VaultDocument = {
 					...document,
 					id: document.id ?? randomUUID(),
@@ -132,7 +143,13 @@ export const vaultOperations = ({
 			storage.list(campaignId),
 			flatMap((paths) => all(paths.map((path) => loadDocumentAtPath(campaignId, path)))),
 			flatMap((documents) => checkDuplicateIds(campaignId, documents)),
-			map((documents) => [...documents].sort((left, right) => left.path.localeCompare(right.path)))
+			map((documents) => [...documents].sort((left, right) => left.path.localeCompare(right.path))),
+			flatMap((documents) =>
+				pipe(
+					timeline.validateDocuments(documents),
+					map(() => documents)
+				)
+			)
 		)
 
 	const findDocument = (campaignId: string, documentId: string) =>
@@ -152,7 +169,11 @@ export const vaultOperations = ({
 	const indexDocument = (campaignId: string, path: string) =>
 		pipe(
 			ensureCampaign(campaignId),
-			flatMap(() => loadDocumentAtPath(campaignId, path)),
+			flatMap(() => loadDocuments(campaignId)),
+			flatMap((documents) => {
+				const document = documents.find((candidate) => candidate.path === path)
+				return document ? succeed(document) : fail('vault', 'getDocument', { campaignId, path })
+			}),
 			flatMap((document) =>
 				pipe(
 					db.indexDocument(campaignId, toDocumentIndex(document)),
@@ -168,46 +189,55 @@ export const vaultOperations = ({
 			path: string
 			type: VaultDocument['type']
 			aliases?: string[]
+			after?: string[]
 			content: string
 		}
-	) => {
-		if (!isValidDocumentPath(input.path)) {
-			return fail('vault', 'createDocument', {
-				campaignId,
-				path: input.path,
-				reason: 'invalidPath'
-			})
-		}
+	) =>
+		gen(function* () {
+			if (!isValidDocumentPath(input.path)) {
+				return yield* fail('vault', 'createDocument', {
+					campaignId,
+					path: input.path,
+					reason: 'invalidPath'
+				})
+			}
 
-		const documentId = randomUUID()
-		const source = serializeVaultDocument(
-			{ id: documentId, type: input.type, aliases: input.aliases },
-			input.content
-		)
-
-		return pipe(
-			ensureCampaign(campaignId),
-			flatMap(() => storage.list(campaignId)),
-			flatMap((paths) =>
-				paths.includes(input.path)
-					? fail('vault', 'createDocument', {
-							campaignId,
-							path: input.path,
-							reason: 'pathExists'
-						})
-					: succeed(undefined)
-			),
-			flatMap(() => storage.create(campaignId, input.path, source)),
-			flatMap(() => loadDocumentAtPath(campaignId, input.path)),
-			flatMap((document) =>
-				pipe(
-					db.indexDocument(campaignId, toDocumentIndex(document)),
-					flatMap(() => contextIndex.indexDocument(campaignId, document)),
-					map(() => document)
-				)
+			const documentId = randomUUID()
+			const source = serializeVaultDocument(
+				{ id: documentId, type: input.type, aliases: input.aliases, after: input.after },
+				input.content
 			)
-		)
-	}
+			const proposedDocument: VaultDocument = {
+				id: documentId,
+				path: input.path,
+				title: input.path,
+				type: input.type,
+				aliases: input.aliases,
+				after: input.after ?? [],
+				content: input.content,
+				links: []
+			}
+
+			yield* ensureCampaign(campaignId)
+			const documents = yield* loadDocuments(campaignId)
+
+			if (documents.some(({ path }) => path === input.path)) {
+				return yield* fail('vault', 'createDocument', {
+					campaignId,
+					path: input.path,
+					reason: 'pathExists'
+				})
+			}
+
+			yield* timeline.validateDocuments([...documents, proposedDocument])
+			yield* storage.create(campaignId, input.path, source)
+
+			const document = yield* loadDocumentAtPath(campaignId, input.path)
+			yield* db.indexDocument(campaignId, toDocumentIndex(document))
+			yield* contextIndex.indexDocument(campaignId, document)
+
+			return document
+		})
 
 	const getDocument = (campaignId: string, documentId: string) =>
 		pipe(
@@ -215,36 +245,67 @@ export const vaultOperations = ({
 			flatMap(() => findDocument(campaignId, documentId))
 		)
 
-	const updateDocument = (
-		campaignId: string,
-		documentId: string,
-		input: {
-			type: VaultDocument['type']
-			aliases?: string[]
-			content: string
-		}
-	) =>
+	type UpdateDocumentInput = {
+		type: VaultDocument['type']
+		aliases?: string[]
+		after?: string[]
+		content: string
+	}
+
+	const applyDocumentUpdate =
+		(input: UpdateDocumentInput) =>
+		(existing: VaultDocument): VaultDocument => ({
+			...existing,
+			type: input.type,
+			aliases: input.aliases,
+			after: input.after ?? existing.after,
+			content: input.content
+		})
+
+	const validateDocumentUpdate = (campaignId: string) => (updated: VaultDocument) =>
+		pipe(
+			loadDocuments(campaignId),
+			map((documents) =>
+				documents.map((document) => (document.id === updated.id ? updated : document))
+			),
+			flatMap(timeline.validateDocuments),
+			map(() => updated)
+		)
+
+	const writeDocument = (campaignId: string) => (document: VaultDocument) =>
+		pipe(
+			storage.write(
+				campaignId,
+				document.path,
+				serializeVaultDocument(
+					{
+						id: document.id,
+						type: document.type,
+						aliases: document.aliases,
+						after: document.after
+					},
+					document.content
+				)
+			),
+			map(() => document)
+		)
+
+	const updateDocumentIndexes = (campaignId: string) => (document: VaultDocument) =>
+		pipe(
+			db.indexDocument(campaignId, toDocumentIndex(document)),
+			flatMap(() => contextIndex.indexDocument(campaignId, document)),
+			map(() => document)
+		)
+
+	const updateDocument = (campaignId: string, documentId: string, input: UpdateDocumentInput) =>
 		pipe(
 			ensureCampaign(campaignId),
 			flatMap(() => findDocument(campaignId, documentId)),
-			flatMap((existing) =>
-				storage.write(
-					campaignId,
-					existing.path,
-					serializeVaultDocument(
-						{ id: existing.id, type: input.type, aliases: input.aliases },
-						input.content
-					)
-				)
-			),
+			map(applyDocumentUpdate(input)),
+			flatMap(validateDocumentUpdate(campaignId)),
+			flatMap(writeDocument(campaignId)),
 			flatMap(() => findDocument(campaignId, documentId)),
-			flatMap((document) =>
-				pipe(
-					db.indexDocument(campaignId, toDocumentIndex(document)),
-					flatMap(() => contextIndex.indexDocument(campaignId, document)),
-					map(() => document)
-				)
-			)
+			flatMap(updateDocumentIndexes(campaignId))
 		)
 
 	const deleteDocument = (campaignId: string, documentId: string) =>

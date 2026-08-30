@@ -10,6 +10,7 @@ const document: VaultDocument = {
 	path: 'NPCs/varek-the-smith.md',
 	title: 'Varek the Smith',
 	type: 'npc',
+	after: [],
 	content: '# Varek the Smith\n\nVarek repairs armor near the western gate.',
 	links: ['Westgate']
 }

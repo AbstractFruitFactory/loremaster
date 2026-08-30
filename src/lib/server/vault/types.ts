@@ -4,6 +4,7 @@ export type VaultFrontmatter = {
 	id?: string
 	type?: DocumentType
 	aliases?: string[]
+	after?: string[]
 }
 
 export type VaultDocument = {
@@ -12,6 +13,7 @@ export type VaultDocument = {
 	title: string
 	type: DocumentType
 	aliases?: string[]
+	after: string[]
 	content: string
 	links: string[]
 }
@@ -28,4 +30,7 @@ export type VaultLinkIndex = {
 	targetDocumentId: string | null
 }
 
-export type VaultDocumentIndex = Pick<VaultDocument, 'id' | 'path' | 'title' | 'type' | 'links'>
+export type VaultDocumentIndex = Pick<
+	VaultDocument,
+	'id' | 'path' | 'title' | 'type' | 'after' | 'links'
+>

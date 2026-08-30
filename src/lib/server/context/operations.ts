@@ -5,6 +5,8 @@ import type * as ContextDb from '../db/context'
 import type * as VaultDb from '../db/vault'
 import type * as VectorDb from '../db/vector'
 import type { Failure } from '../failure'
+import type { timelineOperations } from '../timeline/operations'
+import type { TimelineContext } from '../timeline/types'
 import { DEFAULT_CONTEXT_TOKEN_BUDGET, selectWithinBudget } from './budget'
 import { mentionCandidates } from './mentions'
 import { rankCandidates } from './rank'
@@ -25,6 +27,16 @@ export const DEFAULT_SEMANTIC_MIN_SCORE = 0.1
 
 const isZeroVector = (vector: number[]) => vector.every((value) => value === 0)
 
+const estimateTimelineTokens = ({ events, edges }: TimelineContext) =>
+	Math.ceil(
+		(events.reduce((length, event) => length + event.title.length, 0) +
+			edges.reduce(
+				(length, edge) => length + edge.beforeDocumentId.length + edge.afterDocumentId.length,
+				0
+			)) /
+			4
+	)
+
 type ContextOperationsDependencies = {
 	ai: AiModel<'embedTexts'>
 	db: {
@@ -36,6 +48,7 @@ type ContextOperationsDependencies = {
 		searchLexicalFragments: typeof ContextDb.searchLexicalFragments
 		searchVectors: typeof VectorDb.searchVectors
 	}
+	timeline: Pick<ReturnType<typeof timelineOperations>, 'getContext'>
 	maxTokens?: number
 }
 
@@ -58,6 +71,7 @@ const selectGraphSeedDocumentIds = (
 export const contextOperations = ({
 	ai,
 	db,
+	timeline,
 	maxTokens = DEFAULT_CONTEXT_TOKEN_BUDGET
 }: ContextOperationsDependencies) => {
 	const findDirectMentions = (campaignId: string, message: string) =>
@@ -164,16 +178,27 @@ export const contextOperations = ({
 				semanticMatches
 			)
 			const graphCandidates = yield* expandGraph(campaignId, seedDocumentIds)
+			const rankedCandidates = rankCandidates([
+				...directMentions,
+				...lexicalMatches,
+				...semanticMatches,
+				...graphCandidates
+			])
+			const timelineContext = yield* timeline.getContext(campaignId, [
+				...new Set(
+					rankedCandidates
+						.filter(({ fragment }) => fragment.documentType === 'event')
+						.map(({ fragment }) => fragment.documentId)
+				)
+			])
+			const timelineTokens = estimateTimelineTokens(timelineContext)
+			const selected = selectWithinBudget(rankedCandidates, Math.max(0, maxTokens - timelineTokens))
 
-			return selectWithinBudget(
-				rankCandidates([
-					...directMentions,
-					...lexicalMatches,
-					...semanticMatches,
-					...graphCandidates
-				]),
-				maxTokens
-			)
+			return {
+				...selected,
+				timeline: timelineContext,
+				estimatedTokens: selected.estimatedTokens + timelineTokens
+			}
 		})
 
 	return { buildAssistantContext }

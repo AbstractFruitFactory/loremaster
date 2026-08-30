@@ -12,6 +12,7 @@ import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
 const aliases = z.array(z.string().trim().min(1).max(200)).max(50).optional()
+const eventPredecessors = z.array(documentId).max(100).optional()
 const documentType = z.enum(documentTypes)
 const documentReference = z
 	.object({
@@ -25,6 +26,7 @@ const createDocumentInput = z
 		path: z.string().trim().min(4).max(500),
 		type: documentType,
 		aliases,
+		after: eventPredecessors,
 		content: z.string().max(1_000_000)
 	})
 	.strict()
@@ -34,6 +36,7 @@ const updateDocumentInput = z
 		documentId,
 		type: documentType,
 		aliases,
+		after: eventPredecessors,
 		content: z.string().max(1_000_000)
 	})
 	.strict()

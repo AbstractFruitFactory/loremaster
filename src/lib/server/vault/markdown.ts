@@ -51,6 +51,18 @@ const parseFrontmatter = (
 						(alias): alias is string => typeof alias === 'string' && !!alias.trim()
 					)
 				: undefined
+			const after = record.after
+
+			if (
+				after !== undefined &&
+				(!Array.isArray(after) ||
+					after.some((documentId) => typeof documentId !== 'string' || !documentId.trim()))
+			) {
+				return fail('vault', 'parseDocument', {
+					reason: 'invalidEventPredecessors',
+					after
+				})
+			}
 
 			if (type && !isDocumentType(type)) {
 				return fail('vault', 'parseDocument', {
@@ -60,12 +72,23 @@ const parseFrontmatter = (
 			}
 
 			const documentType = isDocumentType(type) ? type : undefined
+			const predecessorIds = Array.isArray(after)
+				? [...new Set(after.map((documentId: string) => documentId.trim()))]
+				: undefined
+
+			if (predecessorIds?.length && documentType && documentType !== 'event') {
+				return fail('vault', 'parseDocument', {
+					reason: 'eventPredecessorsOnNonEvent',
+					type: documentType
+				})
+			}
 
 			return succeed({
 				frontmatter: {
 					id,
 					type: documentType,
-					aliases: aliases?.map((alias) => alias.trim())
+					aliases: aliases?.map((alias) => alias.trim()),
+					after: predecessorIds
 				},
 				content: source.slice(match[0].length).replace(/^\r?\n/, '')
 			})
@@ -101,6 +124,7 @@ export const parseVaultDocument = (path: string, source: string) =>
 			title: deriveTitle(path, content),
 			type: frontmatter.type,
 			aliases: frontmatter.aliases,
+			after: frontmatter.after ?? [],
 			content,
 			links: extractWikiLinks(content)
 		}))
@@ -110,7 +134,8 @@ export const serializeVaultDocument = (frontmatter: VaultFrontmatter, content: s
 	const metadata = {
 		...(frontmatter.id ? { id: frontmatter.id } : {}),
 		...(frontmatter.type ? { type: frontmatter.type } : {}),
-		...(frontmatter.aliases?.length ? { aliases: frontmatter.aliases } : {})
+		...(frontmatter.aliases?.length ? { aliases: frontmatter.aliases } : {}),
+		...(frontmatter.after?.length ? { after: frontmatter.after } : {})
 	}
 
 	return `---\n${stringify(metadata).trimEnd()}\n---\n\n${content.replace(/^\r?\n/, '')}`

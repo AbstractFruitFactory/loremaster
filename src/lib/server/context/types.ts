@@ -1,4 +1,5 @@
 import type { DocumentType } from '../../document'
+import type { TimelineContext } from '../timeline/types'
 
 export type ContextFragment = {
 	id: string
@@ -45,6 +46,7 @@ export type ContextItem = {
 
 export type AssistantContext = {
 	items: ContextItem[]
+	timeline: TimelineContext
 	estimatedTokens: number
 }
 

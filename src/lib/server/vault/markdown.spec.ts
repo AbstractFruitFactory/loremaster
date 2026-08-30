@@ -72,6 +72,23 @@ Varek owns [[The Black Crown]].`
 		})
 	})
 
+	it('parses and serializes direct event predecessors', () => {
+		const source = serializeVaultDocument(
+			{
+				id: 'event-e',
+				type: 'event',
+				after: ['event-c', 'event-d']
+			},
+			'# Event E'
+		)
+
+		expect(parseDocument('Events/Event E.md', source)).toMatchObject({
+			id: 'event-e',
+			type: 'event',
+			after: ['event-c', 'event-d']
+		})
+	})
+
 	it('preserves existing Obsidian properties when adding required metadata', () => {
 		const source = `---
 tags:
@@ -127,6 +144,29 @@ type: character
 			domain: 'vault',
 			operation: 'parseDocument',
 			cause: { reason: 'invalidDocumentType', type: 'character' }
+		})
+	})
+
+	it('rejects event predecessors on non-event documents', () => {
+		const result = runSync(
+			flip(
+				parseVaultDocument(
+					'Characters/Varek.md',
+					`---
+type: npc
+after:
+  - event-a
+---
+
+# Varek`
+				)
+			)
+		)
+
+		expect(result).toMatchObject({
+			domain: 'vault',
+			operation: 'parseDocument',
+			cause: { reason: 'eventPredecessorsOnNonEvent', type: 'npc' }
 		})
 	})
 })

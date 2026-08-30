@@ -5,7 +5,7 @@ import { resolveVaultLinks } from '../vault/links'
 import type { VaultDocumentIndex } from '../vault/types'
 import { failure } from '../failure'
 import { db } from '.'
-import { vaultDocuments, vaultLinks } from './schema'
+import { eventChronologyEdges, vaultDocuments, vaultLinks } from './schema'
 
 export type LinkedDocument = {
 	seedDocumentId: string
@@ -17,7 +17,7 @@ const documentValues = (campaignId: string, document: VaultDocumentIndex) => ({
 	documentId: document.id,
 	path: document.path,
 	title: document.title,
-	type: document.type ?? null,
+	type: document.type,
 	indexedAt: new Date().toISOString()
 })
 
@@ -32,6 +32,26 @@ const linkValues = (
 		targetName,
 		targetDocumentId
 	}))
+
+const chronologyEdgeValues = (
+	campaignId: string,
+	document: VaultDocumentIndex,
+	targets: Pick<VaultDocumentIndex, 'id' | 'type'>[]
+) => {
+	if (document.type !== 'event') return []
+
+	const eventDocumentIds = new Set(
+		targets.filter(({ type }) => type === 'event').map(({ id }) => id)
+	)
+
+	return document.after
+		.filter((documentId) => eventDocumentIds.has(documentId))
+		.map((beforeDocumentId) => ({
+			campaignId,
+			beforeDocumentId,
+			afterDocumentId: document.id
+		}))
+}
 
 export const getDocumentPath = (campaignId: string, documentId: string) =>
 	pipe(
@@ -147,7 +167,7 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 	tryPromise({
 		try: () =>
 			db.transaction(async (transaction) => {
-				const targets = document.links.length
+				const linkTargets = document.links.length
 					? await transaction
 							.select({ id: vaultDocuments.documentId, title: vaultDocuments.title })
 							.from(vaultDocuments)
@@ -155,6 +175,20 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 								and(
 									eq(vaultDocuments.campaignId, campaignId),
 									inArray(vaultDocuments.title, document.links)
+								)
+							)
+					: []
+				const predecessorTargets = document.after.length
+					? await transaction
+							.select({
+								id: vaultDocuments.documentId,
+								type: vaultDocuments.type
+							})
+							.from(vaultDocuments)
+							.where(
+								and(
+									eq(vaultDocuments.campaignId, campaignId),
+									inArray(vaultDocuments.documentId, document.after)
 								)
 							)
 					: []
@@ -166,7 +200,7 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 						set: {
 							path: document.path,
 							title: document.title,
-							type: document.type ?? null,
+							type: document.type,
 							indexedAt: new Date().toISOString()
 						}
 					})
@@ -175,13 +209,28 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 					.where(
 						and(eq(vaultLinks.campaignId, campaignId), eq(vaultLinks.sourceDocumentId, document.id))
 					)
+				await transaction
+					.delete(eventChronologyEdges)
+					.where(
+						and(
+							eq(eventChronologyEdges.campaignId, campaignId),
+							eq(eventChronologyEdges.afterDocumentId, document.id)
+						)
+					)
 				const links = linkValues(campaignId, document, [
-					...targets,
+					...linkTargets,
 					{ id: document.id, title: document.title }
+				])
+				const chronologyEdges = chronologyEdgeValues(campaignId, document, [
+					...predecessorTargets,
+					{ id: document.id, type: document.type }
 				])
 
 				if (links.length) {
 					await transaction.insert(vaultLinks).values(links)
+				}
+				if (chronologyEdges.length) {
+					await transaction.insert(eventChronologyEdges).values(chronologyEdges)
 				}
 			}),
 		catch: (cause) => failure('database', 'indexVaultDocument', cause)
@@ -218,6 +267,9 @@ export const replaceCampaignIndex = (campaignId: string, documents: VaultDocumen
 	tryPromise({
 		try: () =>
 			db.transaction(async (transaction) => {
+				await transaction
+					.delete(eventChronologyEdges)
+					.where(eq(eventChronologyEdges.campaignId, campaignId))
 				await transaction.delete(vaultLinks).where(eq(vaultLinks.campaignId, campaignId))
 				await transaction.delete(vaultDocuments).where(eq(vaultDocuments.campaignId, campaignId))
 
@@ -231,6 +283,14 @@ export const replaceCampaignIndex = (campaignId: string, documents: VaultDocumen
 
 				if (links.length) {
 					await transaction.insert(vaultLinks).values(links)
+				}
+
+				const chronologyEdges = documents.flatMap((document) =>
+					chronologyEdgeValues(campaignId, document, documents)
+				)
+
+				if (chronologyEdges.length) {
+					await transaction.insert(eventChronologyEdges).values(chronologyEdges)
 				}
 			}),
 		catch: (cause) => failure('database', 'replaceCampaignVaultIndex', cause)

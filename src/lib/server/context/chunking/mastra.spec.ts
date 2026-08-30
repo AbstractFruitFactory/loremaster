@@ -10,6 +10,7 @@ const document: VaultDocument = {
 	title: 'Varek',
 	type: 'npc',
 	aliases: ['The Gatekeeper'],
+	after: [],
 	content:
 		'# Varek\n\nIntroduction text.\n\n## Secrets\n\nVarek knows the hidden road.\n\n## Allies\n\nMara protects the gate.',
 	links: ['Mara']
