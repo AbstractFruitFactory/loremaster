@@ -5,6 +5,7 @@ import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { campaign } from '#lib/server/app.js'
 import type { Campaign } from '#lib/server/campaign/types.js'
+import { logFailure } from '#lib/server/failure.js'
 
 const campaignInput = z
 	.object({
@@ -20,7 +21,10 @@ export const listCampaigns = query((): Promise<Campaign[]> =>
 		pipe(
 			campaign.listCampaigns(),
 			match({
-				onFailure: () => error(500, 'Unable to list campaigns'),
+				onFailure: (failure) => {
+					logFailure(failure)
+					error(500, 'Unable to list campaigns')
+				},
 				onSuccess: (campaigns) => campaigns
 			})
 		)
@@ -37,6 +41,7 @@ export const getCampaign = query(campaignId, (id) =>
 						error(404, `Campaign "${id}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to load campaign')
 				},
 				onSuccess: (campaign) => campaign
@@ -50,7 +55,10 @@ export const createCampaign = command(campaignInput, (input) =>
 		pipe(
 			campaign.createCampaign(input),
 			match({
-				onFailure: () => error(500, 'Unable to create campaign'),
+				onFailure: (failure) => {
+					logFailure(failure)
+					error(500, 'Unable to create campaign')
+				},
 				onSuccess: (campaign) => campaign
 			})
 		)
@@ -67,6 +75,7 @@ export const generateCampaignSummary = command(campaignId, (id) =>
 						error(404, `Campaign "${id}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to generate summary')
 				},
 				onSuccess: (summary) => summary

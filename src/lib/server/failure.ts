@@ -1,4 +1,4 @@
-import { fail as  _fail, type Effect } from 'effect/Effect'
+import { fail as _fail, type Effect } from 'effect/Effect'
 
 export type Failure<Domain extends string = string, Operation extends string = string> = {
 	readonly domain: Domain
@@ -15,6 +15,10 @@ export const failure = <Domain extends string, Operation extends string>(
 	operation,
 	cause
 })
+
+export const logFailure = ({ domain, operation, cause }: Failure) => {
+	console.error(`[${domain}.${operation}]`, cause ?? 'No failure cause provided')
+}
 
 export const fail = <Domain extends string, Operation extends string>(
 	domain: Domain,

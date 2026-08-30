@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
 import { assistant, lore, vault } from '#lib/server/app.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
+import { logFailure } from '#lib/server/failure.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 
 const campaignId = z.uuid()
@@ -77,6 +78,7 @@ export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 						error(404, `Campaign "${id}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to load campaign lore')
 				},
 				onSuccess: (entries) => entries
@@ -99,6 +101,7 @@ export const getLore = query(loreReference, ({ campaignId, loreId }): Promise<Lo
 						error(404, `Lore "${loreId}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to load lore')
 				},
 				onSuccess: (entry) => entry
@@ -121,6 +124,7 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 						error(409, `Lore named "${input.title}" already exists in this category`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to add lore')
 				},
 				onSuccess: (entry) => {
@@ -145,6 +149,7 @@ export const askLoremaster = command(
 							error(404, `Campaign "${campaignId}" was not found`)
 						}
 
+						logFailure(failure)
 						error(500, 'Loremaster could not respond')
 					},
 					onSuccess: (response) => response
@@ -163,6 +168,7 @@ export const listDocuments = query(campaignId, (id) =>
 						error(404, `Campaign "${id}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to list vault documents')
 				},
 				onSuccess: (documents) => documents
@@ -185,6 +191,7 @@ export const getDocument = query(documentReference, ({ campaignId, documentId })
 						error(404, `Document "${documentId}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to load vault document')
 				},
 				onSuccess: (document) => document
@@ -216,6 +223,7 @@ export const createDocument = command(createDocumentInput, (input) =>
 						error(400, 'The document path is invalid')
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to create vault document')
 				},
 				onSuccess: (document) => {
@@ -245,6 +253,7 @@ export const updateDocument = command(updateDocumentInput, (input) =>
 						error(404, `Document "${input.documentId}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to update vault document')
 				},
 				onSuccess: (document) => {
@@ -274,6 +283,7 @@ export const deleteDocument = command(documentReference, (input) =>
 						error(404, `Document "${input.documentId}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to delete vault document')
 				},
 				onSuccess: () => {
@@ -294,6 +304,7 @@ export const reindexCampaignVault = command(campaignId, (id) =>
 						error(404, `Campaign "${id}" was not found`)
 					}
 
+					logFailure(failure)
 					error(500, 'Unable to reindex the campaign vault')
 				},
 				onSuccess: (documents) => {
