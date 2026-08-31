@@ -19,6 +19,9 @@
 	import Textarea from '#lib/components/textarea/Textarea.svelte'
 	import { untrack } from 'svelte'
 
+	const proposalId = $props.id()
+	const proposalHeadingId = `${proposalId}-heading`
+
 	let {
 		proposal,
 		categoryOptions,
@@ -53,11 +56,11 @@
 	}
 </script>
 
-<form class="proposal" onsubmit={handleSubmit} aria-labelledby="proposal-heading">
+<form class="proposal" onsubmit={handleSubmit} aria-labelledby={proposalHeadingId}>
 	<div class="proposal-heading">
 		<div>
 			<p class="eyebrow">Review before adding</p>
-			<h3 id="proposal-heading">Lore proposal</h3>
+			<h3 id={proposalHeadingId}>Lore proposal</h3>
 		</div>
 		<span>Draft</span>
 	</div>
@@ -137,12 +140,9 @@
 	.proposal {
 		display: grid;
 		gap: var(--spacing-md);
-		margin: 0 1.5rem 1.25rem;
-		padding: 1.15rem;
-		border: 1px solid #aa8a50;
-		border-radius: var(--border-radius-lg);
-		background: rgb(240 230 204 / 72%);
-		box-shadow: inset 0 0 0 0.2rem rgb(255 251 239 / 52%);
+		margin: 0;
+		padding-top: 0.85rem;
+		border-top: 1px solid rgb(142 114 69 / 28%);
 	}
 
 	.proposal-heading {
@@ -216,11 +216,6 @@
 	}
 
 	@media (max-width: 44rem) {
-		.proposal {
-			margin-right: var(--spacing-md);
-			margin-left: var(--spacing-md);
-		}
-
 		.proposal-fields {
 			grid-template-columns: 1fr;
 		}

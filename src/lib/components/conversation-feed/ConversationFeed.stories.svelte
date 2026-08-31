@@ -6,11 +6,30 @@
 
 	type ConversationFeedArgs = ComponentProps<typeof ConversationFeed>
 
+	const proposalCategoryOptions: ConversationFeedArgs['proposalCategoryOptions'] = [
+		{ value: 'player', label: 'Players' },
+		{ value: 'npc', label: 'NPCs' },
+		{ value: 'location', label: 'Locations' },
+		{ value: 'session', label: 'Sessions' },
+		{ value: 'item', label: 'Items' },
+		{ value: 'lore', label: 'Lore' },
+		{ value: 'event', label: 'Events' }
+	]
+
+	const baseArgs = {
+		proposal: null,
+		proposalCategoryOptions,
+		onproposalsave: () => {},
+		onproposalcancel: () => {}
+	} satisfies Omit<ConversationFeedArgs, 'messages'>
+
 	const emptyArgs = {
+		...baseArgs,
 		messages: []
 	} satisfies ConversationFeedArgs
 
 	const conversationArgs = {
+		...baseArgs,
 		messages: [
 			{
 				id: 'message-1',
@@ -34,7 +53,21 @@
 		]
 	} satisfies ConversationFeedArgs
 
+	const proposalArgs = {
+		...conversationArgs,
+		proposal: {
+			messageId: 'message-2',
+			draft: {
+				title: 'The Ashen Crown',
+				category: 'item',
+				content:
+					'An ancient crown forged from blackened silver, last seen during the northern expedition.'
+			}
+		}
+	} satisfies ConversationFeedArgs
+
 	const longConversationArgs = {
+		...baseArgs,
 		messages: Array.from({ length: 14 }, (_, index) => ({
 			id: `long-message-${index + 1}`,
 			role: index % 2 === 0 ? 'user' : 'assistant',
@@ -62,6 +95,8 @@
 <Story name="Empty" args={emptyArgs} />
 
 <Story name="Conversation" args={conversationArgs} />
+
+<Story name="Conversation with proposal" args={proposalArgs} />
 
 <Story name="Long conversation" args={longConversationArgs} template={longConversation} />
 

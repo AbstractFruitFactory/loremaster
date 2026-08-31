@@ -1,4 +1,8 @@
 <script module lang="ts">
+	import type {
+		LoreProposalCategoryOption,
+		LoreProposalDraft
+	} from '#lib/components/lore-proposal/LoreProposal.svelte'
 	import type { DocumentType } from '#lib/document.js'
 
 	export type ConversationSource = {
@@ -13,9 +17,18 @@
 		content: string
 		sources: readonly ConversationSource[]
 	}
+
+	export type ConversationProposal = {
+		messageId: string
+		draft: LoreProposalDraft
+	}
 </script>
 
 <script lang="ts">
+	import LoreProposal from '#lib/components/lore-proposal/LoreProposal.svelte'
+	import type { Attachment } from 'svelte/attachments'
+	import { on } from 'svelte/events'
+
 	const sourceTypeLabels: Record<DocumentType, string> = {
 		player: 'Player',
 		npc: 'NPC',
@@ -28,14 +41,54 @@
 
 	let {
 		messages,
-		isResponding = false
+		isResponding = false,
+		proposal,
+		proposalCategoryOptions,
+		isProposalSubmitting = false,
+		proposalError = '',
+		onproposalsave,
+		onproposalcancel
 	}: {
 		messages: readonly ConversationMessage[]
 		isResponding?: boolean
+		proposal: ConversationProposal | null
+		proposalCategoryOptions: readonly LoreProposalCategoryOption[]
+		isProposalSubmitting?: boolean
+		proposalError?: string
+		onproposalsave: (draft: LoreProposalDraft) => void | Promise<void>
+		onproposalcancel: () => void
 	} = $props()
+
+	const maintainBottomScroll: Attachment<HTMLDivElement> = (element) => {
+		let shouldScroll = true
+
+		const updateScrollState = () => {
+			shouldScroll = element.offsetHeight + element.scrollTop > element.scrollHeight - 50
+		}
+
+		const scrollToBottom = () => {
+			if (shouldScroll) element.scrollTop = element.scrollHeight
+		}
+
+		const resizeObserver = new ResizeObserver(scrollToBottom)
+		const observeContent = () => {
+			for (const child of element.children) resizeObserver.observe(child)
+		}
+		const mutationObserver = new MutationObserver(observeContent)
+		const removeScrollListener = on(element, 'scroll', updateScrollState, { passive: true })
+
+		observeContent()
+		mutationObserver.observe(element, { childList: true })
+
+		return () => {
+			removeScrollListener()
+			resizeObserver.disconnect()
+			mutationObserver.disconnect()
+		}
+	}
 </script>
 
-<div class="message-feed" aria-live="polite">
+<div class="message-feed" aria-live="polite" {@attach maintainBottomScroll}>
 	{#if messages.length === 0}
 		<div class="welcome">
 			<p class="welcome-mark" aria-hidden="true">✦</p>
@@ -67,6 +120,21 @@
 						</div>
 					{/if}
 				</li>
+				{#if proposal?.messageId === conversationMessage.id}
+					{#key proposal}
+						<li class="assistant proposal-message">
+							<p class="speaker">Loremaster</p>
+							<LoreProposal
+								proposal={proposal.draft}
+								categoryOptions={proposalCategoryOptions}
+								isSubmitting={isProposalSubmitting}
+								error={proposalError}
+								onsave={onproposalsave}
+								oncancel={onproposalcancel}
+							/>
+						</li>
+					{/key}
+				{/if}
 			{/each}
 			{#if isResponding}
 				<li class="assistant pending" role="status">
@@ -166,6 +234,13 @@
 		border-bottom-left-radius: var(--border-radius-sm);
 		background: rgb(255 253 247 / 86%);
 		color: #342e25;
+	}
+
+	.messages > .proposal-message {
+		box-sizing: border-box;
+		width: min(100%, 52rem);
+		max-width: 100%;
+		padding: 1rem 1.15rem 1.15rem;
 	}
 
 	.messages > .pending {

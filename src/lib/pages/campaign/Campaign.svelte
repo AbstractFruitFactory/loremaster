@@ -13,13 +13,17 @@
 	import ChatInput from '#lib/components/chat-input/ChatInput.svelte'
 	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import type { ConversationMessage } from '#lib/components/conversation-feed/ConversationFeed.svelte'
-	import LoreProposal from '#lib/components/lore-proposal/LoreProposal.svelte'
 	import type { DocumentType } from '#lib/document.js'
 	import type { AssistantResponse } from '#lib/server/assistant/types.js'
 
 	type Props = {
 		onask: (input: AskLoremasterInput) => Promise<AssistantResponse>
 		onaddlore: (draft: AddLoreInput) => Promise<{ title: string }>
+	}
+
+	type ActiveProposal = {
+		messageId: string
+		draft: AddLoreInput
 	}
 
 	const proposalCategories: Array<{ value: DocumentType; label: string }> = [
@@ -35,7 +39,7 @@
 	let { onask, onaddlore }: Props = $props()
 
 	let messages = $state.raw<ConversationMessage[]>([])
-	let proposal = $state<AddLoreInput | null>(null)
+	let proposal = $state<ActiveProposal | null>(null)
 	let message = $state('')
 	let isResponding = $state(false)
 	let isAddingLore = $state(false)
@@ -68,10 +72,11 @@
 				message: submittedMessage,
 				history
 			})
+			const assistantMessageId = createMessageId()
 			messages = [
 				...messages,
 				{
-					id: createMessageId(),
+					id: assistantMessageId,
 					role: 'assistant',
 					content: response.message,
 					sources: response.sources
@@ -80,9 +85,12 @@
 
 			if (response.proposal) {
 				proposal = {
-					title: response.proposal.title,
-					category: response.proposal.category,
-					content: response.proposal.content
+					messageId: assistantMessageId,
+					draft: {
+						title: response.proposal.title,
+						category: response.proposal.category,
+						content: response.proposal.content
+					}
 				}
 			}
 		} catch (error) {
@@ -151,22 +159,16 @@
 			</div>
 		</div>
 
-		<ConversationFeed {messages} {isResponding} />
-
-		{#if proposal}
-			{#key proposal}
-				<div class="proposal">
-					<LoreProposal
-						{proposal}
-						categoryOptions={proposalCategories}
-						isSubmitting={isAddingLore}
-						error={proposalError}
-						onsave={handleAddLore}
-						oncancel={cancelProposal}
-					/>
-				</div>
-			{/key}
-		{/if}
+		<ConversationFeed
+			{messages}
+			{isResponding}
+			{proposal}
+			proposalCategoryOptions={proposalCategories}
+			isProposalSubmitting={isAddingLore}
+			{proposalError}
+			onproposalsave={handleAddLore}
+			onproposalcancel={cancelProposal}
+		/>
 
 		<div class="composer">
 			<ChatInput
@@ -310,10 +312,6 @@
 	.composer {
 		flex: none;
 		padding: 0.75rem 1.5rem 0;
-	}
-
-	.proposal {
-		flex: none;
 	}
 
 	@media (max-width: 44rem) {
