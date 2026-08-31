@@ -26,8 +26,7 @@
 
 <script lang="ts">
 	import LoreProposal from '#lib/components/lore-proposal/LoreProposal.svelte'
-	import type { Attachment } from 'svelte/attachments'
-	import { on } from 'svelte/events'
+	import { tick } from 'svelte'
 
 	const sourceTypeLabels: Record<DocumentType, string> = {
 		player: 'Player',
@@ -59,36 +58,22 @@
 		onproposalcancel: () => void
 	} = $props()
 
-	const maintainBottomScroll: Attachment<HTMLDivElement> = (element) => {
-		let shouldScroll = true
+	let feedElement = $state<HTMLDivElement | null>(null)
 
-		const updateScrollState = () => {
-			shouldScroll = element.offsetHeight + element.scrollTop > element.scrollHeight - 50
-		}
+	$effect.pre(() => {
+		messages.length
+		isResponding
+		proposal?.messageId
 
-		const scrollToBottom = () => {
-			if (shouldScroll) element.scrollTop = element.scrollHeight
-		}
+		tick().then(() => {
+			if (!feedElement) return
 
-		const resizeObserver = new ResizeObserver(scrollToBottom)
-		const observeContent = () => {
-			for (const child of element.children) resizeObserver.observe(child)
-		}
-		const mutationObserver = new MutationObserver(observeContent)
-		const removeScrollListener = on(element, 'scroll', updateScrollState, { passive: true })
-
-		observeContent()
-		mutationObserver.observe(element, { childList: true })
-
-		return () => {
-			removeScrollListener()
-			resizeObserver.disconnect()
-			mutationObserver.disconnect()
-		}
-	}
+			feedElement.scrollTop = feedElement.scrollHeight
+		})
+	})
 </script>
 
-<div class="message-feed" aria-live="polite" {@attach maintainBottomScroll}>
+<div class="message-feed" aria-live="polite" bind:this={feedElement}>
 	{#if messages.length === 0}
 		<div class="welcome">
 			<p class="welcome-mark" aria-hidden="true">✦</p>
