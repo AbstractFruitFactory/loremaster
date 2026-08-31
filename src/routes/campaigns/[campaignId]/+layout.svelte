@@ -1,27 +1,30 @@
 <script lang="ts">
+	import { page } from '$app/state'
 	import paperBackground from '#lib/assets/page-background.webp'
 	import Header from '#lib/components/header/Header.svelte'
 	import Sidebar from '#lib/components/sidebar/Sidebar.svelte'
-	import { documentTypes, type DocumentType } from '#lib/document.js'
+	import { documentTypes } from '#lib/document.js'
+	import { documentTypeMetadata } from '#lib/document-metadata.js'
 	import { getCampaign } from '../../data.remote'
 	import type { LayoutProps } from './$types'
-
-	const documentTypeMetadata = {
-		player: { label: 'Players', icon: 'lucide:users' },
-		npc: { label: 'NPCs', icon: 'lucide:user-round' },
-		location: { label: 'Locations', icon: 'lucide:map-pin' },
-		session: { label: 'Sessions', icon: 'lucide:calendar-days' },
-		item: { label: 'Items', icon: 'lucide:package' },
-		lore: { label: 'Lore', icon: 'lucide:book-open' },
-		event: { label: 'Events', icon: 'lucide:milestone' }
-	} satisfies Record<DocumentType, { label: string; icon: string }>
-
-	const sidebarItems = documentTypes.map((type) => documentTypeMetadata[type])
 
 	let { params, children }: LayoutProps = $props()
 
 	const campaignId = $derived(params.campaignId)
 	const campaign = $derived(getCampaign(campaignId))
+	const sidebarItems = $derived([
+		{
+			label: 'Chat',
+			icon: 'lucide:messages-square',
+			href: `/campaigns/${campaignId}`
+		},
+		...documentTypes
+			.filter((type) => type !== 'item')
+			.map((type) => ({
+				...documentTypeMetadata[type],
+				href: `/campaigns/${campaignId}/${type}`
+			}))
+	])
 </script>
 
 <svelte:head>
@@ -34,7 +37,7 @@
 {/snippet}
 
 <div class="campaign-shell">
-	<Sidebar items={sidebarItems} />
+	<Sidebar items={sidebarItems} activePath={page.url.pathname} />
 
 	<div class="campaign-workspace" style:--paper-background={`url("${paperBackground}")`}>
 		<Header>{@render campaignHeading()}</Header>

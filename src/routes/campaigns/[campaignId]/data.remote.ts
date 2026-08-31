@@ -8,6 +8,7 @@ import { assistant, lore, vault } from '#lib/server/app.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
 import { logFailure } from '#lib/server/failure.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
+import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
@@ -18,6 +19,12 @@ const documentReference = z
 	.object({
 		campaignId,
 		documentId
+	})
+	.strict()
+const documentsByTypeInput = z
+	.object({
+		campaignId,
+		type: documentType
 	})
 	.strict()
 const createDocumentInput = z
@@ -161,7 +168,7 @@ export const askLoremaster = command(
 		)
 )
 
-export const listDocuments = query(campaignId, (id) =>
+const loadVaultDocuments = (id: string): Promise<VaultDocumentSummary[]> =>
 	runPromise(
 		pipe(
 			vault.listDocuments(id),
@@ -178,6 +185,13 @@ export const listDocuments = query(campaignId, (id) =>
 			})
 		)
 	)
+
+export const listDocuments = query(campaignId, loadVaultDocuments)
+
+export const listDocumentsByType = query(
+	documentsByTypeInput,
+	async ({ campaignId, type }): Promise<VaultDocumentSummary[]> =>
+		(await loadVaultDocuments(campaignId)).filter((document) => document.type === type)
 )
 
 export const getDocument = query(documentReference, ({ campaignId, documentId }) =>
