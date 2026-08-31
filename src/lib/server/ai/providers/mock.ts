@@ -71,6 +71,15 @@ const embedText = (text: string) => {
 }
 
 const generateText: GenerateText = ({ system, prompt }) => {
+	if (prompt.startsWith('## Document:')) {
+		const title = prompt.match(/^## Document: (.+)$/m)?.[1] ?? 'entry'
+		const type = prompt.match(/^Type: (\w+)$/m)?.[1] ?? 'lore'
+
+		return succeed(
+			`${title} is a campaign ${type} entry the Dungeon Master can reference at the table.`
+		)
+	}
+
 	const titles = [...prompt.matchAll(/^## Lore: (.+)$/gm)].map((match) => match[1])
 	const context = titles.length ? titles.join(', ') : 'the available campaign lore'
 

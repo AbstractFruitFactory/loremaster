@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type { AiModel } from '../ai/provider'
+import type { AiProvider } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
 import { fail, type Failure } from '../failure'
 import type { timelineOperations } from '../timeline/operations'
 import { parseVaultDocument, serializeVaultDocument, updateDocumentFrontmatter } from './markdown'
+import { documentSummaryPrompt } from './summary'
 import type { VaultStorage } from './storage/storage'
 import type {
 	ParsedVaultDocument,
@@ -59,10 +60,14 @@ export const vaultOperations = ({
 	storage,
 	timeline
 }: {
-	ai: AiModel<'inferDocumentType'>
+	ai: Pick<AiProvider, 'inferDocumentType' | 'generateText'> & {
+		documentTypeModel: string
+		summaryModel: string
+	}
 	db: {
 		getCampaignById: typeof CampaignDb.getById
 		getDocumentPath: typeof VaultDb.getDocumentPath
+		getDocumentSummaries: typeof VaultDb.getDocumentSummaries
 		getOutgoingLinks: typeof VaultDb.getOutgoingLinks
 		getBacklinks: typeof VaultDb.getBacklinks
 		indexDocument: typeof VaultDb.indexDocument
@@ -77,6 +82,45 @@ export const vaultOperations = ({
 	storage: VaultStorage
 	timeline: Pick<ReturnType<typeof timelineOperations>, 'validateDocuments'>
 }) => {
+	const generateDocumentSummary = (document: VaultDocument) =>
+		pipe(
+			ai.generateText({
+				...documentSummaryPrompt(document),
+				model: ai.summaryModel
+			}),
+			map((summary) => summary.trim())
+		)
+
+	const attachDocumentSummaries = (campaignId: string) => (documents: VaultDocument[]) => {
+		if (!documents.length) return succeed(documents)
+
+		return pipe(
+			db.getDocumentSummaries(
+				campaignId,
+				documents.map(({ id }) => id)
+			),
+			map((summaries) =>
+				documents.map((document) => ({
+					...document,
+					summary: summaries.get(document.id) ?? document.summary
+				}))
+			)
+		)
+	}
+
+	const indexDocumentWithSummary = (campaignId: string, document: VaultDocument) =>
+		pipe(
+			generateDocumentSummary(document),
+			map((summary) => ({ ...document, summary })),
+			flatMap((documentWithSummary) =>
+				pipe(
+					db.indexDocument(campaignId, toDocumentIndex(documentWithSummary)),
+					flatMap(() => contextIndex.indexDocument(campaignId, documentWithSummary)),
+					map(() => documentWithSummary)
+				)
+			)
+		)
+
 	const ensureCampaign = (campaignId: string) =>
 		pipe(
 			db.getCampaignById(campaignId),
@@ -94,7 +138,7 @@ export const vaultOperations = ({
 			document.type
 				? succeed(document.type)
 				: ai.inferDocumentType({
-						model: ai.model,
+						model: ai.documentTypeModel,
 						path: document.path,
 						title: document.title,
 						content: document.content
@@ -111,7 +155,8 @@ export const vaultOperations = ({
 				const normalizedDocument: VaultDocument = {
 					...document,
 					id: document.id ?? randomUUID(),
-					type
+					type,
+					summary: document.summary
 				}
 
 				if (document.id && document.type) return succeed(normalizedDocument)
@@ -174,13 +219,7 @@ export const vaultOperations = ({
 				const document = documents.find((candidate) => candidate.path === path)
 				return document ? succeed(document) : fail('vault', 'getDocument', { campaignId, path })
 			}),
-			flatMap((document) =>
-				pipe(
-					db.indexDocument(campaignId, toDocumentIndex(document)),
-					flatMap(() => contextIndex.indexDocument(campaignId, document)),
-					map(() => document)
-				)
-			)
+			flatMap((document) => indexDocumentWithSummary(campaignId, document))
 		)
 
 	const createDocument = (
@@ -214,6 +253,7 @@ export const vaultOperations = ({
 				type: input.type,
 				aliases: input.aliases,
 				after: input.after ?? [],
+				summary: '',
 				content: input.content,
 				links: []
 			}
@@ -233,16 +273,20 @@ export const vaultOperations = ({
 			yield* storage.create(campaignId, input.path, source)
 
 			const document = yield* loadDocumentAtPath(campaignId, input.path)
-			yield* db.indexDocument(campaignId, toDocumentIndex(document))
-			yield* contextIndex.indexDocument(campaignId, document)
 
-			return document
+			return yield* indexDocumentWithSummary(campaignId, document)
 		})
 
 	const getDocument = (campaignId: string, documentId: string) =>
 		pipe(
 			ensureCampaign(campaignId),
-			flatMap(() => findDocument(campaignId, documentId))
+			flatMap(() => findDocument(campaignId, documentId)),
+			flatMap((document) =>
+				pipe(
+					attachDocumentSummaries(campaignId)([document]),
+					map(([documentWithSummary]) => documentWithSummary)
+				)
+			)
 		)
 
 	type UpdateDocumentInput = {
@@ -291,11 +335,7 @@ export const vaultOperations = ({
 		)
 
 	const updateDocumentIndexes = (campaignId: string) => (document: VaultDocument) =>
-		pipe(
-			db.indexDocument(campaignId, toDocumentIndex(document)),
-			flatMap(() => contextIndex.indexDocument(campaignId, document)),
-			map(() => document)
-		)
+		indexDocumentWithSummary(campaignId, document)
 
 	const updateDocument = (campaignId: string, documentId: string, input: UpdateDocumentInput) =>
 		pipe(
@@ -325,13 +365,15 @@ export const vaultOperations = ({
 		pipe(
 			ensureCampaign(campaignId),
 			flatMap(() => loadDocuments(campaignId)),
+			flatMap(attachDocumentSummaries(campaignId)),
 			map((documents) => documents.map(toDocumentSummary))
 		)
 
 	const getDocuments = (campaignId: string) =>
 		pipe(
 			ensureCampaign(campaignId),
-			flatMap(() => loadDocuments(campaignId))
+			flatMap(() => loadDocuments(campaignId)),
+			flatMap(attachDocumentSummaries(campaignId))
 		)
 
 	const getOutgoingLinks = (campaignId: string, documentId: string) =>
@@ -347,17 +389,26 @@ export const vaultOperations = ({
 		)
 
 	const reindexCampaign = (campaignId: string) =>
-		pipe(
-			ensureCampaign(campaignId),
-			flatMap(() => loadDocuments(campaignId)),
-			flatMap((documents) =>
-				pipe(
-					db.replaceCampaignIndex(campaignId, documents.map(toDocumentIndex)),
-					flatMap(() => contextIndex.reindexCampaign(campaignId, documents)),
-					map(() => documents)
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const documents = yield* loadDocuments(campaignId)
+			const documentsWithSummaries = yield* all(
+				documents.map((document) =>
+					pipe(
+						generateDocumentSummary(document),
+						map((summary) => ({ ...document, summary }))
+					)
 				)
 			)
-		)
+
+			yield* db.replaceCampaignIndex(
+				campaignId,
+				documentsWithSummaries.map(toDocumentIndex)
+			)
+			yield* contextIndex.reindexCampaign(campaignId, documentsWithSummaries)
+
+			return documentsWithSummaries
+		})
 
 	return {
 		createDocument,

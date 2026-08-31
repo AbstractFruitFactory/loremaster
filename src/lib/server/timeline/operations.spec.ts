@@ -10,6 +10,7 @@ const event = (id: string, after: string[] = []): VaultDocument => ({
 	title: `Event ${id.toUpperCase()}`,
 	type: 'event',
 	after,
+	summary: '',
 	content: `# Event ${id.toUpperCase()}`,
 	links: []
 })
@@ -68,6 +69,7 @@ describe('timeline operations', () => {
 			title: 'NPC',
 			type: 'npc',
 			after: [],
+			summary: '',
 			content: '# NPC',
 			links: []
 		}

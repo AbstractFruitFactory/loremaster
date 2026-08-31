@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flip, runPromise, runSync, succeed } from 'effect/Effect'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { InferDocumentType } from '../ai/provider'
+import type { GenerateText, InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
 import { timelineOperations } from '../timeline/operations'
@@ -22,6 +22,7 @@ const campaign: Campaign = {
 	createdAt: '2026-08-28T00:00:00.000Z'
 }
 const documentTypeModel = 'mock-document-type-v1'
+const documentSummaryModel = 'mock-text-v1'
 
 describe('vault operations', () => {
 	let root: string
@@ -31,6 +32,7 @@ describe('vault operations', () => {
 	let outgoingLinks: Map<string, string[]>
 	let contextIndex: ContextIndex
 	let inferDocumentType: InferDocumentType
+	let generateText: GenerateText
 	let storage: ReturnType<typeof filesystemVaultStorage>
 
 	beforeEach(async () => {
@@ -40,6 +42,7 @@ describe('vault operations', () => {
 		outgoingLinks = new Map()
 		storage = filesystemVaultStorage(root)
 		inferDocumentType = vi.fn(mockAiProvider.inferDocumentType)
+		generateText = vi.fn(mockAiProvider.generateText)
 		contextIndex = {
 			deleteDocumentIndex: vi.fn(() => succeed(undefined)),
 			indexDocument: vi.fn(() => succeed(undefined)),
@@ -48,6 +51,15 @@ describe('vault operations', () => {
 
 		const db: VaultDatabase = {
 			getCampaignById: () => succeed(campaign),
+			getDocumentSummaries: (_campaignId, documentIds) =>
+				succeed(
+					new Map(
+						documentIds.flatMap((documentId) => {
+							const document = indexedDocuments.get(documentId)
+							return document ? [[documentId, document.summary]] : []
+						})
+					)
+				),
 			getDocumentPath: (_campaignId, documentId) => succeed(indexedDocuments.get(documentId)?.path),
 			getOutgoingLinks: (_campaignId, documentId) => succeed(outgoingLinks.get(documentId) ?? []),
 			getBacklinks: (_campaignId, documentId) => succeed(backlinks.get(documentId) ?? []),
@@ -68,7 +80,9 @@ describe('vault operations', () => {
 		operations = vaultOperations({
 			ai: {
 				inferDocumentType,
-				model: documentTypeModel
+				generateText,
+				documentTypeModel,
+				summaryModel: documentSummaryModel
 			},
 			db,
 			contextIndex,
@@ -115,8 +129,10 @@ describe('vault operations', () => {
 			title: 'Varek',
 			type: 'npc',
 			after: [],
+			summary: 'Varek is a campaign npc entry the Dungeon Master can reference at the table.',
 			links: ['Westgate']
 		})
+		expect(generateText).toHaveBeenCalled()
 		expect(
 			runSync(
 				parseVaultDocument(
@@ -206,6 +222,28 @@ id: character-mara
 		expect(contextIndex.indexDocument).toHaveBeenCalledWith(campaign.id, document)
 		expect(await readFile(join(root, campaign.id, 'NPCs', 'Mara.md'), 'utf8')).toContain(
 			'type: npc'
+		)
+	})
+
+	it('regenerates the summary when a document changes', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek\n\nRuns the forge.'
+			})
+		)
+
+		await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'npc',
+				content: '# Varek\n\nGuards the western gate.'
+			})
+		)
+
+		expect(generateText).toHaveBeenCalledTimes(2)
+		expect(indexedDocuments.get(created.id)?.summary).toBe(
+			'Varek is a campaign npc entry the Dungeon Master can reference at the table.'
 		)
 	})
 
@@ -333,6 +371,7 @@ type: location
 			title: 'Stale',
 			type: 'lore',
 			after: [],
+			summary: '',
 			links: []
 		})
 

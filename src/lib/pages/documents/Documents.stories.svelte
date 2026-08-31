@@ -14,6 +14,8 @@
 			type: 'lore',
 			aliases: ['Crown of Ash'],
 			after: [],
+			summary:
+				'The Ashen Crown is a campaign lore entry the Dungeon Master can reference at the table.',
 			links: ['document-emberwatch-oath']
 		},
 		{
@@ -22,6 +24,8 @@
 			title: 'The Oath of Emberwatch',
 			type: 'lore',
 			after: [],
+			summary:
+				'The Oath of Emberwatch is a campaign lore entry the Dungeon Master can reference at the table.',
 			links: []
 		}
 	] satisfies NonNullable<DocumentsArgs['documents']>

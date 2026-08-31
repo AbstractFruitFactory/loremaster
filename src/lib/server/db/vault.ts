@@ -18,6 +18,7 @@ const documentValues = (campaignId: string, document: VaultDocumentIndex) => ({
 	path: document.path,
 	title: document.title,
 	type: document.type,
+	summary: document.summary,
 	indexedAt: new Date().toISOString()
 })
 
@@ -51,6 +52,30 @@ const chronologyEdgeValues = (
 			beforeDocumentId,
 			afterDocumentId: document.id
 		}))
+}
+
+export const getDocumentSummaries = (campaignId: string, documentIds: string[]) => {
+	if (!documentIds.length) return succeed(new Map<string, string>())
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						documentId: vaultDocuments.documentId,
+						summary: vaultDocuments.summary
+					})
+					.from(vaultDocuments)
+					.where(
+						and(
+							eq(vaultDocuments.campaignId, campaignId),
+							inArray(vaultDocuments.documentId, documentIds)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultDocumentSummaries', cause)
+		}),
+		map((rows) => new Map(rows.map(({ documentId, summary }) => [documentId, summary])))
+	)
 }
 
 export const getDocumentPath = (campaignId: string, documentId: string) =>
@@ -201,6 +226,7 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 							path: document.path,
 							title: document.title,
 							type: document.type,
+							summary: document.summary,
 							indexedAt: new Date().toISOString()
 						}
 					})

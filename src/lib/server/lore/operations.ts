@@ -26,7 +26,8 @@ const toSlug = (title: string) =>
 const toLoreSummary = (document: VaultDocumentSummary): LoreSummary => ({
 	id: document.id,
 	title: document.title,
-	category: document.type
+	category: document.type,
+	summary: document.summary
 })
 
 const toLoreEntry = (document: VaultDocument): LoreEntry => ({

@@ -41,6 +41,7 @@ export const vaultDocuments = pgTable(
 		path: text('path').notNull(),
 		title: text('title').notNull(),
 		type: text('type', { enum: documentTypes }).notNull(),
+		summary: text('summary').notNull().default(''),
 		indexedAt: timestamp('indexed_at', { withTimezone: true, mode: 'string' })
 			.notNull()
 			.defaultNow()

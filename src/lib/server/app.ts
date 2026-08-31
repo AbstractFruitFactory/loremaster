@@ -17,6 +17,7 @@ import { vaultOperations } from './vault/operations'
 const aiModels = {
 	assistant: 'mock-assistant-v1',
 	campaignSummary: 'mock-text-v1',
+	documentSummary: 'mock-text-v1',
 	documentType: 'mock-document-type-v1',
 	embeddings: 'mock-token-hash-v1'
 }
@@ -45,7 +46,9 @@ export const timeline = timelineOperations({ db: timelineDb })
 export const vault = vaultOperations({
 	ai: {
 		inferDocumentType: mockAiProvider.inferDocumentType,
-		model: aiModels.documentType
+		generateText: mockAiProvider.generateText,
+		documentTypeModel: aiModels.documentType,
+		summaryModel: aiModels.documentSummary
 	},
 	db: {
 		getCampaignById: campaignDb.getById,

@@ -14,6 +14,7 @@ export type VaultDocument = {
 	type: DocumentType
 	aliases?: string[]
 	after: string[]
+	summary: string
 	content: string
 	links: string[]
 }
@@ -32,5 +33,5 @@ export type VaultLinkIndex = {
 
 export type VaultDocumentIndex = Pick<
 	VaultDocument,
-	'id' | 'path' | 'title' | 'type' | 'after' | 'links'
+	'id' | 'path' | 'title' | 'type' | 'after' | 'links' | 'summary'
 >

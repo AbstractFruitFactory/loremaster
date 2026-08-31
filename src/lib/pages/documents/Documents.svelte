@@ -21,7 +21,7 @@
 
 <section class="documents-page" aria-labelledby="documents-heading">
 	<header class="page-heading">
-		<p class="eyebrow">Vault documents</p>
+		<p class="eyebrow">Campaign lore</p>
 		<h2 id="documents-heading">{heading}</h2>
 	</header>
 
@@ -37,7 +37,9 @@
 			{#each documents as document (document.id)}
 				<li>
 					<h3>{document.title}</h3>
-					<p>{document.path}</p>
+					{#if document.summary}
+						<p>{document.summary}</p>
+					{/if}
 				</li>
 			{/each}
 		</ul>

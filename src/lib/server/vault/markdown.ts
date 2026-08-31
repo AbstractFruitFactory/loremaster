@@ -125,6 +125,7 @@ export const parseVaultDocument = (path: string, source: string) =>
 			type: frontmatter.type,
 			aliases: frontmatter.aliases,
 			after: frontmatter.after ?? [],
+			summary: '',
 			content,
 			links: extractWikiLinks(content)
 		}))
