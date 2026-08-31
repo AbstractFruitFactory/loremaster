@@ -31,6 +31,7 @@
 	] satisfies NonNullable<DocumentsArgs['documents']>
 
 	const loadedArgs = {
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 		selectedType: 'lore',
 		documents,
 		isLoading: false,
@@ -38,6 +39,7 @@
 	} satisfies DocumentsArgs
 
 	const emptyArgs = {
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 		selectedType: 'event',
 		documents: [],
 		isLoading: false,
@@ -45,6 +47,7 @@
 	} satisfies DocumentsArgs
 
 	const loadingArgs = {
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 		selectedType: 'location',
 		documents: undefined,
 		isLoading: true,
@@ -52,6 +55,7 @@
 	} satisfies DocumentsArgs
 
 	const loadErrorArgs = {
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 		selectedType: 'npc',
 		documents: undefined,
 		isLoading: false,

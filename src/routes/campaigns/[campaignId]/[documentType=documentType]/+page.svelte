@@ -11,6 +11,7 @@
 </script>
 
 <Documents
+	{campaignId}
 	{selectedType}
 	documents={documents.current}
 	isLoading={documents.loading && !documents.current}

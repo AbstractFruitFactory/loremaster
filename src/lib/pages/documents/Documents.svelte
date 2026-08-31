@@ -4,13 +4,14 @@
 	import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
 
 	type Props = {
+		campaignId: string
 		selectedType: DocumentType
 		documents: readonly VaultDocumentSummary[] | undefined
 		isLoading: boolean
 		hasLoadError: boolean
 	}
 
-	let { selectedType, documents, isLoading, hasLoadError }: Props = $props()
+	let { campaignId, selectedType, documents, isLoading, hasLoadError }: Props = $props()
 
 	const heading = $derived(documentTypeMetadata[selectedType].label)
 </script>
@@ -36,10 +37,15 @@
 		<ul class="document-list">
 			{#each documents as document (document.id)}
 				<li>
-					<h3>{document.title}</h3>
-					{#if document.summary}
-						<p>{document.summary}</p>
-					{/if}
+					<a
+						class="document-card"
+						href={`/campaigns/${campaignId}/${document.type}/${document.id}`}
+					>
+						<h3>{document.title}</h3>
+						{#if document.summary}
+							<p>{document.summary}</p>
+						{/if}
+					</a>
 				</li>
 			{/each}
 		</ul>
@@ -118,10 +124,36 @@
 	}
 
 	.document-list li {
+		padding: 0;
+		border: none;
+		background: none;
+		box-shadow: none;
+	}
+
+	.document-card {
+		display: block;
 		padding: 1rem 1.15rem;
 		border: 1px solid rgb(154 120 67 / 35%);
 		background: rgb(250 241 222 / 55%);
 		box-shadow: inset 0 0 0 3px rgb(154 120 67 / 4%);
+		color: inherit;
+		text-decoration: none;
+		transition:
+			border-color 150ms ease,
+			background-color 150ms ease,
+			transform 150ms ease;
+	}
+
+	.document-card:hover {
+		border-color: rgb(154 120 67 / 58%);
+		background: rgb(250 241 222 / 82%);
+		transform: translateY(-1px);
+	}
+
+	.document-card:focus-visible {
+		border-color: #9a7843;
+		outline: 2px solid #c8aa75;
+		outline-offset: 3px;
 	}
 
 	.document-list h3 {
