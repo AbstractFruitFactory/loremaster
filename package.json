@@ -52,6 +52,9 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@fontsource/cormorant-garamond": "^5.3.0",
+		"@fontsource/source-sans-3": "^5.3.0",
+		"@iconify/svelte": "^5.2.2",
 		"@mastra/pg": "^1.22.2",
 		"@mastra/rag": "^2.6.0",
 		"effect": "^3.22.1",
