@@ -93,19 +93,21 @@
 	}
 
 	.message-feed {
-		min-height: 13rem;
-		max-height: clamp(19rem, 48vh, 34rem);
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		scrollbar-gutter: stable;
 	}
 
 	.welcome {
+		box-sizing: border-box;
 		display: flex;
 		gap: var(--spacing-md);
 		align-items: center;
+		height: 100%;
 		max-width: 38rem;
-		min-height: 13rem;
+		min-height: 0;
 		margin: 0 auto;
 		padding: 1.5rem;
 		color: #685f51;

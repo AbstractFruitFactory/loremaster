@@ -10,11 +10,10 @@
 </script>
 
 <script lang="ts">
-	import Button from '#lib/components/button/Button.svelte'
+	import ChatInput from '#lib/components/chat-input/ChatInput.svelte'
 	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import type { ConversationMessage } from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import LoreProposal from '#lib/components/lore-proposal/LoreProposal.svelte'
-	import Textarea from '#lib/components/textarea/Textarea.svelte'
 	import type { DocumentType } from '#lib/document.js'
 	import type { AssistantResponse } from '#lib/server/assistant/types.js'
 
@@ -49,8 +48,7 @@
 
 	const createMessageId = () => crypto.randomUUID()
 
-	const handleAsk = async (event: SubmitEvent) => {
-		event.preventDefault()
+	const handleAsk = async () => {
 		const submittedMessage = message.trim()
 		if (!submittedMessage || isResponding) return
 
@@ -151,62 +149,47 @@
 				<p class="eyebrow">Creative companion</p>
 				<h2 id="conversation-heading">Ask Loremaster</h2>
 			</div>
-			<span class={['presence', isResponding && 'working']} aria-live="polite">
-				<span aria-hidden="true"></span>
-				{isResponding ? 'Thinking' : 'Ready'}
-			</span>
 		</div>
 
 		<ConversationFeed {messages} {isResponding} />
 
 		{#if proposal}
 			{#key proposal}
-				<LoreProposal
-					{proposal}
-					categoryOptions={proposalCategories}
-					isSubmitting={isAddingLore}
-					error={proposalError}
-					onsave={handleAddLore}
-					oncancel={cancelProposal}
-				/>
+				<div class="proposal">
+					<LoreProposal
+						{proposal}
+						categoryOptions={proposalCategories}
+						isSubmitting={isAddingLore}
+						error={proposalError}
+						onsave={handleAddLore}
+						oncancel={cancelProposal}
+					/>
+				</div>
 			{/key}
 		{/if}
 
-		<form class="composer" onsubmit={handleAsk}>
-			<label class="message-label" for="loremaster-message">
-				Ask a question or shape your lore
-			</label>
-			<Textarea
+		<div class="composer">
+			<ChatInput
 				id="loremaster-message"
 				bind:value={message}
-				required
-				maxlength={2000}
-				rows={3}
-				disabled={isResponding}
-				placeholder="Ask about your world, or describe lore to establish or change…"
-				--textarea-min-height="4.6rem"
-				--textarea-max-height="12rem"
-				--textarea-padding="0.62rem 0.72rem"
-				--textarea-border="1px solid #aa966f"
-				--textarea-radius="var(--border-radius-md)"
-				--textarea-background="rgb(255 253 247 / 92%)"
-				--textarea-color="#30291f"
+				isSubmitting={isResponding}
+				onsubmit={handleAsk}
 			/>
-			<div class="composer-actions">
-				<span>{message.length}/2000</span>
-				<Button type="submit" disabled={isResponding || !message.trim()}>
-					{isResponding ? 'Thinking…' : 'Send to Loremaster'}
-				</Button>
-			</div>
-		</form>
+		</div>
 	</section>
 </main>
 
 <style>
 	.assistant-page {
+		box-sizing: border-box;
+		display: flex;
 		width: min(64rem, calc(100% - 2rem));
+		height: 100%;
+		min-height: 0;
 		margin: 0 auto;
-		padding: clamp(1rem, 3vw, 2rem) 0 var(--spacing-2xl);
+		padding: clamp(1rem, 3vw, 2rem) 0 clamp(0.75rem, 2vw, 1.25rem);
+		flex-direction: column;
+		overflow: hidden;
 		color: #30291f;
 		font-family: var(--font-sans);
 	}
@@ -230,6 +213,7 @@
 
 	.announcements {
 		display: grid;
+		flex: none;
 		gap: var(--spacing-sm);
 	}
 
@@ -258,12 +242,16 @@
 
 	.conversation {
 		display: flex;
+		flex: 1;
 		flex-direction: column;
 		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
 	}
 
 	.conversation-heading {
 		display: flex;
+		flex: none;
 		justify-content: space-between;
 		gap: var(--spacing-md);
 		align-items: flex-start;
@@ -319,35 +307,13 @@
 		background: #a47a27;
 	}
 
-	label {
-		display: grid;
-		gap: 0.32rem;
-		color: #4e422f;
-		font-size: 0.84rem;
-		font-weight: 600;
-	}
-
 	.composer {
-		display: grid;
-		gap: 0.55rem;
+		flex: none;
 		padding: 0.75rem 1.5rem 0;
 	}
 
-	.message-label {
-		font-size: 0.8rem;
-	}
-
-	.composer-actions {
-		display: flex;
-		justify-content: space-between;
-		gap: var(--spacing-md);
-		align-items: center;
-	}
-
-	.composer-actions > span {
-		color: #746957;
-		font-size: 0.72rem;
-		font-variant-numeric: tabular-nums;
+	.proposal {
+		flex: none;
 	}
 
 	@media (max-width: 44rem) {
@@ -360,21 +326,6 @@
 		.composer {
 			padding-right: var(--spacing-md);
 			padding-left: var(--spacing-md);
-		}
-	}
-
-	@media (max-width: 30rem) {
-		.composer-actions {
-			align-items: stretch;
-			flex-direction: column;
-		}
-
-		.composer-actions > span {
-			align-self: flex-end;
-		}
-
-		.composer-actions :global(button.button) {
-			width: 100%;
 		}
 	}
 </style>

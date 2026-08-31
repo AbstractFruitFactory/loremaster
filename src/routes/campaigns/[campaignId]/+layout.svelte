@@ -95,14 +95,16 @@
 	}
 
 	.campaign-content {
+		display: flex;
 		width: 100%;
 		flex: 1;
 		min-height: 0;
-		overflow-y: auto;
-		overscroll-behavior: contain;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.campaign-error {
+		flex: none;
 		margin: 0;
 		padding: 0.85rem clamp(1rem, 4vw, 2rem);
 		border-bottom: 1px solid #b77b65;
@@ -114,6 +116,10 @@
 
 	.route-content {
 		width: 100%;
+		flex: 1;
+		min-height: 0;
+		overflow-y: auto;
+		overscroll-behavior: contain;
 	}
 
 	@media (max-width: 52rem) {

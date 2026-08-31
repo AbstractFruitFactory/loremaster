@@ -34,6 +34,18 @@
 		]
 	} satisfies ConversationFeedArgs
 
+	const longConversationArgs = {
+		messages: Array.from({ length: 14 }, (_, index) => ({
+			id: `long-message-${index + 1}`,
+			role: index % 2 === 0 ? 'user' : 'assistant',
+			content:
+				index % 2 === 0
+					? `Question ${index / 2 + 1}: What changed in the realm after the last session?`
+					: `Answer ${(index + 1) / 2}: The latest records describe shifting alliances, newly revealed paths, and consequences that the party will need to confront.`,
+			sources: []
+		}))
+	} satisfies ConversationFeedArgs
+
 	const { Story } = defineMeta({
 		title: 'Components/ConversationFeed',
 		component: ConversationFeed,
@@ -41,6 +53,25 @@
 	})
 </script>
 
+{#snippet longConversation(args: ConversationFeedArgs)}
+	<div class="feed-frame">
+		<ConversationFeed {...args} />
+	</div>
+{/snippet}
+
 <Story name="Empty" args={emptyArgs} />
 
 <Story name="Conversation" args={conversationArgs} />
+
+<Story name="Long conversation" args={longConversationArgs} template={longConversation} />
+
+<style>
+	.feed-frame {
+		display: flex;
+		height: 26rem;
+		min-height: 0;
+		flex-direction: column;
+		border: 1px solid #c7ad7d;
+		background: #eee0c6;
+	}
+</style>
