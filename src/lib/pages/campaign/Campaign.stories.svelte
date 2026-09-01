@@ -6,22 +6,32 @@
 
 	type CampaignArgs = ComponentProps<typeof Campaign>
 
-	const onask: CampaignArgs['onask'] = async ({ message }) => ({
-		message: `The Ashen Crown is bound to the oath spoken at Emberwatch. Your question, “${message}”, points to the missing verse recorded after the northern expedition.`,
-		sources: [
-			{
-				id: 'source-emberwatch-oath',
-				title: 'The Oath of Emberwatch',
-				type: 'lore'
-			}
-		],
-		proposal: {
-			title: 'The Missing Verse of Emberwatch',
-			category: 'event',
-			content:
-				'The final verse of the Emberwatch oath binds the bearer of the Ashen Crown to return before the first winter moon.'
+	const onask: CampaignArgs['onask'] = async function* ({ message }) {
+		yield {
+			type: 'sources',
+			sources: [
+				{
+					id: 'source-emberwatch-oath',
+					title: 'The Oath of Emberwatch',
+					type: 'lore'
+				}
+			]
 		}
-	})
+		yield {
+			type: 'text-delta',
+			delta: `The Ashen Crown is bound to the oath spoken at Emberwatch. Your question, “${message}”, points to the missing verse recorded after the northern expedition.`
+		}
+		yield {
+			type: 'proposal',
+			proposal: {
+				title: 'The Missing Verse of Emberwatch',
+				category: 'event',
+				content:
+					'The final verse of the Emberwatch oath binds the bearer of the Ashen Crown to return before the first winter moon.'
+			}
+		}
+		yield { type: 'done' }
+	}
 
 	const onaddlore: CampaignArgs['onaddlore'] = async ({ title }) => ({ title })
 

@@ -57,6 +57,13 @@
       "when": 1788070000000,
       "tag": "0007_document-summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788223304069,
+      "tag": "0008_openai_embeddings",
+      "breakpoints": true
     }
   ]
 }

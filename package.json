@@ -17,7 +17,7 @@
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
-		"db:seed": "vite-node --config scripts/vite.config.ts scripts/seed-test-campaign.ts",
+		"db:seed": "MOCK_AI_PROVIDER=true vite-node --config scripts/vite.config.ts scripts/seed-test-campaign.ts",
 		"db:studio": "drizzle-kit studio",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
@@ -60,6 +60,7 @@
 		"@mastra/pg": "^1.22.2",
 		"@mastra/rag": "^2.6.0",
 		"effect": "^3.22.1",
+		"openai": "^7.8.0",
 		"postgres": "^3.4.9",
 		"yaml": "^2.9.0",
 		"zod": "^4.4.3"

@@ -5,6 +5,7 @@ import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
 import { assistant, lore, vault } from '#lib/server/app.js'
+import { askLoremasterCommandSchema } from '#lib/server/assistant/schema.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
 import { logFailure } from '#lib/server/failure.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
@@ -61,23 +62,6 @@ const createLoreInput = z
 		content: z.string().trim().min(1).max(1_000_000)
 	})
 	.strict()
-const askLoremasterInput = z
-	.object({
-		campaignId,
-		message: z.string().trim().min(1).max(2_000),
-		history: z
-			.array(
-				z
-					.object({
-						role: z.enum(['user', 'assistant']),
-						content: z.string().trim().min(1).max(2_000)
-					})
-					.strict()
-			)
-			.max(12)
-	})
-	.strict()
-
 export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 	runPromise(
 		pipe(
@@ -148,7 +132,7 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 )
 
 export const askLoremaster = command(
-	askLoremasterInput,
+	askLoremasterCommandSchema,
 	({ campaignId, message, history }): Promise<AssistantResponse> =>
 		runPromise(
 			pipe(

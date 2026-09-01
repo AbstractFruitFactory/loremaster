@@ -5,10 +5,10 @@ import type { contextOperations } from '../context/operations'
 import type { ContextConversationMessage, ContextItem } from '../context/types'
 import { fail, type Failure } from '../failure'
 import { assistantPrompt } from './prompt'
-import type { AssistantResponse, LoreSource } from './types'
+import type { AssistantResponse, AssistantStream, LoreSource } from './types'
 
 type AssistantDependencies = {
-	ai: AiModel<'generateAssistant'>
+	ai: AiModel<'generateAssistant' | 'streamAssistant'>
 	context: Pick<ReturnType<typeof contextOperations>, 'buildAssistantContext'>
 }
 
@@ -27,20 +27,30 @@ const contextSources = (items: ContextItem[]) => {
 }
 
 export const assistantOperations = ({ ai, context }: AssistantDependencies) => {
-	const chat = (
+	const requestContext = (
 		campaignId: string,
 		message: string,
 		history: ContextConversationMessage[]
-	): Effect<AssistantResponse, Failure> => {
+	) => {
 		const request = message.trim()
 
 		if (!request) {
 			return fail('assistant', 'chat', { reason: 'emptyMessage' })
 		}
 
+		return context
+			.buildAssistantContext({ campaignId, message: request, history })
+			.pipe(map((assistantContext) => ({ assistantContext, request })))
+	}
+
+	const chat = (
+		campaignId: string,
+		message: string,
+		history: ContextConversationMessage[]
+	): Effect<AssistantResponse, Failure> => {
 		return pipe(
-			context.buildAssistantContext({ campaignId, message: request, history }),
-			flatMap((assistantContext) =>
+			requestContext(campaignId, message, history),
+			flatMap(({ assistantContext, request }) =>
 				pipe(
 					ai.generateAssistant({
 						...assistantPrompt(request, history, assistantContext),
@@ -58,5 +68,28 @@ export const assistantOperations = ({ ai, context }: AssistantDependencies) => {
 		)
 	}
 
-	return { chat }
+	const streamChat = (
+		campaignId: string,
+		message: string,
+		history: ContextConversationMessage[],
+		signal?: AbortSignal
+	): Effect<AssistantStream, Failure> =>
+		pipe(
+			requestContext(campaignId, message, history),
+			flatMap(({ assistantContext, request }) =>
+				pipe(
+					ai.streamAssistant({
+						...assistantPrompt(request, history, assistantContext),
+						model: ai.model,
+						signal
+					}),
+					map((events) => ({
+						events,
+						sources: contextSources(assistantContext.items)
+					}))
+				)
+			)
+		)
+
+	return { chat, streamChat }
 }
