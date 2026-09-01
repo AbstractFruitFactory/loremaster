@@ -17,6 +17,7 @@
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
+		"db:seed": "vite-node --config scripts/vite.config.ts scripts/seed-test-campaign.ts",
 		"db:studio": "drizzle-kit studio",
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
@@ -45,6 +46,7 @@
 		"svelte-check": "^4.7.5",
 		"typescript": "^6.0.3",
 		"vite": "^8.0.16",
+		"vite-node": "^6.0.0",
 		"vitest": "^4.1.8"
 	},
 	"imports": {

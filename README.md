@@ -26,7 +26,17 @@ Install dependencies, start PostgreSQL, and apply migrations:
 pnpm install
 docker compose up -d
 pnpm db:migrate
+pnpm db:seed
 ```
+
+Seed a test campaign ("Curse of Blackwood") with locations, NPCs, lore, events, and more:
+
+```sh
+pnpm db:seed              # skip if already seeded
+pnpm db:seed -- --reset   # delete and recreate
+```
+
+Open `http://localhost:5173/campaigns/11111111-1111-4111-8111-111111111111` after seeding.
 
 Then start the development server:
 
