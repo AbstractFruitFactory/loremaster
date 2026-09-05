@@ -36,7 +36,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		isLoading: false,
 		hasLoadError: false,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore'
+		backHref: '/campaigns/demo/lore',
+		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const loadingArgs = {
@@ -45,7 +46,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		isLoading: true,
 		hasLoadError: false,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore'
+		backHref: '/campaigns/demo/lore',
+		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const loadErrorArgs = {
@@ -54,7 +56,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		isLoading: false,
 		hasLoadError: true,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore'
+		backHref: '/campaigns/demo/lore',
+		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const { Story } = defineMeta({

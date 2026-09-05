@@ -18,6 +18,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { documentTypes } from '../../document'
 import { EMBEDDING_DIMENSIONS } from '../ai/provider'
+import { revisionOperations, revisionSources } from '../vault/revisions/types'
 
 const tsvector = customType<{ data: string }>({
 	dataType: () => 'tsvector'
@@ -53,6 +54,68 @@ export const vaultDocuments = pgTable(
 		),
 		uniqueIndex('vault_documents_campaign_path_unique').on(table.campaignId, table.path),
 		index('vault_documents_campaign_id_index').on(table.campaignId)
+	]
+)
+
+export const vaultRevisions = pgTable(
+	'vault_revisions',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		revisionId: text('revision_id').notNull(),
+		previousRevisionId: text('previous_revision_id'),
+		transactionId: text('transaction_id').notNull(),
+		documentId: text('document_id').notNull(),
+		path: text('path').notNull(),
+		operation: text('operation', { enum: revisionOperations }).notNull(),
+		source: text('source', { enum: revisionSources }).notNull(),
+		relatedSessionId: text('related_session_id'),
+		ingestionId: text('ingestion_id'),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull(),
+		beforeHash: text('before_hash'),
+		afterHash: text('after_hash'),
+		changeSummary: text('change_summary')
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.revisionId],
+			name: 'vault_revisions_campaign_revision_pk'
+		}),
+		uniqueIndex('vault_revisions_campaign_transaction_unique').on(
+			table.campaignId,
+			table.transactionId
+		),
+		index('vault_revisions_campaign_document_created_index').on(
+			table.campaignId,
+			table.documentId,
+			table.createdAt
+		)
+	]
+)
+
+export const vaultRevisionHeads = pgTable(
+	'vault_revision_heads',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		documentId: text('document_id').notNull(),
+		revisionId: text('revision_id').notNull(),
+		path: text('path').notNull(),
+		sourceHash: text('source_hash')
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.documentId],
+			name: 'vault_revision_heads_campaign_document_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.revisionId],
+			foreignColumns: [vaultRevisions.campaignId, vaultRevisions.revisionId],
+			name: 'vault_revision_heads_campaign_revision_fk'
+		}).onDelete('cascade'),
+		index('vault_revision_heads_campaign_index').on(table.campaignId)
 	]
 )
 

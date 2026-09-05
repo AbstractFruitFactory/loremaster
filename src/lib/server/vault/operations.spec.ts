@@ -7,9 +7,12 @@ import type { GenerateText, InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
 import { timelineOperations } from '../timeline/operations'
-import { filesystemVaultStorage } from './storage/filesystem'
 import { parseVaultDocument } from './markdown'
 import { vaultOperations } from './operations'
+import { vaultRevisionOperations } from './revisions/operations'
+import { filesystemRevisionStorage } from './revisions/storage'
+import type { RevisionHead, VaultRevision } from './revisions/types'
+import { filesystemVaultStorage } from './storage/filesystem'
 import type { VaultDocumentIndex } from './types'
 
 type VaultDatabase = Parameters<typeof vaultOperations>[0]['db']
@@ -34,6 +37,8 @@ describe('vault operations', () => {
 	let inferDocumentType: InferDocumentType
 	let generateText: GenerateText
 	let storage: ReturnType<typeof filesystemVaultStorage>
+	let revisionHeads: Map<string, RevisionHead>
+	let revisionRecords: VaultRevision[]
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'loremaster-vault-'))
@@ -41,6 +46,8 @@ describe('vault operations', () => {
 		indexedDocuments = new Map()
 		outgoingLinks = new Map()
 		storage = filesystemVaultStorage(root)
+		revisionHeads = new Map()
+		revisionRecords = []
 		inferDocumentType = vi.fn(mockAiProvider.inferDocumentType)
 		generateText = vi.fn(mockAiProvider.generateText)
 		contextIndex = {
@@ -77,6 +84,41 @@ describe('vault operations', () => {
 			}
 		}
 
+		const revisions = vaultRevisionOperations({
+			db: {
+				getRevisionHead: (_campaignId, documentId) => succeed(revisionHeads.get(documentId)),
+				indexRevision: (revision) => {
+					revisionRecords.push(revision)
+					revisionHeads.set(revision.documentId, {
+						campaignId: revision.campaignId,
+						documentId: revision.documentId,
+						revisionId: revision.revisionId,
+						path: revision.path,
+						sourceHash: revision.afterHash
+					})
+					return succeed(undefined)
+				},
+				replaceCampaignRevisionIndex: (_campaignId, revisions) => {
+					revisionRecords = [...revisions]
+					revisionHeads = new Map(
+						revisions.map((revision) => [
+							revision.documentId,
+							{
+								campaignId: revision.campaignId,
+								documentId: revision.documentId,
+								revisionId: revision.revisionId,
+								path: revision.path,
+								sourceHash: revision.afterHash
+							}
+						])
+					)
+					return succeed(undefined)
+				}
+			},
+			revisions: filesystemRevisionStorage(root),
+			vault: storage
+		})
+
 		operations = vaultOperations({
 			ai: {
 				inferDocumentType,
@@ -86,6 +128,7 @@ describe('vault operations', () => {
 			},
 			db,
 			contextIndex,
+			revisions,
 			storage,
 			timeline: timelineOperations({
 				db: {
@@ -167,7 +210,9 @@ describe('vault operations', () => {
 				operations.updateDocument(campaign.id, first.id, {
 					type: 'event',
 					after: [second.id],
-					content: '# First'
+					content: '# First',
+					expectedSourceHash: first.sourceHash,
+					expectedRevisionId: first.currentRevisionId
 				})
 			)
 		)
@@ -237,7 +282,9 @@ id: character-mara
 		await runPromise(
 			operations.updateDocument(campaign.id, created.id, {
 				type: 'npc',
-				content: '# Varek\n\nGuards the western gate.'
+				content: '# Varek\n\nGuards the western gate.',
+				expectedSourceHash: created.sourceHash,
+				expectedRevisionId: created.currentRevisionId
 			})
 		)
 
@@ -259,7 +306,9 @@ id: character-mara
 		await runPromise(
 			operations.updateDocument(campaign.id, created.id, {
 				type: 'npc',
-				content: '# Varek\n\nWorks with [[Ashen Council|the council]].'
+				content: '# Varek\n\nWorks with [[Ashen Council|the council]].',
+				expectedSourceHash: created.sourceHash,
+				expectedRevisionId: created.currentRevisionId
 			})
 		)
 
@@ -268,6 +317,101 @@ id: character-mara
 			campaign.id,
 			expect.objectContaining({ id: created.id, links: ['Ashen Council'] })
 		)
+	})
+
+	it('rejects updates that omit the current source hash', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+
+		const failure = await runPromise(
+			flip(
+				operations.updateDocument(campaign.id, created.id, {
+					type: 'npc',
+					content: '# Varek\n\nChanged.'
+				})
+			)
+		)
+
+		expect(failure).toMatchObject({
+			domain: 'vaultRevision',
+			operation: 'verifyBase',
+			cause: { reason: 'missingBase' }
+		})
+		expect(await runPromise(operations.getDocument(campaign.id, created.id))).toEqual(created)
+	})
+
+	it('restores a previous snapshot as a new revision without rewriting history', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek\n\nRuns the forge.'
+			})
+		)
+		const updated = await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'npc',
+				content: '# Varek\n\nGuards the western gate.',
+				expectedSourceHash: created.sourceHash,
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
+
+		const restored = await runPromise(
+			operations.restoreDocumentRevision(campaign.id, created.id, created.currentRevisionId!, {
+				expectedSourceHash: updated.sourceHash ?? null,
+				expectedRevisionId: updated.currentRevisionId!
+			})
+		)
+		const history = await runPromise(operations.listDocumentRevisions(campaign.id, created.id))
+		const first = await runPromise(
+			operations.getDocumentRevision(campaign.id, created.id, created.currentRevisionId!)
+		)
+
+		expect(restored.content).toBe('# Varek\n\nRuns the forge.')
+		expect(restored.currentRevisionId).not.toBe(created.currentRevisionId)
+		expect(history.map(({ operation }) => operation)).toEqual(['create', 'update', 'restore'])
+		expect(first.snapshot).toContain('# Varek\n\nRuns the forge.')
+		expect(first.revisionId).toBe(created.currentRevisionId)
+	})
+
+	it('preserves unknown raw frontmatter fields when updating', async () => {
+		await runPromise(
+			storage.write(
+				campaign.id,
+				'Characters/Varek.md',
+				`---
+id: character-varek
+type: npc
+tags:
+  - keeper
+custom: retained
+---
+
+# Varek`
+			)
+		)
+		const imported = await runPromise(operations.indexDocument(campaign.id, 'Characters/Varek.md'))
+
+		await runPromise(
+			operations.updateDocument(campaign.id, imported.id, {
+				type: 'npc',
+				aliases: ['The Keeper'],
+				content: '# Varek\n\nUpdated.',
+				expectedSourceHash: imported.sourceHash,
+				expectedRevisionId: imported.currentRevisionId
+			})
+		)
+
+		const updatedSource = await runPromise(storage.read(campaign.id, imported.path))
+		expect(updatedSource).toContain('tags:\n  - keeper')
+		expect(updatedSource).toContain('custom: retained')
+		expect(revisionRecords.map(({ operation }) => operation)).toEqual(['import', 'update'])
 	})
 
 	it('removes derived context when deleting a document', async () => {
@@ -279,7 +423,12 @@ id: character-mara
 			})
 		)
 
-		await runPromise(operations.deleteDocument(campaign.id, created.id))
+		await runPromise(
+			operations.deleteDocument(campaign.id, created.id, {
+				expectedSourceHash: created.sourceHash,
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
 
 		expect(contextIndex.deleteDocumentIndex).toHaveBeenCalledWith(campaign.id, created.id)
 	})

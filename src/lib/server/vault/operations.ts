@@ -6,7 +6,14 @@ import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
 import { fail, type Failure } from '../failure'
 import type { timelineOperations } from '../timeline/operations'
-import { parseVaultDocument, serializeVaultDocument, updateDocumentFrontmatter } from './markdown'
+import {
+	parseVaultDocument,
+	serializeVaultDocument,
+	updateDocumentFrontmatter,
+	updateVaultDocumentSource
+} from './markdown'
+import type { vaultRevisionOperations } from './revisions/operations'
+import { sourceHash } from './revisions/operations'
 import { documentSummaryPrompt } from './summary'
 import type { VaultStorage } from './storage/storage'
 import type {
@@ -31,6 +38,8 @@ const isValidDocumentPath = (path: string) => {
 const toDocumentIndex = ({
 	content: _content,
 	aliases: _aliases,
+	sourceHash: _sourceHash,
+	currentRevisionId: _currentRevisionId,
 	...index
 }: VaultDocument): VaultDocumentIndex => index
 
@@ -57,6 +66,7 @@ export const vaultOperations = ({
 	ai,
 	db,
 	contextIndex,
+	revisions,
 	storage,
 	timeline
 }: {
@@ -79,6 +89,7 @@ export const vaultOperations = ({
 		indexDocument: (campaignId: string, document: VaultDocument) => Effect<void, Failure>
 		reindexCampaign: (campaignId: string, documents: VaultDocument[]) => Effect<void, Failure>
 	}
+	revisions: ReturnType<typeof vaultRevisionOperations>
 	storage: VaultStorage
 	timeline: Pick<ReturnType<typeof timelineOperations>, 'validateDocuments'>
 }) => {
@@ -121,7 +132,7 @@ export const vaultOperations = ({
 			)
 		)
 
-	const ensureCampaign = (campaignId: string) =>
+	const ensureCampaignExists = (campaignId: string) =>
 		pipe(
 			db.getCampaignById(campaignId),
 			flatMap((campaign) =>
@@ -129,48 +140,72 @@ export const vaultOperations = ({
 			)
 		)
 
+	const ensureCampaign = (campaignId: string) =>
+		pipe(
+			ensureCampaignExists(campaignId),
+			flatMap(() => revisions.ensureCampaignReady(campaignId))
+		)
+
 	const ensureDocumentMetadata = (
 		campaignId: string,
 		source: string,
 		document: ParsedVaultDocument
 	) =>
-		pipe(
-			document.type
+		gen(function* () {
+			const type = yield* document.type
 				? succeed(document.type)
 				: ai.inferDocumentType({
 						model: ai.documentTypeModel,
 						path: document.path,
 						title: document.title,
 						content: document.content
-					}),
-			flatMap((type) => {
-				if (document.after.length && type !== 'event') {
-					return fail('vault', 'parseDocument', {
-						path: document.path,
-						reason: 'eventPredecessorsOnNonEvent',
-						type
 					})
-				}
+			if (document.after.length && type !== 'event') {
+				return yield* fail('vault', 'parseDocument', {
+					path: document.path,
+					reason: 'eventPredecessorsOnNonEvent',
+					type
+				})
+			}
 
-				const normalizedDocument: VaultDocument = {
-					...document,
-					id: document.id ?? randomUUID(),
-					type,
-					summary: document.summary
-				}
+			const normalizedDocument: VaultDocument = {
+				...document,
+				id: document.id ?? randomUUID(),
+				type,
+				summary: document.summary
+			}
 
-				if (document.id && document.type) return succeed(normalizedDocument)
-
-				return pipe(
-					updateDocumentFrontmatter(source, {
-						id: normalizedDocument.id,
-						type: normalizedDocument.type
-					}),
-					flatMap((normalizedSource) => storage.write(campaignId, document.path, normalizedSource)),
-					map(() => normalizedDocument)
+			if (document.id && document.type) {
+				const head = yield* revisions.ensureCurrentRevision(
+					campaignId,
+					normalizedDocument.id,
+					document.path,
+					source
 				)
+				return {
+					...normalizedDocument,
+					sourceHash: sourceHash(source),
+					currentRevisionId: head.revisionId
+				}
+			}
+
+			const normalizedSource = yield* updateDocumentFrontmatter(source, {
+				id: normalizedDocument.id,
+				type: normalizedDocument.type
 			})
-		)
+			const revision = yield* revisions.importSnapshot(
+				campaignId,
+				normalizedDocument.id,
+				document.path,
+				source,
+				normalizedSource
+			)
+			return {
+				...normalizedDocument,
+				sourceHash: revision.afterHash ?? undefined,
+				currentRevisionId: revision.revisionId
+			}
+		})
 
 	const loadDocumentAtPath = (campaignId: string, path: string) =>
 		pipe(
@@ -270,7 +305,7 @@ export const vaultOperations = ({
 			}
 
 			yield* timeline.validateDocuments([...documents, proposedDocument])
-			yield* storage.create(campaignId, input.path, source)
+			yield* revisions.create(campaignId, documentId, input.path, source)
 
 			const document = yield* loadDocumentAtPath(campaignId, input.path)
 
@@ -294,6 +329,8 @@ export const vaultOperations = ({
 		aliases?: string[]
 		after?: string[]
 		content: string
+		expectedSourceHash?: string
+		expectedRevisionId?: string
 	}
 
 	const applyDocumentUpdate =
@@ -316,50 +353,57 @@ export const vaultOperations = ({
 			map(() => updated)
 		)
 
-	const writeDocument = (campaignId: string) => (document: VaultDocument) =>
-		pipe(
-			storage.write(
-				campaignId,
-				document.path,
-				serializeVaultDocument(
-					{
-						id: document.id,
-						type: document.type,
-						aliases: document.aliases,
-						after: document.after
-					},
-					document.content
-				)
-			),
-			map(() => document)
-		)
-
 	const updateDocumentIndexes = (campaignId: string) => (document: VaultDocument) =>
 		indexDocumentWithSummary(campaignId, document)
 
 	const updateDocument = (campaignId: string, documentId: string, input: UpdateDocumentInput) =>
-		pipe(
-			ensureCampaign(campaignId),
-			flatMap(() => findDocument(campaignId, documentId)),
-			map(applyDocumentUpdate(input)),
-			flatMap(validateDocumentUpdate(campaignId)),
-			flatMap(writeDocument(campaignId)),
-			flatMap(() => findDocument(campaignId, documentId)),
-			flatMap(updateDocumentIndexes(campaignId))
-		)
-
-	const deleteDocument = (campaignId: string, documentId: string) =>
-		pipe(
-			ensureCampaign(campaignId),
-			flatMap(() => findDocument(campaignId, documentId)),
-			flatMap((document) =>
-				pipe(
-					storage.delete(campaignId, document.path),
-					flatMap(() => db.deleteDocumentIndex(campaignId, document.id)),
-					flatMap(() => contextIndex.deleteDocumentIndex(campaignId, document.id))
-				)
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			if (!input.expectedSourceHash || !input.expectedRevisionId) {
+				return yield* fail('vaultRevision', 'verifyBase', { reason: 'missingBase' })
+			}
+			const existing = yield* findDocument(campaignId, documentId)
+			const updated = yield* validateDocumentUpdate(campaignId)(
+				applyDocumentUpdate(input)(existing)
 			)
-		)
+			const beforeSource = yield* storage.read(campaignId, existing.path)
+			const afterSource = yield* updateVaultDocumentSource(
+				beforeSource,
+				{
+					id: updated.id,
+					type: updated.type,
+					aliases: updated.aliases,
+					after: updated.after
+				},
+				updated.content
+			)
+			yield* revisions.update(campaignId, documentId, existing.path, beforeSource, afterSource, {
+				expectedSourceHash: input.expectedSourceHash,
+				expectedRevisionId: input.expectedRevisionId
+			})
+			const document = yield* findDocument(campaignId, documentId)
+			return yield* updateDocumentIndexes(campaignId)(document)
+		})
+
+	const deleteDocument = (
+		campaignId: string,
+		documentId: string,
+		options: { expectedSourceHash?: string; expectedRevisionId?: string } = {}
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			if (!options.expectedSourceHash || !options.expectedRevisionId) {
+				return yield* fail('vaultRevision', 'verifyBase', { reason: 'missingBase' })
+			}
+			const document = yield* findDocument(campaignId, documentId)
+			const beforeSource = yield* storage.read(campaignId, document.path)
+			yield* revisions.delete(campaignId, document.id, document.path, beforeSource, {
+				expectedSourceHash: options.expectedSourceHash,
+				expectedRevisionId: options.expectedRevisionId
+			})
+			yield* db.deleteDocumentIndex(campaignId, document.id)
+			yield* contextIndex.deleteDocumentIndex(campaignId, document.id)
+		})
 
 	const listDocuments = (campaignId: string) =>
 		pipe(
@@ -388,9 +432,73 @@ export const vaultOperations = ({
 			flatMap(() => db.getBacklinks(campaignId, documentId))
 		)
 
+	const listDocumentRevisions = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.listRevisions(campaignId, documentId))
+		)
+
+	const getDocumentRevision = (campaignId: string, documentId: string, revisionId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.getRevision(campaignId, documentId, revisionId))
+		)
+
+	const diffDocumentRevisions = (
+		campaignId: string,
+		documentId: string,
+		toRevisionId: string,
+		fromRevisionId?: string
+	) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.diffRevisions(campaignId, documentId, toRevisionId, fromRevisionId))
+		)
+
+	const restoreDocumentRevision = (
+		campaignId: string,
+		documentId: string,
+		revisionId: string,
+		options: { expectedSourceHash: string | null; expectedRevisionId: string }
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const selected = yield* revisions.getRevision(campaignId, documentId, revisionId)
+			if (selected.snapshot === null) {
+				return yield* fail('vaultRevision', 'restoreRevision', { reason: 'deletedSnapshot' })
+			}
+			const restored = yield* parseVaultDocument(selected.path, selected.snapshot)
+			if (!restored.id || !restored.type || restored.id !== documentId) {
+				return yield* fail('vaultRevision', 'restoreRevision', {
+					reason: 'invalidSnapshot',
+					revisionId
+				})
+			}
+			const documents = yield* loadDocuments(campaignId)
+			const projected: VaultDocument = {
+				...restored,
+				id: restored.id,
+				type: restored.type
+			}
+			yield* timeline.validateDocuments([
+				...documents.filter((document) => document.id !== documentId),
+				projected
+			])
+			const restoreRevision = yield* revisions.restore(campaignId, documentId, revisionId, options)
+			const document = yield* loadDocumentAtPath(campaignId, restoreRevision.path)
+			return yield* indexDocumentWithSummary(campaignId, document)
+		})
+
+	const recoverRevisions = (campaignId: string) =>
+		pipe(
+			ensureCampaignExists(campaignId),
+			flatMap(() => revisions.recoverCampaign(campaignId))
+		)
+
 	const reindexCampaign = (campaignId: string) =>
 		gen(function* () {
 			yield* ensureCampaign(campaignId)
+			yield* revisions.rebuildIndex(campaignId)
 			const documents = yield* loadDocuments(campaignId)
 			const documentsWithSummaries = yield* all(
 				documents.map((document) =>
@@ -401,10 +509,7 @@ export const vaultOperations = ({
 				)
 			)
 
-			yield* db.replaceCampaignIndex(
-				campaignId,
-				documentsWithSummaries.map(toDocumentIndex)
-			)
+			yield* db.replaceCampaignIndex(campaignId, documentsWithSummaries.map(toDocumentIndex))
 			yield* contextIndex.reindexCampaign(campaignId, documentsWithSummaries)
 
 			return documentsWithSummaries
@@ -413,13 +518,18 @@ export const vaultOperations = ({
 	return {
 		createDocument,
 		deleteDocument,
+		diffDocumentRevisions,
 		getBacklinks,
 		getDocument,
+		getDocumentRevision,
 		getDocuments,
 		getOutgoingLinks,
 		indexDocument,
+		listDocumentRevisions,
 		listDocuments,
+		recoverRevisions,
 		reindexCampaign,
+		restoreDocumentRevision,
 		updateDocument
 	}
 }

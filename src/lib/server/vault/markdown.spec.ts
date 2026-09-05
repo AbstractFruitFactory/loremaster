@@ -4,7 +4,8 @@ import {
 	extractWikiLinks,
 	parseVaultDocument,
 	serializeVaultDocument,
-	updateDocumentFrontmatter
+	updateDocumentFrontmatter,
+	updateVaultDocumentSource
 } from './markdown'
 
 const parseDocument = (path: string, source: string) => runSync(parseVaultDocument(path, source))
@@ -104,6 +105,23 @@ custom: retained
 		expect(identified).toContain('tags:\n  - npc')
 		expect(identified).toContain('custom: retained')
 		expect(parseDocument('Characters/Varek.md', identified).content).toBe('# Varek')
+	})
+
+	it('preserves unknown YAML comments, scalar styles, and CRLF endings when updating', () => {
+		const source =
+			'---\r\n# vault comment\r\nid: char_varek\r\ntype: npc\r\ncustom: "quoted" # inline\r\nfolded: >-\r\n  retained value\r\n---\r\n\r\n# Varek\r\n'
+		const updated = runSync(
+			updateVaultDocumentSource(
+				source,
+				{ id: 'char_varek', type: 'npc', aliases: ['Keeper'], after: [] },
+				'# Varek\r\n\r\nUpdated.'
+			)
+		)
+
+		expect(updated).toContain('# vault comment\r\n')
+		expect(updated).toContain('custom: "quoted" # inline\r\n')
+		expect(updated).toContain('folded: >-\r\n  retained value\r\n')
+		expect(updated).not.toMatch(/(^|[^\r])\n/)
 	})
 
 	it('returns malformed YAML as an expected parsing failure', () => {

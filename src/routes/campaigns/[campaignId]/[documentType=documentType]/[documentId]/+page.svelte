@@ -10,6 +10,7 @@
 	const documentId = $derived(params.documentId)
 	const document = $derived(getDocument({ campaignId, documentId }))
 	const backHref = $derived(`/campaigns/${campaignId}/${selectedType}`)
+	const historyHref = $derived(`/campaigns/${campaignId}/${selectedType}/${documentId}/history`)
 	const typeMismatch = $derived(Boolean(document.current && document.current.type !== selectedType))
 </script>
 
@@ -20,4 +21,5 @@
 	hasLoadError={Boolean(document.error)}
 	{typeMismatch}
 	{backHref}
+	{historyHref}
 />
