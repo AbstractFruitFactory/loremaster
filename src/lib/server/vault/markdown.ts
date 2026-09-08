@@ -28,6 +28,17 @@ const parseYamlRecord = (
 	)
 }
 
+const updateYamlFrontmatter = (
+	source: string,
+	update: (document: ReturnType<typeof parseYamlDocument>) => void
+): Effect<string, Failure<'vault', 'parseDocument'>> => {
+	const document = parseYamlDocument(source, { keepSourceTokens: true })
+	const error = document.errors[0]
+	if (error) return fail('vault', 'parseDocument', error)
+	update(document)
+	return succeed(document.toString({ lineWidth: 0 }).trimEnd())
+}
+
 const parseFrontmatter = (
 	source: string
 ): Effect<
@@ -153,10 +164,40 @@ export const updateDocumentFrontmatter = (
 	}
 
 	return pipe(
-		parseYamlRecord(match[1]),
-		map(
-			(metadata) =>
-				`---\n${stringify({ ...metadata, ...frontmatter }).trimEnd()}\n---\n${source.slice(match[0].length)}`
-		)
+		updateYamlFrontmatter(match[1], (document) => {
+			document.set('id', frontmatter.id)
+			document.set('type', frontmatter.type)
+		}),
+		map((metadata) => {
+			const newline = source.includes('\r\n') ? '\r\n' : '\n'
+			const trailingNewline = match[0].endsWith(newline) ? newline : ''
+			return `---${newline}${metadata.replace(/\n/g, newline)}${newline}---${trailingNewline}${source.slice(match[0].length)}`
+		})
+	)
+}
+
+export const updateVaultDocumentSource = (
+	source: string,
+	frontmatter: Required<Pick<VaultFrontmatter, 'id' | 'type'>> &
+		Pick<VaultFrontmatter, 'aliases' | 'after'>,
+	content: string
+) => {
+	const match = source.match(frontmatterPattern)
+	if (!match) return succeed(serializeVaultDocument(frontmatter, content))
+
+	return pipe(
+		updateYamlFrontmatter(match[1], (document) => {
+			document.set('id', frontmatter.id)
+			document.set('type', frontmatter.type)
+			if (frontmatter.aliases?.length) document.set('aliases', frontmatter.aliases)
+			else document.delete('aliases')
+			if (frontmatter.after?.length) document.set('after', frontmatter.after)
+			else document.delete('after')
+		}),
+		map((metadata) => {
+			const newline = source.includes('\r\n') ? '\r\n' : '\n'
+			const normalizedContent = content.replace(/^\r?\n/, '').replace(/\r?\n/g, newline)
+			return `---${newline}${metadata.replace(/\n/g, newline)}${newline}---${newline}${newline}${normalizedContent}`
+		})
 	)
 }

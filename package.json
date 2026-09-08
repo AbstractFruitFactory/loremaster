@@ -17,6 +17,7 @@
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "drizzle-kit migrate",
+		"db:reindex-vaults": "vite-node --config scripts/vite.config.ts scripts/reindex-campaign-vaults.ts",
 		"db:seed": "MOCK_AI_PROVIDER=true vite-node --config scripts/vite.config.ts scripts/seed-test-campaign.ts",
 		"db:studio": "drizzle-kit studio",
 		"storybook": "storybook dev -p 6006",

@@ -81,6 +81,8 @@ const main = async () => {
 
 	if (existingCampaign && !reset) {
 		console.log('Seed campaign already exists.')
+		console.log('Reindexing its vault and revision metadata…')
+		await runPromise(vault.reindexCampaign(seedCampaign.id))
 		console.log(`Campaign ID: ${seedCampaign.id}`)
 		console.log(`Open: http://localhost:5173/campaigns/${seedCampaign.id}`)
 		console.log('Use pnpm db:seed -- --reset to recreate it.')

@@ -17,6 +17,7 @@ export type VaultDocument = {
 	summary: string
 	content: string
 	links: string[]
+	currentRevisionId?: string
 }
 
 export type VaultDocumentSummary = Omit<VaultDocument, 'content'>

@@ -7,4 +7,4 @@ const useMockAi = MOCK_AI_PROVIDER === 'true'
 const provider = useMockAi ? mockAiProvider : createOpenAiProvider(OPENAI_API_KEY)
 const services = createServices(provider)
 
-export const { assistant, campaign, context, lore, timeline, vault } = services
+export const { assistant, campaign, context, lore, revisions, timeline, vault } = services

@@ -64,6 +64,13 @@
       "when": 1788223304069,
       "tag": "0008_openai_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1788308098050,
+      "tag": "0009_yellow_zuras",
+      "breakpoints": true
     }
   ]
 }
