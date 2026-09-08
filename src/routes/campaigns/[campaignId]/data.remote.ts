@@ -4,10 +4,11 @@ import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
-import { assistant, lore, vault } from '#lib/server/app.js'
+import { assistant, ingestion, lore, vault } from '#lib/server/app.js'
 import { askLoremasterCommandSchema } from '#lib/server/assistant/schema.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
 import { logFailure } from '#lib/server/failure.js'
+import type { SessionIngestionDraft } from '#lib/server/ingestion/types.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 import type {
 	RevisionDiff,
@@ -19,6 +20,7 @@ import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
 const revisionId = z.uuid()
+const ingestionId = z.uuid()
 const aliases = z.array(z.string().trim().min(1).max(200)).max(50).optional()
 const eventPredecessors = z.array(documentId).max(100).optional()
 const documentType = z.enum(documentTypes)
@@ -91,6 +93,18 @@ const createLoreInput = z
 		content: z.string().trim().min(1).max(1_000_000)
 	})
 	.strict()
+const analyzeSessionInput = z
+	.object({
+		campaignId,
+		title: z.string().trim().min(1).max(200),
+		transcript: z
+			.string()
+			.min(1)
+			.max(2_000_000)
+			.refine((value) => value.trim().length > 0)
+	})
+	.strict()
+const ingestionReference = z.object({ campaignId, ingestionId }).strict()
 export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 	runPromise(
 		pipe(
@@ -176,6 +190,43 @@ export const askLoremaster = command(
 						error(500, 'Loremaster could not respond')
 					},
 					onSuccess: (response) => response
+				})
+			)
+		)
+)
+
+export const analyzeSession = command(
+	analyzeSessionInput,
+	(input): Promise<SessionIngestionDraft> =>
+		runPromise(
+			pipe(
+				ingestion.analyze(input),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${input.campaignId}" was not found`)
+						}
+						logFailure(failure)
+						error(500, 'Unable to analyze this session')
+					},
+					onSuccess: (draft) => draft
+				})
+			)
+		)
+)
+
+export const getSessionIngestion = query(
+	ingestionReference,
+	({ campaignId, ingestionId }): Promise<SessionIngestionDraft> =>
+		runPromise(
+			pipe(
+				ingestion.getDraft(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session analysis was not found')
+					},
+					onSuccess: (draft) => draft
 				})
 			)
 		)

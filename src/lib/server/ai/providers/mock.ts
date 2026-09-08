@@ -3,6 +3,7 @@ import type { DocumentType } from '../../../document'
 import { EMBEDDING_DIMENSIONS } from '../provider'
 import type {
 	AiModels,
+	AnalyzeSessionChunk,
 	AiProvider,
 	EmbedTexts,
 	GenerateAssistant,
@@ -16,6 +17,7 @@ export const mockAiModels = {
 	campaignSummary: 'mock-text-v1',
 	documentSummary: 'mock-text-v1',
 	documentType: 'mock-document-type-v1',
+	sessionAnalysis: 'mock-session-analysis-v1',
 	embeddings: 'mock-token-hash-v1'
 } satisfies AiModels
 
@@ -153,7 +155,30 @@ const inferDocumentType: InferDocumentType = ({ path, title, content }) => {
 	return succeed(contentPatterns.find(([, pattern]) => pattern.test(source))?.[0] ?? 'lore')
 }
 
+const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
+	const content = prompt.split(/^## Transcript chunk.*\nLines .*\n\n/m).at(-1) ?? ''
+	const excerpt = content
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find(Boolean)
+	if (!excerpt) return succeed([])
+
+	return succeed([
+		{
+			excerpt,
+			title: 'Session development',
+			documentType: 'event',
+			kind: 'development',
+			certainty: 'explicit',
+			content: excerpt,
+			references: [],
+			after: []
+		}
+	])
+}
+
 export const mockAiProvider: AiProvider = {
+	analyzeSessionChunk,
 	models: mockAiModels,
 	embedTexts,
 	generateAssistant,

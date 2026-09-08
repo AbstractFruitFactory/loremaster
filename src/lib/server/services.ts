@@ -4,6 +4,8 @@ import { assistantOperations } from './assistant/operations'
 import { campaignOperations } from './campaign/operations'
 import { contextIndexOperations } from './context/indexing/operations'
 import { contextOperations } from './context/operations'
+import { sessionIngestionOperations } from './ingestion/operations'
+import { filesystemIngestionStorage } from './ingestion/storage'
 import * as campaignDb from './db/campaign'
 import * as contextDb from './db/context'
 import * as revisionDb from './db/revisions'
@@ -63,6 +65,17 @@ export const createServices = (ai: AiProvider) => {
 		timeline
 	})
 
+	const ingestion = sessionIngestionOperations({
+		ai: {
+			analyzeSessionChunk: ai.analyzeSessionChunk,
+			generateText: ai.generateText,
+			analysisModel: ai.models.sessionAnalysis,
+			summaryModel: ai.models.documentSummary
+		},
+		storage: filesystemIngestionStorage(vaultRoot),
+		vault
+	})
+
 	const context = contextOperations({
 		ai: {
 			embedTexts: ai.embedTexts,
@@ -87,5 +100,5 @@ export const createServices = (ai: AiProvider) => {
 
 	const lore = loreOperations({ vault })
 
-	return { assistant, campaign, context, lore, revisions, timeline, vault }
+	return { assistant, campaign, context, ingestion, lore, revisions, timeline, vault }
 }

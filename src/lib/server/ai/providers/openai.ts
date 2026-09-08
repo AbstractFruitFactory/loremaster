@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { documentTypes, isDocumentType } from '../../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../../assistant/types'
 import { failure } from '../../failure'
+import { ingestionDocumentTypes, type ExtractedSessionClaim } from '../../ingestion/types'
 import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider'
 
 type OpenAiClient = Pick<OpenAI, 'embeddings' | 'responses'>
@@ -17,8 +18,74 @@ export const openAiModels = {
 	campaignSummary: 'gpt-5.6-luna',
 	documentSummary: 'gpt-5.6-luna',
 	documentType: 'gpt-5.6-luna',
-	embeddings: 'text-embedding-3-small',
+	sessionAnalysis: 'gpt-5.6-terra',
+	embeddings: 'text-embedding-3-small'
 } satisfies AiModels
+
+const sessionClaimsSchema = z.object({
+	claims: z.array(
+		z.object({
+			excerpt: z.string().min(1),
+			title: z.string().trim().min(1),
+			documentType: z.enum(ingestionDocumentTypes),
+			kind: z.enum(['stable-fact', 'development', 'mention']),
+			certainty: z.enum(['explicit', 'inferred']),
+			content: z.string().trim().min(1),
+			references: z.array(z.string().trim().min(1)),
+			after: z.array(z.string().trim().min(1))
+		})
+	)
+})
+
+const sessionClaimsTool = {
+	type: 'function' as const,
+	name: 'record_session_claims',
+	description: 'Record atomic campaign claims with exact supporting quotations.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			claims: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						excerpt: { type: 'string' },
+						title: { type: 'string' },
+						documentType: { type: 'string', enum: ingestionDocumentTypes },
+						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
+						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+						content: { type: 'string' },
+						references: { type: 'array', items: { type: 'string' } },
+						after: { type: 'array', items: { type: 'string' } }
+					},
+					required: [
+						'excerpt',
+						'title',
+						'documentType',
+						'kind',
+						'certainty',
+						'content',
+						'references',
+						'after'
+					],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['claims'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionClaims = (response: OpenAiResponse): ExtractedSessionClaim[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionClaimsTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionClaimsSchema.parse(JSON.parse(call.arguments)).claims
+		: []
+}
 
 const loreProposalSchema = z.object({
 	title: z.string().trim().min(1),
@@ -188,6 +255,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 				return documentType
 			},
 			catch: (cause) => failure('ai', 'inferDocumentType', cause)
+		}),
+
+	analyzeSessionChunk: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionClaimsTool],
+					tool_choice: { type: 'function', name: sessionClaimsTool.name }
+				})
+				return parseSessionClaims(response)
+			},
+			catch: (cause) => failure('ai', 'analyzeSessionChunk', cause)
 		})
 })
 
@@ -205,6 +286,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		generateAssistant: () => missingApiKey('generateAssistant'),
 		streamAssistant: () => missingApiKey('streamAssistant'),
 		embedTexts: () => missingApiKey('embedTexts'),
-		inferDocumentType: () => missingApiKey('inferDocumentType')
+		inferDocumentType: () => missingApiKey('inferDocumentType'),
+		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk')
 	}
 }
