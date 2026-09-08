@@ -38,12 +38,15 @@ const isValidDocumentPath = (path: string) => {
 const toDocumentIndex = ({
 	content: _content,
 	aliases: _aliases,
+	transcript: _transcript,
+	ingestionId: _ingestionId,
 	currentRevisionId: _currentRevisionId,
 	...index
 }: VaultDocument): VaultDocumentIndex => index
 
 const toDocumentSummary = ({
 	content: _content,
+	transcript: _transcript,
 	...summary
 }: VaultDocument): VaultDocumentSummary => summary
 
@@ -283,6 +286,8 @@ export const vaultOperations = ({
 			after?: string[]
 			content: string
 			revision?: RevisionContext
+			ingestionId?: string
+			transcript?: string
 		}
 	) =>
 		gen(function* () {
@@ -296,8 +301,15 @@ export const vaultOperations = ({
 
 			const documentId = randomUUID()
 			const source = serializeVaultDocument(
-				{ id: documentId, type: input.type, aliases: input.aliases, after: input.after },
-				input.content
+				{
+					id: documentId,
+					type: input.type,
+					aliases: input.aliases,
+					after: input.after,
+					ingestionId: input.ingestionId
+				},
+				input.content,
+				input.transcript
 			)
 			const proposedDocument: VaultDocument = {
 				id: documentId,
@@ -308,6 +320,8 @@ export const vaultOperations = ({
 				after: input.after ?? [],
 				summary: '',
 				content: input.content,
+				transcript: input.transcript,
+				ingestionId: input.ingestionId,
 				links: []
 			}
 
@@ -391,7 +405,8 @@ export const vaultOperations = ({
 					id: updated.id,
 					type: updated.type,
 					aliases: updated.aliases,
-					after: updated.after
+					after: updated.after,
+					ingestionId: updated.ingestionId
 				},
 				updated.content
 			)

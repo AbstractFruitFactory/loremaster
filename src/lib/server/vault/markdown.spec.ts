@@ -90,6 +90,53 @@ Varek owns [[The Black Crown]].`
 		})
 	})
 
+	it('separates a Session recap from its raw transcript', () => {
+		const transcript =
+			'GM: The gate opens. 🐉\nPlayer: I enter.\n<!-- loremaster:raw-transcript -->'
+		const source = serializeVaultDocument(
+			{ id: 'session-12', type: 'session', ingestionId: 'ingestion-12' },
+			'# Session 12\n\nThe party entered [[Westgate]].',
+			transcript
+		)
+		const document = parseDocument('Sessions/Session 12.md', source)
+
+		expect(source).toContain('ingestion_id: ingestion-12')
+		expect(document).toMatchObject({
+			id: 'session-12',
+			type: 'session',
+			ingestionId: 'ingestion-12',
+			content: '# Session 12\n\nThe party entered [[Westgate]].',
+			transcript,
+			links: ['Westgate']
+		})
+	})
+
+	it('preserves a Session transcript when its recap is updated', () => {
+		const source = serializeVaultDocument(
+			{ id: 'session-12', type: 'session', ingestionId: 'ingestion-12' },
+			'# Session 12\n\nOld recap.',
+			'GM: Secret transcript text.'
+		)
+		const updated = runSync(
+			updateVaultDocumentSource(
+				source,
+				{
+					id: 'session-12',
+					type: 'session',
+					after: [],
+					ingestionId: 'ingestion-12'
+				},
+				'# Session 12\n\nNew recap.'
+			)
+		)
+
+		expect(parseDocument('Sessions/Session 12.md', updated)).toMatchObject({
+			content: '# Session 12\n\nNew recap.',
+			transcript: 'GM: Secret transcript text.',
+			ingestionId: 'ingestion-12'
+		})
+	})
+
 	it('preserves existing Obsidian properties when adding required metadata', () => {
 		const source = `---
 tags:
@@ -185,6 +232,28 @@ after:
 			domain: 'vault',
 			operation: 'parseDocument',
 			cause: { reason: 'eventPredecessorsOnNonEvent', type: 'npc' }
+		})
+	})
+
+	it('rejects Session ingestion metadata on other document types', () => {
+		const result = runSync(
+			flip(
+				parseVaultDocument(
+					'Lore/Notes.md',
+					`---
+type: lore
+ingestion_id: ingestion-12
+---
+
+# Notes`
+				)
+			)
+		)
+
+		expect(result).toMatchObject({
+			domain: 'vault',
+			operation: 'parseDocument',
+			cause: { reason: 'invalidSessionIngestionId', ingestionId: 'ingestion-12' }
 		})
 	})
 })

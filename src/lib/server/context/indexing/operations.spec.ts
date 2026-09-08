@@ -1,9 +1,10 @@
-import { flip, runPromise, succeed } from 'effect/Effect'
+import { flip, runPromise, runSync, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { EmbedTexts } from '../../ai/provider'
 import { mockAiProvider } from '../../ai/providers/mock'
 import type { CachedEmbedding } from '../../db/context'
 import type { VaultDocument } from '../../vault/types'
+import { parseVaultDocument, serializeVaultDocument } from '../../vault/markdown'
 import type { ContextSource, SemanticVectorRecord } from '../types'
 import { contextIndexOperations } from './operations'
 
@@ -120,6 +121,37 @@ describe('context index operations', () => {
 			{ documentId: 'first', normalizedNames: ['varek', 'the gatekeeper'] },
 			{ documentId: 'second', normalizedNames: ['varek', 'the gatekeeper'] }
 		])
+	})
+
+	it('indexes only the recap of a Session document', async () => {
+		const { db, embedTexts, index } = createIndex()
+		const source = serializeVaultDocument(
+			{ id: 'session-12', type: 'session', ingestionId: 'ingestion-12' },
+			'# Session 12\n\nThe party entered Westgate.',
+			'PRIVATE TRANSCRIPT DETAIL'
+		)
+		const parsed = runSync(parseVaultDocument('Sessions/Session 12.md', source))
+		const session: VaultDocument = {
+			...parsed,
+			id: parsed.id!,
+			type: parsed.type!
+		}
+
+		await runPromise(index.indexDocument(campaignId, session))
+
+		expect(embedTexts).toHaveBeenCalledWith({
+			model: embeddingModel,
+			values: ['# Session 12\n\nThe party entered Westgate.']
+		})
+		expect(db.replaceDocumentFragments).not.toHaveBeenCalledWith(
+			campaignId,
+			session.id,
+			expect.arrayContaining([
+				expect.objectContaining({
+					fragment: expect.objectContaining({ content: expect.stringContaining('PRIVATE') })
+				})
+			])
+		)
 	})
 
 	it('fails when the embedding provider returns the wrong number of vectors', async () => {

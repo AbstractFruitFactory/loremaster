@@ -5,6 +5,7 @@ export type VaultFrontmatter = {
 	type?: DocumentType
 	aliases?: string[]
 	after?: string[]
+	ingestionId?: string
 }
 
 export type VaultDocument = {
@@ -16,11 +17,13 @@ export type VaultDocument = {
 	after: string[]
 	summary: string
 	content: string
+	transcript?: string
+	ingestionId?: string
 	links: string[]
 	currentRevisionId?: string
 }
 
-export type VaultDocumentSummary = Omit<VaultDocument, 'content'>
+export type VaultDocumentSummary = Omit<VaultDocument, 'content' | 'transcript'>
 
 export type ParsedVaultDocument = Omit<VaultDocument, 'id' | 'type'> & {
 	id?: string

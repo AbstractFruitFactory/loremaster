@@ -369,6 +369,43 @@ id: character-mara
 		)
 	})
 
+	it('keeps Session transcripts isolated while updating and restoring recaps', async () => {
+		const transcript = 'GM: The hidden door opens. 🐉'
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Sessions/Session 12.md',
+				type: 'session',
+				content: '# Session 12\n\nThe party found a door.',
+				ingestionId: 'ingestion-12',
+				transcript
+			})
+		)
+		const updated = await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'session',
+				content: '# Session 12\n\nThe party opened the hidden door.',
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
+		const restored = await runPromise(
+			operations.restoreDocumentRevision(campaign.id, created.id, created.currentRevisionId!, {
+				expectedRevisionId: updated.currentRevisionId!
+			})
+		)
+		const [listed] = await runPromise(operations.listDocuments(campaign.id))
+
+		expect(updated).toMatchObject({ transcript, ingestionId: 'ingestion-12' })
+		expect(restored).toMatchObject({
+			content: '# Session 12\n\nThe party found a door.',
+			transcript,
+			ingestionId: 'ingestion-12'
+		})
+		expect(listed).not.toHaveProperty('transcript')
+		expect(generateText).not.toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.stringContaining('hidden door opens') })
+		)
+	})
+
 	it('replaces indexed links when a document changes', async () => {
 		const created = await runPromise(
 			operations.createDocument(campaign.id, {
