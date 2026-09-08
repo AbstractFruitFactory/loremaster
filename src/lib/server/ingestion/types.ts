@@ -44,6 +44,7 @@ export type Evidence = {
 
 export type ProposalCandidate = {
 	documentId: string
+	revisionId: string
 	title: string
 	documentType: DocumentType
 	score: number
@@ -81,6 +82,10 @@ export type SessionProposal = {
 	patch?: CanonPatch
 }
 
+export type SessionProposalResolution =
+	| { proposalId: string; kind: 'create' }
+	| { proposalId: string; kind: 'existing'; documentId: string }
+
 export type SessionIngestionDraft = {
 	schemaVersion: 1
 	ingestionId: string
@@ -89,4 +94,9 @@ export type SessionIngestionDraft = {
 	createdAt: string
 	warnings: string[]
 	proposals: SessionProposal[]
+}
+
+export type SessionIngestionResult = {
+	sessionDocumentId: string
+	documents: { proposalId: string; documentId: string; documentType: DocumentType }[]
 }

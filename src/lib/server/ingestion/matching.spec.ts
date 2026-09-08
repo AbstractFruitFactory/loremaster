@@ -39,7 +39,7 @@ describe('session proposal matching', () => {
 
 		expect(match).toMatchObject({
 			kind: 'unresolved',
-			candidates: [{ documentId: 'varek', title: 'Varek the Smith' }]
+			candidates: [{ documentId: 'varek', revisionId: 'varek-revision', title: 'Varek the Smith' }]
 		})
 	})
 })

@@ -8,7 +8,7 @@ import { assistant, ingestion, lore, vault } from '#lib/server/app.js'
 import { askLoremasterCommandSchema } from '#lib/server/assistant/schema.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
 import { logFailure } from '#lib/server/failure.js'
-import type { SessionIngestionDraft } from '#lib/server/ingestion/types.js'
+import type { SessionIngestionDraft, SessionIngestionResult } from '#lib/server/ingestion/types.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 import type {
 	RevisionDiff,
@@ -105,6 +105,16 @@ const analyzeSessionInput = z
 	})
 	.strict()
 const ingestionReference = z.object({ campaignId, ingestionId }).strict()
+const proposalResolution = z.discriminatedUnion('kind', [
+	z.object({ proposalId: z.uuid(), kind: z.literal('create') }).strict(),
+	z.object({ proposalId: z.uuid(), kind: z.literal('existing'), documentId }).strict()
+])
+const commitIngestionInput = ingestionReference
+	.extend({
+		selectedProposalIds: z.array(z.uuid()).min(1).max(500),
+		resolutions: z.array(proposalResolution).max(500)
+	})
+	.strict()
 export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 	runPromise(
 		pipe(
@@ -227,6 +237,29 @@ export const getSessionIngestion = query(
 						error(404, 'Session analysis was not found')
 					},
 					onSuccess: (draft) => draft
+				})
+			)
+		)
+)
+
+export const commitSessionIngestion = command(
+	commitIngestionInput,
+	(input): Promise<SessionIngestionResult> =>
+		runPromise(
+			pipe(
+				ingestion.commit(input),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						if (failure.domain === 'ingestion' && failure.operation === 'commit') {
+							error(409, 'This proposal selection cannot be committed.')
+						}
+						error(500, 'Unable to commit this session')
+					},
+					onSuccess: (result) => {
+						void listDocuments(input.campaignId).refresh()
+						return result
+					}
 				})
 			)
 		)

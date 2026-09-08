@@ -280,6 +280,7 @@ export const vaultOperations = ({
 	const createDocument = (
 		campaignId: string,
 		input: {
+			documentId?: string
 			path: string
 			type: VaultDocument['type']
 			aliases?: string[]
@@ -299,7 +300,7 @@ export const vaultOperations = ({
 				})
 			}
 
-			const documentId = randomUUID()
+			const documentId = input.documentId ?? randomUUID()
 			const source = serializeVaultDocument(
 				{
 					id: documentId,

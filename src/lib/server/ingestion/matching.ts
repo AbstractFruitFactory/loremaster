@@ -34,8 +34,12 @@ export const matchDocument = (query: string, documents: VaultDocument[]): Propos
 	}
 
 	const candidates: ProposalCandidate[] = documents
+		.filter((document): document is VaultDocument & { currentRevisionId: string } =>
+			Boolean(document.currentRevisionId)
+		)
 		.map((document) => ({
 			documentId: document.id,
+			revisionId: document.currentRevisionId,
 			title: document.title,
 			documentType: document.type,
 			score: candidateScore(query, document)

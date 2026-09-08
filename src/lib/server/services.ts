@@ -68,9 +68,7 @@ export const createServices = (ai: AiProvider) => {
 	const ingestion = sessionIngestionOperations({
 		ai: {
 			analyzeSessionChunk: ai.analyzeSessionChunk,
-			generateText: ai.generateText,
-			analysisModel: ai.models.sessionAnalysis,
-			summaryModel: ai.models.documentSummary
+			analysisModel: ai.models.sessionAnalysis
 		},
 		storage: filesystemIngestionStorage(vaultRoot),
 		vault

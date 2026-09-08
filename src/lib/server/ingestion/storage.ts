@@ -13,6 +13,10 @@ export type IngestionStorage = {
 		campaignId: string,
 		ingestionId: string
 	) => Effect<SessionIngestionDraft, Failure<'ingestionStorage', 'read'>>
+	readTranscript: (
+		campaignId: string,
+		ingestionId: string
+	) => Effect<string, Failure<'ingestionStorage', 'readTranscript'>>
 }
 
 const ingestionRoot = (rootPath: string, campaignId: string, ingestionId: string) =>
@@ -44,5 +48,14 @@ export const filesystemIngestionStorage = (rootPath: string): IngestionStorage =
 					)
 				) as SessionIngestionDraft,
 			catch: (cause) => failure('ingestionStorage', 'read', cause)
+		}),
+	readTranscript: (campaignId, ingestionId) =>
+		tryPromise({
+			try: () =>
+				readFile(
+					resolve(ingestionRoot(rootPath, campaignId, ingestionId), 'transcript.txt'),
+					'utf8'
+				),
+			catch: (cause) => failure('ingestionStorage', 'readTranscript', cause)
 		})
 })
