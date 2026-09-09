@@ -14,10 +14,11 @@
 	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import type { ConversationMessage } from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import type { DocumentType } from '#lib/document.js'
-	import type { AssistantResponse } from '#lib/server/assistant/types.js'
+	import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
+	import { onDestroy } from 'svelte'
 
 	type Props = {
-		onask: (input: AskLoremasterInput) => Promise<AssistantResponse>
+		onask: (input: AskLoremasterInput, signal: AbortSignal) => AsyncIterable<AssistantStreamEvent>
 		onaddlore: (draft: AddLoreInput) => Promise<{ title: string }>
 	}
 
@@ -46,20 +47,36 @@
 	let statusMessage = $state('')
 	let actionError = $state('')
 	let proposalError = $state('')
+	let activeRequest: AbortController | null = null
+
+	onDestroy(() => activeRequest?.abort())
 
 	const getErrorMessage = (error: unknown, fallback: string) =>
 		error instanceof Error ? error.message : fallback
 
 	const createMessageId = () => crypto.randomUUID()
 
+	const updateAssistantMessage = (
+		messageId: string,
+		update: (message: ConversationMessage) => ConversationMessage
+	) => {
+		messages = messages.map((conversationMessage) =>
+			conversationMessage.id === messageId ? update(conversationMessage) : conversationMessage
+		)
+	}
+
 	const handleAsk = async () => {
 		const submittedMessage = message.trim()
 		if (!submittedMessage || isResponding) return
 
 		const history = messages.slice(-12).map(({ role, content }) => ({ role, content }))
+		const assistantMessageId = createMessageId()
+		const requestController = new AbortController()
+		activeRequest = requestController
 		messages = [
 			...messages,
-			{ id: createMessageId(), role: 'user', content: submittedMessage, sources: [] }
+			{ id: createMessageId(), role: 'user', content: submittedMessage, sources: [] },
+			{ id: assistantMessageId, role: 'assistant', content: '', sources: [] }
 		]
 		message = ''
 		isResponding = true
@@ -68,34 +85,59 @@
 		proposalError = ''
 
 		try {
-			const response = await onask({
-				message: submittedMessage,
-				history
-			})
-			const assistantMessageId = createMessageId()
-			messages = [
-				...messages,
+			for await (const event of onask(
 				{
-					id: assistantMessageId,
-					role: 'assistant',
-					content: response.message,
-					sources: response.sources
+					message: submittedMessage,
+					history
+				},
+				requestController.signal
+			)) {
+				if (event.type === 'text-delta') {
+					updateAssistantMessage(assistantMessageId, (assistantMessage) => ({
+						...assistantMessage,
+						content: assistantMessage.content + event.delta
+					}))
 				}
-			]
 
-			if (response.proposal) {
-				proposal = {
-					messageId: assistantMessageId,
-					draft: {
-						title: response.proposal.title,
-						category: response.proposal.category,
-						content: response.proposal.content
+				if (event.type === 'sources') {
+					updateAssistantMessage(assistantMessageId, (assistantMessage) => ({
+						...assistantMessage,
+						sources: event.sources
+					}))
+				}
+
+				if (event.type === 'proposal') {
+					proposal = {
+						messageId: assistantMessageId,
+						draft: {
+							title: event.proposal.title,
+							category: event.proposal.category,
+							content: event.proposal.content
+						}
 					}
+				}
+
+				if (event.type === 'error') {
+					throw new Error(event.message)
 				}
 			}
 		} catch (error) {
+			const assistantMessage = messages.find(
+				(conversationMessage) => conversationMessage.id === assistantMessageId
+			)
+			if (!assistantMessage?.content) {
+				messages = messages.filter(
+					(conversationMessage) => conversationMessage.id !== assistantMessageId
+				)
+				if (proposal?.messageId === assistantMessageId) {
+					proposal = null
+				}
+			}
 			actionError = getErrorMessage(error, 'Loremaster could not respond')
 		} finally {
+			if (activeRequest === requestController) {
+				activeRequest = null
+			}
 			isResponding = false
 		}
 	}

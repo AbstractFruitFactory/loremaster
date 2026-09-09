@@ -1,4 +1,5 @@
-import { lstat, mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { lstat, mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { dirname, relative, resolve, sep } from 'node:path'
 import { tryPromise } from 'effect/Effect'
 import { failure } from '../../failure'
@@ -67,6 +68,7 @@ const listMarkdownFiles = async (
 			}
 
 			if (entry.isDirectory()) {
+				if (entry.name === '.loremaster') return []
 				return listMarkdownFiles(campaignRoot, entryPath)
 			}
 
@@ -98,7 +100,16 @@ export const filesystemVaultStorage = (rootPath: string): VaultStorage => {
 				const documentPath = resolveDocumentPath(root, campaignId, path)
 				await assertNoSymlinks(root, documentPath)
 				await mkdir(dirname(documentPath), { recursive: true })
-				await writeFile(documentPath, content, 'utf8')
+				const temporaryPath = resolve(
+					dirname(documentPath),
+					`.${randomUUID()}.${documentPath.split(sep).at(-1)}.tmp`
+				)
+				try {
+					await writeFile(temporaryPath, content, { encoding: 'utf8', flag: 'wx' })
+					await rename(temporaryPath, documentPath)
+				} finally {
+					await rm(temporaryPath, { force: true })
+				}
 			},
 			catch: (cause) => failure('vaultStorage', 'writeDocument', cause)
 		})

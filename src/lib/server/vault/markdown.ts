@@ -5,6 +5,7 @@ import { parseDocument as parseYamlDocument, stringify } from 'yaml'
 import { isDocumentType } from '../../document'
 import { fail } from '../failure'
 import type { Failure } from '../failure'
+import { parseSessionBody, serializeSessionBody } from './session'
 import type { ParsedVaultDocument, VaultFrontmatter } from './types'
 
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
@@ -26,6 +27,17 @@ const parseYamlRecord = (
 			? (value as Record<string, unknown>)
 			: {}
 	)
+}
+
+const updateYamlFrontmatter = (
+	source: string,
+	update: (document: ReturnType<typeof parseYamlDocument>) => void
+): Effect<string, Failure<'vault', 'parseDocument'>> => {
+	const document = parseYamlDocument(source, { keepSourceTokens: true })
+	const error = document.errors[0]
+	if (error) return fail('vault', 'parseDocument', error)
+	update(document)
+	return succeed(document.toString({ lineWidth: 0 }).trimEnd())
 }
 
 const parseFrontmatter = (
@@ -52,6 +64,10 @@ const parseFrontmatter = (
 					)
 				: undefined
 			const after = record.after
+			const ingestionId =
+				type === 'session' && typeof record.ingestion_id === 'string' && record.ingestion_id.trim()
+					? record.ingestion_id.trim()
+					: undefined
 
 			if (
 				after !== undefined &&
@@ -68,6 +84,13 @@ const parseFrontmatter = (
 				return fail('vault', 'parseDocument', {
 					reason: 'invalidDocumentType',
 					type
+				})
+			}
+
+			if (record.ingestion_id !== undefined && !ingestionId) {
+				return fail('vault', 'parseDocument', {
+					reason: 'invalidSessionIngestionId',
+					ingestionId: record.ingestion_id
 				})
 			}
 
@@ -88,7 +111,8 @@ const parseFrontmatter = (
 					id,
 					type: documentType,
 					aliases: aliases?.map((alias) => alias.trim()),
-					after: predecessorIds
+					after: predecessorIds,
+					ingestionId
 				},
 				content: source.slice(match[0].length).replace(/^\r?\n/, '')
 			})
@@ -118,28 +142,43 @@ export const extractWikiLinks = (content: string) => {
 export const parseVaultDocument = (path: string, source: string) =>
 	pipe(
 		parseFrontmatter(source),
-		map(({ frontmatter, content }): ParsedVaultDocument => ({
-			id: frontmatter.id,
-			path,
-			title: deriveTitle(path, content),
-			type: frontmatter.type,
-			aliases: frontmatter.aliases,
-			after: frontmatter.after ?? [],
-			summary: '',
-			content,
-			links: extractWikiLinks(content)
-		}))
+		map(({ frontmatter, content }): ParsedVaultDocument => {
+			const session = frontmatter.type === 'session' ? parseSessionBody(content) : undefined
+			const indexableContent = session?.recap ?? content
+
+			return {
+				id: frontmatter.id,
+				path,
+				title: deriveTitle(path, indexableContent),
+				type: frontmatter.type,
+				aliases: frontmatter.aliases,
+				after: frontmatter.after ?? [],
+				summary: '',
+				content: indexableContent,
+				transcript: session?.transcript,
+				ingestionId: frontmatter.ingestionId,
+				links: extractWikiLinks(indexableContent)
+			}
+		})
 	)
 
-export const serializeVaultDocument = (frontmatter: VaultFrontmatter, content: string) => {
+export const serializeVaultDocument = (
+	frontmatter: VaultFrontmatter,
+	content: string,
+	transcript?: string
+) => {
 	const metadata = {
 		...(frontmatter.id ? { id: frontmatter.id } : {}),
 		...(frontmatter.type ? { type: frontmatter.type } : {}),
 		...(frontmatter.aliases?.length ? { aliases: frontmatter.aliases } : {}),
-		...(frontmatter.after?.length ? { after: frontmatter.after } : {})
+		...(frontmatter.after?.length ? { after: frontmatter.after } : {}),
+		...(frontmatter.type === 'session' && frontmatter.ingestionId
+			? { ingestion_id: frontmatter.ingestionId }
+			: {})
 	}
+	const body = frontmatter.type === 'session' ? serializeSessionBody(content, transcript) : content
 
-	return `---\n${stringify(metadata).trimEnd()}\n---\n\n${content.replace(/^\r?\n/, '')}`
+	return `---\n${stringify(metadata).trimEnd()}\n---\n\n${body.replace(/^\r?\n/, '')}`
 }
 
 export const updateDocumentFrontmatter = (
@@ -153,10 +192,56 @@ export const updateDocumentFrontmatter = (
 	}
 
 	return pipe(
-		parseYamlRecord(match[1]),
-		map(
-			(metadata) =>
-				`---\n${stringify({ ...metadata, ...frontmatter }).trimEnd()}\n---\n${source.slice(match[0].length)}`
+		updateYamlFrontmatter(match[1], (document) => {
+			document.set('id', frontmatter.id)
+			document.set('type', frontmatter.type)
+		}),
+		map((metadata) => {
+			const newline = source.includes('\r\n') ? '\r\n' : '\n'
+			const trailingNewline = match[0].endsWith(newline) ? newline : ''
+			return `---${newline}${metadata.replace(/\n/g, newline)}${newline}---${trailingNewline}${source.slice(match[0].length)}`
+		})
+	)
+}
+
+export const updateVaultDocumentSource = (
+	source: string,
+	frontmatter: Required<Pick<VaultFrontmatter, 'id' | 'type'>> &
+		Pick<VaultFrontmatter, 'aliases' | 'after' | 'ingestionId'>,
+	content: string
+) => {
+	const match = source.match(frontmatterPattern)
+	if (!match) return succeed(serializeVaultDocument(frontmatter, content))
+
+	return pipe(
+		parseFrontmatter(source),
+		flatMap(({ frontmatter: existingFrontmatter, content: existingContent }) =>
+			pipe(
+				updateYamlFrontmatter(match[1], (document) => {
+					document.set('id', frontmatter.id)
+					document.set('type', frontmatter.type)
+					if (frontmatter.aliases?.length) document.set('aliases', frontmatter.aliases)
+					else document.delete('aliases')
+					if (frontmatter.after?.length) document.set('after', frontmatter.after)
+					else document.delete('after')
+					if (frontmatter.type === 'session' && frontmatter.ingestionId)
+						document.set('ingestion_id', frontmatter.ingestionId)
+					else document.delete('ingestion_id')
+				}),
+				map((metadata) => {
+					const newline = source.includes('\r\n') ? '\r\n' : '\n'
+					const existingTranscript =
+						existingFrontmatter.type === 'session'
+							? parseSessionBody(existingContent).transcript
+							: undefined
+					const body =
+						frontmatter.type === 'session'
+							? serializeSessionBody(content, existingTranscript)
+							: content
+					const normalizedContent = body.replace(/^\r?\n/, '').replace(/\r?\n/g, newline)
+					return `---${newline}${metadata.replace(/\n/g, newline)}${newline}---${newline}${newline}${normalizedContent}`
+				})
+			)
 		)
 	)
 }

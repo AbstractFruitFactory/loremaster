@@ -22,8 +22,13 @@
 
 <section class="documents-page" aria-labelledby="documents-heading">
 	<header class="page-heading">
-		<p class="eyebrow">Campaign lore</p>
-		<h2 id="documents-heading">{heading}</h2>
+		<div>
+			<p class="eyebrow">Campaign lore</p>
+			<h2 id="documents-heading">{heading}</h2>
+		</div>
+		{#if selectedType === 'session'}
+			<a class="ingest-link" href={`/campaigns/${campaignId}/session/ingest`}>Ingest session</a>
+		{/if}
 	</header>
 
 	{#if hasLoadError}
@@ -73,9 +78,34 @@
 
 	.page-heading {
 		position: relative;
+		display: flex;
+		gap: 1rem;
+		align-items: end;
+		justify-content: space-between;
 		margin-bottom: 1.25rem;
 		padding-bottom: 0.8rem;
 		border-bottom: 1px solid rgb(154 120 67 / 38%);
+	}
+
+	.ingest-link {
+		padding: 0.65rem 0.9rem;
+		border: 1px solid var(--gold);
+		background: rgb(244 230 199 / 72%);
+		color: var(--ink);
+		font-size: 0.78rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-decoration: none;
+		text-transform: uppercase;
+	}
+
+	.ingest-link:hover {
+		background: rgb(250 241 222 / 95%);
+	}
+
+	.ingest-link:focus-visible {
+		outline: 2px solid var(--gold-light);
+		outline-offset: 3px;
 	}
 
 	.page-heading::after {

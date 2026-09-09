@@ -1,11 +1,12 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import type { GenerateAssistant } from '../ai/provider'
+import type { GenerateAssistant, StreamAssistant } from '../ai/provider'
 import type { ContextItem } from '../context/types'
 import { assistantOperations } from './operations'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
 const assistantModel = 'mock-assistant-v1'
+const unusedStreamAssistant = (() => succeed((async function* () {})())) as StreamAssistant
 const items: ContextItem[] = [
 	{
 		fragment: {
@@ -33,7 +34,11 @@ describe('assistant operations', () => {
 			succeed({ message: 'Varek watches the western gate.' })
 		) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant, model: assistantModel },
+			ai: {
+				generateAssistant,
+				streamAssistant: unusedStreamAssistant,
+				model: assistantModel
+			},
 			context: { buildAssistantContext }
 		})
 
@@ -77,7 +82,11 @@ describe('assistant operations', () => {
 			})
 		) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant, model: assistantModel },
+			ai: {
+				generateAssistant,
+				streamAssistant: unusedStreamAssistant,
+				model: assistantModel
+			},
 			context: { buildAssistantContext }
 		})
 
@@ -113,7 +122,11 @@ describe('assistant operations', () => {
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Event B came first.' }))
 		const assistant = assistantOperations({
-			ai: { generateAssistant, model: assistantModel },
+			ai: {
+				generateAssistant,
+				streamAssistant: unusedStreamAssistant,
+				model: assistantModel
+			},
 			context: { buildAssistantContext }
 		})
 
@@ -128,13 +141,54 @@ describe('assistant operations', () => {
 		)
 	})
 
+	it('streams generated events with retrieved lore sources', async () => {
+		const buildAssistantContext = vi.fn(() =>
+			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+		)
+		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
+		const streamAssistant = vi.fn(() =>
+			succeed(
+				(async function* () {
+					yield { type: 'text-delta' as const, delta: 'Varek watches ' }
+					yield { type: 'text-delta' as const, delta: 'the gate.' }
+				})()
+			)
+		) as StreamAssistant
+		const assistant = assistantOperations({
+			ai: { generateAssistant, streamAssistant, model: assistantModel },
+			context: { buildAssistantContext }
+		})
+
+		const stream = await runPromise(assistant.streamChat(campaignId, 'What does Varek guard?', []))
+		const events = []
+		for await (const event of stream.events) {
+			events.push(event)
+		}
+
+		expect(events).toEqual([
+			{ type: 'text-delta', delta: 'Varek watches ' },
+			{ type: 'text-delta', delta: 'the gate.' }
+		])
+		expect(stream.sources).toEqual([{ id: 'character-varek', title: 'Varek', type: 'npc' }])
+		expect(streamAssistant).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: assistantModel,
+				prompt: expect.stringContaining('What does Varek guard?')
+			})
+		)
+	})
+
 	it('rejects an empty message before building context', async () => {
 		const buildAssistantContext = vi.fn(() =>
 			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
 		const assistant = assistantOperations({
-			ai: { generateAssistant, model: assistantModel },
+			ai: {
+				generateAssistant,
+				streamAssistant: unusedStreamAssistant,
+				model: assistantModel
+			},
 			context: { buildAssistantContext }
 		})
 

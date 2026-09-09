@@ -1,0 +1,102 @@
+import { resolve } from 'node:path'
+import type { AiProvider } from './ai/provider'
+import { assistantOperations } from './assistant/operations'
+import { campaignOperations } from './campaign/operations'
+import { contextIndexOperations } from './context/indexing/operations'
+import { contextOperations } from './context/operations'
+import { sessionIngestionOperations } from './ingestion/operations'
+import { filesystemIngestionStorage } from './ingestion/storage'
+import * as campaignDb from './db/campaign'
+import * as contextDb from './db/context'
+import * as revisionDb from './db/revisions'
+import * as timelineDb from './db/timeline'
+import * as vaultDb from './db/vault'
+import * as vectorDb from './db/vector'
+import { loreOperations } from './lore/operations'
+import { timelineOperations } from './timeline/operations'
+import { vaultOperations } from './vault/operations'
+import { vaultRevisionOperations } from './vault/revisions/operations'
+import { filesystemRevisionStorage } from './vault/revisions/storage'
+import { filesystemVaultStorage } from './vault/storage/filesystem'
+
+export const createServices = (ai: AiProvider) => {
+	const campaign = campaignOperations({
+		ai: {
+			generateText: ai.generateText,
+			model: ai.models.campaignSummary
+		},
+		db: campaignDb
+	})
+
+	const contextIndex = contextIndexOperations({
+		ai: {
+			embedTexts: ai.embedTexts,
+			model: ai.models.embeddings
+		},
+		db: {
+			...contextDb,
+			...vectorDb
+		}
+	})
+
+	const timeline = timelineOperations({ db: timelineDb })
+	const vaultRoot = resolve('data/campaigns')
+	const storage = filesystemVaultStorage(vaultRoot)
+	const revisions = vaultRevisionOperations({
+		db: revisionDb,
+		revisions: filesystemRevisionStorage(vaultRoot),
+		vault: storage
+	})
+
+	const vault = vaultOperations({
+		ai: {
+			inferDocumentType: ai.inferDocumentType,
+			generateText: ai.generateText,
+			documentTypeModel: ai.models.documentType,
+			summaryModel: ai.models.documentSummary
+		},
+		db: {
+			getCampaignById: campaignDb.getById,
+			...vaultDb
+		},
+		contextIndex,
+		revisions,
+		storage,
+		timeline
+	})
+
+	const ingestion = sessionIngestionOperations({
+		ai: {
+			analyzeSessionChunk: ai.analyzeSessionChunk,
+			analysisModel: ai.models.sessionAnalysis
+		},
+		storage: filesystemIngestionStorage(vaultRoot),
+		vault
+	})
+
+	const context = contextOperations({
+		ai: {
+			embedTexts: ai.embedTexts,
+			model: ai.models.embeddings
+		},
+		db: {
+			...contextDb,
+			...vaultDb,
+			...vectorDb
+		},
+		timeline
+	})
+
+	const assistant = assistantOperations({
+		ai: {
+			generateAssistant: ai.generateAssistant,
+			streamAssistant: ai.streamAssistant,
+			model: ai.models.assistant
+		},
+		context
+	})
+
+	const lore = loreOperations({ vault })
+
+	return { assistant, campaign, context, ingestion, lore, revisions, timeline, vault }
+}

@@ -11,9 +11,18 @@
 		hasLoadError: boolean
 		typeMismatch: boolean
 		backHref: string
+		historyHref: string
 	}
 
-	let { selectedType, document, isLoading, hasLoadError, typeMismatch, backHref }: Props = $props()
+	let {
+		selectedType,
+		document,
+		isLoading,
+		hasLoadError,
+		typeMismatch,
+		backHref,
+		historyHref
+	}: Props = $props()
 
 	const category = $derived(documentTypeMetadata[selectedType])
 </script>
@@ -37,6 +46,7 @@
 			<div class="title-row">
 				<h2 id="document-heading">{document.title}</h2>
 				<span class="category-badge">{category.label}</span>
+				<a class="history-link" href={historyHref}>View history</a>
 			</div>
 
 			{#if document.aliases?.length}
@@ -134,6 +144,25 @@
 		text-transform: uppercase;
 	}
 
+	.history-link {
+		margin-left: auto;
+		color: var(--gold);
+		font-size: 0.78rem;
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-decoration: none;
+		text-transform: uppercase;
+	}
+
+	.history-link:hover {
+		text-decoration: underline;
+	}
+
+	.history-link:focus-visible {
+		outline: 2px solid var(--gold);
+		outline-offset: 3px;
+	}
+
 	.aliases,
 	.summary {
 		margin-top: 0.75rem;
@@ -170,5 +199,12 @@
 	.state-panel.error,
 	.state-panel.error strong {
 		color: #8b2f27;
+	}
+
+	@media (max-width: 34rem) {
+		.history-link {
+			width: 100%;
+			margin-left: 0;
+		}
 	}
 </style>

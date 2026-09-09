@@ -1,9 +1,10 @@
 import type { Effect } from 'effect/Effect'
 import type { DocumentType } from '../../document'
-import type { AssistantGeneration } from '../assistant/types'
+import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant/types'
 import type { Failure } from '../failure'
+import type { ExtractedSessionClaim } from '../ingestion/types'
 
-export const EMBEDDING_DIMENSIONS = 64
+export const EMBEDDING_DIMENSIONS = 1536
 
 export type AiPrompt = {
 	system?: string
@@ -18,6 +19,10 @@ export type GenerateAssistant = (
 	input: AiPrompt & { model: string }
 ) => Effect<AssistantGeneration, Failure<'ai', 'generateAssistant'>>
 
+export type StreamAssistant = (
+	input: AiPrompt & { model: string; signal?: AbortSignal }
+) => Effect<AsyncIterable<AssistantGenerationEvent>, Failure<'ai', 'streamAssistant'>>
+
 export type EmbedTexts = (input: {
 	model: string
 	values: string[]
@@ -30,13 +35,31 @@ export type InferDocumentType = (input: {
 	content: string
 }) => Effect<DocumentType, Failure<'ai', 'inferDocumentType'>>
 
-export type AiProvider = {
-	generateText: GenerateText
-	generateAssistant: GenerateAssistant
-	embedTexts: EmbedTexts
-	inferDocumentType: InferDocumentType
+export type AnalyzeSessionChunk = (
+	input: AiPrompt & { model: string }
+) => Effect<ExtractedSessionClaim[], Failure<'ai', 'analyzeSessionChunk'>>
+
+export type AiModels = {
+	assistant: string
+	campaignSummary: string
+	documentSummary: string
+	documentType: string
+	sessionAnalysis: string
+	embeddings: string
 }
 
-export type AiModel<Operation extends keyof AiProvider> = Pick<AiProvider, Operation> & {
+export type AiProvider = {
+	models: AiModels
+	generateText: GenerateText
+	generateAssistant: GenerateAssistant
+	streamAssistant: StreamAssistant
+	embedTexts: EmbedTexts
+	inferDocumentType: InferDocumentType
+	analyzeSessionChunk: AnalyzeSessionChunk
+}
+
+export type AiOperation = Exclude<keyof AiProvider, 'models'>
+
+export type AiModel<Operation extends AiOperation> = Pick<AiProvider, Operation> & {
 	model: string
 }

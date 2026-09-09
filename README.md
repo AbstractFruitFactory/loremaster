@@ -36,6 +36,16 @@ pnpm db:seed              # skip if already seeded
 pnpm db:seed -- --reset   # delete and recreate
 ```
 
+After adding revision tracking to an existing development database, initialize its vault history
+and rebuild its document indexes once:
+
+```sh
+pnpm db:reindex-vaults
+```
+
+This is an explicit import boundary: ordinary document reads verify the managed Markdown files and
+never turn unexpected filesystem edits into history.
+
 Open `http://localhost:5173/campaigns/11111111-1111-4111-8111-111111111111` after seeding.
 
 Then start the development server:

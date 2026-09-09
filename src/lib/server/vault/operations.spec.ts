@@ -7,9 +7,12 @@ import type { GenerateText, InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
 import { timelineOperations } from '../timeline/operations'
-import { filesystemVaultStorage } from './storage/filesystem'
 import { parseVaultDocument } from './markdown'
 import { vaultOperations } from './operations'
+import { vaultRevisionOperations } from './revisions/operations'
+import { filesystemRevisionStorage } from './revisions/storage'
+import type { RevisionHead, VaultRevision } from './revisions/types'
+import { filesystemVaultStorage } from './storage/filesystem'
 import type { VaultDocumentIndex } from './types'
 
 type VaultDatabase = Parameters<typeof vaultOperations>[0]['db']
@@ -34,6 +37,8 @@ describe('vault operations', () => {
 	let inferDocumentType: InferDocumentType
 	let generateText: GenerateText
 	let storage: ReturnType<typeof filesystemVaultStorage>
+	let revisionHeads: Map<string, RevisionHead>
+	let revisionRecords: VaultRevision[]
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'loremaster-vault-'))
@@ -41,6 +46,8 @@ describe('vault operations', () => {
 		indexedDocuments = new Map()
 		outgoingLinks = new Map()
 		storage = filesystemVaultStorage(root)
+		revisionHeads = new Map()
+		revisionRecords = []
 		inferDocumentType = vi.fn(mockAiProvider.inferDocumentType)
 		generateText = vi.fn(mockAiProvider.generateText)
 		contextIndex = {
@@ -77,6 +84,41 @@ describe('vault operations', () => {
 			}
 		}
 
+		const revisions = vaultRevisionOperations({
+			db: {
+				getRevisionHead: (_campaignId, documentId) => succeed(revisionHeads.get(documentId)),
+				indexRevision: (revision) => {
+					revisionRecords.push(revision)
+					revisionHeads.set(revision.documentId, {
+						campaignId: revision.campaignId,
+						documentId: revision.documentId,
+						revisionId: revision.revisionId,
+						path: revision.path,
+						sourceHash: revision.afterHash
+					})
+					return succeed(undefined)
+				},
+				replaceCampaignRevisionIndex: (_campaignId, revisions) => {
+					revisionRecords = [...revisions]
+					revisionHeads = new Map(
+						revisions.map((revision) => [
+							revision.documentId,
+							{
+								campaignId: revision.campaignId,
+								documentId: revision.documentId,
+								revisionId: revision.revisionId,
+								path: revision.path,
+								sourceHash: revision.afterHash
+							}
+						])
+					)
+					return succeed(undefined)
+				}
+			},
+			revisions: filesystemRevisionStorage(root),
+			vault: storage
+		})
+
 		operations = vaultOperations({
 			ai: {
 				inferDocumentType,
@@ -86,6 +128,7 @@ describe('vault operations', () => {
 			},
 			db,
 			contextIndex,
+			revisions,
 			storage,
 			timeline: timelineOperations({
 				db: {
@@ -143,6 +186,37 @@ describe('vault operations', () => {
 		).toBe(created.id)
 	})
 
+	it('forwards ingestion context into create and update history', async () => {
+		const context = {
+			source: 'ingestion' as const,
+			relatedSessionId: 'session-document',
+			ingestionId: 'ingestion-draft',
+			changeSummary: 'Applied from Session 12'
+		}
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek',
+				revision: context
+			})
+		)
+		await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'npc',
+				content: '# Varek\n\nGuards the gate.',
+				expectedRevisionId: created.currentRevisionId,
+				revision: context
+			})
+		)
+
+		expect(revisionRecords).toHaveLength(2)
+		expect(revisionRecords).toEqual([
+			expect.objectContaining(context),
+			expect.objectContaining(context)
+		])
+	})
+
 	it('indexes event precedence and rejects chronology cycles before writing', async () => {
 		const first = await runPromise(
 			operations.createDocument(campaign.id, {
@@ -167,7 +241,8 @@ describe('vault operations', () => {
 				operations.updateDocument(campaign.id, first.id, {
 					type: 'event',
 					after: [second.id],
-					content: '# First'
+					content: '# First',
+					expectedRevisionId: first.currentRevisionId
 				})
 			)
 		)
@@ -195,6 +270,52 @@ describe('vault operations', () => {
 
 		expect(loaded).toEqual(created)
 		expect(list).not.toHaveBeenCalled()
+	})
+
+	it('treats unexpected backend edits as integrity errors without changing history', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+		const source = await runPromise(storage.read(campaign.id, created.path))
+		await runPromise(
+			storage.write(campaign.id, created.path, `${source}\nChanged outside Loremaster`)
+		)
+
+		const failure = await runPromise(flip(operations.getDocument(campaign.id, created.id)))
+		const history = await runPromise(operations.listDocumentRevisions(campaign.id, created.id))
+
+		expect(failure).toMatchObject({
+			domain: 'vaultRevision',
+			operation: 'verifyCanon',
+			cause: { reason: 'canonicalHashMismatch' }
+		})
+		expect(history.map(({ operation }) => operation)).toEqual(['create'])
+	})
+
+	it('records backend changes only through explicit reindexing', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+		const changed = `---
+id: ${created.id}
+type: npc
+---
+
+# Changed through import`
+		await runPromise(storage.write(campaign.id, created.path, changed))
+
+		await runPromise(operations.reindexCampaign(campaign.id))
+		const history = await runPromise(operations.listDocumentRevisions(campaign.id, created.id))
+
+		expect(history.map(({ operation }) => operation)).toEqual(['create', 'import'])
 	})
 
 	it('synchronizes the context index when indexing an imported document', async () => {
@@ -237,13 +358,51 @@ id: character-mara
 		await runPromise(
 			operations.updateDocument(campaign.id, created.id, {
 				type: 'npc',
-				content: '# Varek\n\nGuards the western gate.'
+				content: '# Varek\n\nGuards the western gate.',
+				expectedRevisionId: created.currentRevisionId
 			})
 		)
 
 		expect(generateText).toHaveBeenCalledTimes(2)
 		expect(indexedDocuments.get(created.id)?.summary).toBe(
 			'Varek is a campaign npc entry the Dungeon Master can reference at the table.'
+		)
+	})
+
+	it('keeps Session transcripts isolated while updating and restoring recaps', async () => {
+		const transcript = 'GM: The hidden door opens. 🐉'
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Sessions/Session 12.md',
+				type: 'session',
+				content: '# Session 12\n\nThe party found a door.',
+				ingestionId: 'ingestion-12',
+				transcript
+			})
+		)
+		const updated = await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'session',
+				content: '# Session 12\n\nThe party opened the hidden door.',
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
+		const restored = await runPromise(
+			operations.restoreDocumentRevision(campaign.id, created.id, created.currentRevisionId!, {
+				expectedRevisionId: updated.currentRevisionId!
+			})
+		)
+		const [listed] = await runPromise(operations.listDocuments(campaign.id))
+
+		expect(updated).toMatchObject({ transcript, ingestionId: 'ingestion-12' })
+		expect(restored).toMatchObject({
+			content: '# Session 12\n\nThe party found a door.',
+			transcript,
+			ingestionId: 'ingestion-12'
+		})
+		expect(listed).not.toHaveProperty('transcript')
+		expect(generateText).not.toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.stringContaining('hidden door opens') })
 		)
 	})
 
@@ -259,7 +418,8 @@ id: character-mara
 		await runPromise(
 			operations.updateDocument(campaign.id, created.id, {
 				type: 'npc',
-				content: '# Varek\n\nWorks with [[Ashen Council|the council]].'
+				content: '# Varek\n\nWorks with [[Ashen Council|the council]].',
+				expectedRevisionId: created.currentRevisionId
 			})
 		)
 
@@ -268,6 +428,98 @@ id: character-mara
 			campaign.id,
 			expect.objectContaining({ id: created.id, links: ['Ashen Council'] })
 		)
+	})
+
+	it('rejects updates that omit the current revision ID', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek'
+			})
+		)
+
+		const failure = await runPromise(
+			flip(
+				operations.updateDocument(campaign.id, created.id, {
+					type: 'npc',
+					content: '# Varek\n\nChanged.'
+				})
+			)
+		)
+
+		expect(failure).toMatchObject({
+			domain: 'vaultRevision',
+			operation: 'verifyBase',
+			cause: { reason: 'missingBase' }
+		})
+		expect(await runPromise(operations.getDocument(campaign.id, created.id))).toEqual(created)
+	})
+
+	it('restores a previous snapshot as a new revision without rewriting history', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek\n\nRuns the forge.'
+			})
+		)
+		const updated = await runPromise(
+			operations.updateDocument(campaign.id, created.id, {
+				type: 'npc',
+				content: '# Varek\n\nGuards the western gate.',
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
+
+		const restored = await runPromise(
+			operations.restoreDocumentRevision(campaign.id, created.id, created.currentRevisionId!, {
+				expectedRevisionId: updated.currentRevisionId!
+			})
+		)
+		const history = await runPromise(operations.listDocumentRevisions(campaign.id, created.id))
+		const first = await runPromise(
+			operations.getDocumentRevision(campaign.id, created.id, created.currentRevisionId!)
+		)
+
+		expect(restored.content).toBe('# Varek\n\nRuns the forge.')
+		expect(restored.currentRevisionId).not.toBe(created.currentRevisionId)
+		expect(history.map(({ operation }) => operation)).toEqual(['create', 'update', 'restore'])
+		expect(first.snapshot).toContain('# Varek\n\nRuns the forge.')
+		expect(first.revisionId).toBe(created.currentRevisionId)
+	})
+
+	it('preserves unknown raw frontmatter fields when updating', async () => {
+		await runPromise(
+			storage.write(
+				campaign.id,
+				'Characters/Varek.md',
+				`---
+id: character-varek
+type: npc
+tags:
+  - keeper
+custom: retained
+---
+
+# Varek`
+			)
+		)
+		const imported = await runPromise(operations.indexDocument(campaign.id, 'Characters/Varek.md'))
+
+		await runPromise(
+			operations.updateDocument(campaign.id, imported.id, {
+				type: 'npc',
+				aliases: ['The Keeper'],
+				content: '# Varek\n\nUpdated.',
+				expectedRevisionId: imported.currentRevisionId
+			})
+		)
+
+		const updatedSource = await runPromise(storage.read(campaign.id, imported.path))
+		expect(updatedSource).toContain('tags:\n  - keeper')
+		expect(updatedSource).toContain('custom: retained')
+		expect(revisionRecords.map(({ operation }) => operation)).toEqual(['import', 'update'])
 	})
 
 	it('removes derived context when deleting a document', async () => {
@@ -279,7 +531,11 @@ id: character-mara
 			})
 		)
 
-		await runPromise(operations.deleteDocument(campaign.id, created.id))
+		await runPromise(
+			operations.deleteDocument(campaign.id, created.id, {
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
 
 		expect(contextIndex.deleteDocumentIndex).toHaveBeenCalledWith(campaign.id, created.id)
 	})

@@ -4,14 +4,23 @@ import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
-import { assistant, lore, vault } from '#lib/server/app.js'
+import { assistant, ingestion, lore, vault } from '#lib/server/app.js'
+import { askLoremasterCommandSchema } from '#lib/server/assistant/schema.js'
 import type { AssistantResponse } from '#lib/server/assistant/types.js'
 import { logFailure } from '#lib/server/failure.js'
+import type { SessionIngestionDraft, SessionIngestionResult } from '#lib/server/ingestion/types.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
+import type {
+	RevisionDiff,
+	VaultRevision,
+	VaultRevisionMetadata
+} from '#lib/server/vault/revisions/types.js'
 import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
+const revisionId = z.uuid()
+const ingestionId = z.uuid()
 const aliases = z.array(z.string().trim().min(1).max(200)).max(50).optional()
 const eventPredecessors = z.array(documentId).max(100).optional()
 const documentType = z.enum(documentTypes)
@@ -44,7 +53,30 @@ const updateDocumentInput = z
 		type: documentType,
 		aliases,
 		after: eventPredecessors,
-		content: z.string().max(1_000_000)
+		content: z.string().max(1_000_000),
+		currentRevisionId: revisionId
+	})
+	.strict()
+const deleteDocumentInput = documentReference
+	.extend({
+		currentRevisionId: revisionId
+	})
+	.strict()
+const revisionReference = documentReference
+	.extend({
+		revisionId
+	})
+	.strict()
+const revisionDiffInput = documentReference
+	.extend({
+		toRevisionId: revisionId,
+		fromRevisionId: revisionId.optional()
+	})
+	.strict()
+const restoreRevisionInput = revisionReference
+	.extend({
+		currentRevisionId: revisionId,
+		currentDocumentType: documentType
 	})
 	.strict()
 const loreReference = z
@@ -61,23 +93,28 @@ const createLoreInput = z
 		content: z.string().trim().min(1).max(1_000_000)
 	})
 	.strict()
-const askLoremasterInput = z
+const analyzeSessionInput = z
 	.object({
 		campaignId,
-		message: z.string().trim().min(1).max(2_000),
-		history: z
-			.array(
-				z
-					.object({
-						role: z.enum(['user', 'assistant']),
-						content: z.string().trim().min(1).max(2_000)
-					})
-					.strict()
-			)
-			.max(12)
+		title: z.string().trim().min(1).max(200),
+		transcript: z
+			.string()
+			.min(1)
+			.max(2_000_000)
+			.refine((value) => value.trim().length > 0)
 	})
 	.strict()
-
+const ingestionReference = z.object({ campaignId, ingestionId }).strict()
+const proposalResolution = z.discriminatedUnion('kind', [
+	z.object({ proposalId: z.uuid(), kind: z.literal('create') }).strict(),
+	z.object({ proposalId: z.uuid(), kind: z.literal('existing'), documentId }).strict()
+])
+const commitIngestionInput = ingestionReference
+	.extend({
+		selectedProposalIds: z.array(z.uuid()).min(1).max(500),
+		resolutions: z.array(proposalResolution).max(500)
+	})
+	.strict()
 export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 	runPromise(
 		pipe(
@@ -148,7 +185,7 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 )
 
 export const askLoremaster = command(
-	askLoremasterInput,
+	askLoremasterCommandSchema,
 	({ campaignId, message, history }): Promise<AssistantResponse> =>
 		runPromise(
 			pipe(
@@ -163,6 +200,66 @@ export const askLoremaster = command(
 						error(500, 'Loremaster could not respond')
 					},
 					onSuccess: (response) => response
+				})
+			)
+		)
+)
+
+export const analyzeSession = command(
+	analyzeSessionInput,
+	(input): Promise<SessionIngestionDraft> =>
+		runPromise(
+			pipe(
+				ingestion.analyze(input),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${input.campaignId}" was not found`)
+						}
+						logFailure(failure)
+						error(500, 'Unable to analyze this session')
+					},
+					onSuccess: (draft) => draft
+				})
+			)
+		)
+)
+
+export const getSessionIngestion = query(
+	ingestionReference,
+	({ campaignId, ingestionId }): Promise<SessionIngestionDraft> =>
+		runPromise(
+			pipe(
+				ingestion.getDraft(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session analysis was not found')
+					},
+					onSuccess: (draft) => draft
+				})
+			)
+		)
+)
+
+export const commitSessionIngestion = command(
+	commitIngestionInput,
+	(input): Promise<SessionIngestionResult> =>
+		runPromise(
+			pipe(
+				ingestion.commit(input),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						if (failure.domain === 'ingestion' && failure.operation === 'commit') {
+							error(409, 'This proposal selection cannot be committed.')
+						}
+						error(500, 'Unable to commit this session')
+					},
+					onSuccess: (result) => {
+						void listDocuments(input.campaignId).refresh()
+						return result
+					}
 				})
 			)
 		)
@@ -217,6 +314,77 @@ export const getDocument = query(documentReference, ({ campaignId, documentId })
 	)
 )
 
+export const listDocumentRevisions = query(
+	documentReference,
+	({ campaignId, documentId }): Promise<VaultRevisionMetadata[]> =>
+		runPromise(
+			pipe(
+				vault.listDocumentRevisions(campaignId, documentId),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${campaignId}" was not found`)
+						}
+
+						logFailure(failure)
+						error(500, 'Unable to load document history')
+					},
+					onSuccess: (revisions) => revisions
+				})
+			)
+		)
+)
+
+export const getDocumentRevision = query(
+	revisionReference,
+	({ campaignId, documentId, revisionId }): Promise<VaultRevision> =>
+		runPromise(
+			pipe(
+				vault.getDocumentRevision(campaignId, documentId, revisionId),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${campaignId}" was not found`)
+						}
+
+						if (failure.domain === 'revisionStorage' && failure.operation === 'getRevision') {
+							error(404, `Revision "${revisionId}" was not found`)
+						}
+
+						logFailure(failure)
+						error(500, 'Unable to load document revision')
+					},
+					onSuccess: (revision) => revision
+				})
+			)
+		)
+)
+
+export const diffDocumentRevisions = query(
+	revisionDiffInput,
+	({ campaignId, documentId, toRevisionId, fromRevisionId }): Promise<RevisionDiff> =>
+		runPromise(
+			pipe(
+				vault.diffDocumentRevisions(campaignId, documentId, toRevisionId, fromRevisionId),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${campaignId}" was not found`)
+						}
+
+						if (failure.domain === 'revisionStorage' && failure.operation === 'getRevision') {
+							error(404, 'One of the requested revisions was not found')
+						}
+
+						logFailure(failure)
+						error(500, 'Unable to compare document revisions')
+					},
+					onSuccess: (diff) => diff
+				})
+			)
+		)
+)
+
 export const createDocument = command(createDocumentInput, (input) =>
 	runPromise(
 		pipe(
@@ -259,7 +427,10 @@ export const createDocument = command(createDocumentInput, (input) =>
 export const updateDocument = command(updateDocumentInput, (input) =>
 	runPromise(
 		pipe(
-			vault.updateDocument(input.campaignId, input.documentId, input),
+			vault.updateDocument(input.campaignId, input.documentId, {
+				...input,
+				expectedRevisionId: input.currentRevisionId
+			}),
 			match({
 				onFailure: (failure) => {
 					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
@@ -268,6 +439,10 @@ export const updateDocument = command(updateDocumentInput, (input) =>
 
 					if (failure.domain === 'vault' && failure.operation === 'getDocument') {
 						error(404, `Document "${input.documentId}" was not found`)
+					}
+
+					if (failure.domain === 'vaultRevision' && failure.operation === 'verifyBase') {
+						error(409, 'This document changed after you opened it. Reload before saving.')
 					}
 
 					logFailure(failure)
@@ -286,10 +461,12 @@ export const updateDocument = command(updateDocumentInput, (input) =>
 	)
 )
 
-export const deleteDocument = command(documentReference, (input) =>
+export const deleteDocument = command(deleteDocumentInput, (input) =>
 	runPromise(
 		pipe(
-			vault.deleteDocument(input.campaignId, input.documentId),
+			vault.deleteDocument(input.campaignId, input.documentId, {
+				expectedRevisionId: input.currentRevisionId
+			}),
 			match({
 				onFailure: (failure) => {
 					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
@@ -300,11 +477,78 @@ export const deleteDocument = command(documentReference, (input) =>
 						error(404, `Document "${input.documentId}" was not found`)
 					}
 
+					if (failure.domain === 'vaultRevision' && failure.operation === 'verifyBase') {
+						error(409, 'This document changed after you opened it. Reload before deleting.')
+					}
+
 					logFailure(failure)
 					error(500, 'Unable to delete vault document')
 				},
 				onSuccess: () => {
 					void listDocuments(input.campaignId).refresh()
+				}
+			})
+		)
+	)
+)
+
+export const restoreDocumentRevision = command(restoreRevisionInput, (input) =>
+	runPromise(
+		pipe(
+			vault.restoreDocumentRevision(input.campaignId, input.documentId, input.revisionId, {
+				expectedRevisionId: input.currentRevisionId
+			}),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${input.campaignId}" was not found`)
+					}
+
+					if (failure.domain === 'revisionStorage' && failure.operation === 'getRevision') {
+						error(404, `Revision "${input.revisionId}" was not found`)
+					}
+
+					if (failure.domain === 'vaultRevision' && failure.operation === 'verifyBase') {
+						error(409, 'This document changed after its history loaded. Reload before restoring.')
+					}
+
+					if (failure.domain === 'vaultRevision' && failure.operation === 'restoreRevision') {
+						const reason =
+							failure.cause && typeof failure.cause === 'object' && 'reason' in failure.cause
+								? failure.cause.reason
+								: undefined
+
+						if (reason === 'deletedSnapshot') {
+							error(410, 'Deleted document snapshots cannot be restored')
+						}
+
+						error(422, 'This revision does not contain a valid document snapshot')
+					}
+
+					logFailure(failure)
+					error(500, 'Unable to restore document revision')
+				},
+				onSuccess: (document) => {
+					getDocument({
+						campaignId: input.campaignId,
+						documentId: input.documentId
+					}).set(document)
+					void listDocumentRevisions({
+						campaignId: input.campaignId,
+						documentId: input.documentId
+					}).refresh()
+					void listDocuments(input.campaignId).refresh()
+					void listDocumentsByType({
+						campaignId: input.campaignId,
+						type: document.type
+					}).refresh()
+					if (input.currentDocumentType !== document.type) {
+						void listDocumentsByType({
+							campaignId: input.campaignId,
+							type: input.currentDocumentType
+						}).refresh()
+					}
+					return document
 				}
 			})
 		)

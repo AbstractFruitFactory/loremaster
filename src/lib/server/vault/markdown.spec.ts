@@ -4,7 +4,8 @@ import {
 	extractWikiLinks,
 	parseVaultDocument,
 	serializeVaultDocument,
-	updateDocumentFrontmatter
+	updateDocumentFrontmatter,
+	updateVaultDocumentSource
 } from './markdown'
 
 const parseDocument = (path: string, source: string) => runSync(parseVaultDocument(path, source))
@@ -89,6 +90,53 @@ Varek owns [[The Black Crown]].`
 		})
 	})
 
+	it('separates a Session recap from its raw transcript', () => {
+		const transcript =
+			'GM: The gate opens. 🐉\nPlayer: I enter.\n<!-- loremaster:raw-transcript -->'
+		const source = serializeVaultDocument(
+			{ id: 'session-12', type: 'session', ingestionId: 'ingestion-12' },
+			'# Session 12\n\nThe party entered [[Westgate]].',
+			transcript
+		)
+		const document = parseDocument('Sessions/Session 12.md', source)
+
+		expect(source).toContain('ingestion_id: ingestion-12')
+		expect(document).toMatchObject({
+			id: 'session-12',
+			type: 'session',
+			ingestionId: 'ingestion-12',
+			content: '# Session 12\n\nThe party entered [[Westgate]].',
+			transcript,
+			links: ['Westgate']
+		})
+	})
+
+	it('preserves a Session transcript when its recap is updated', () => {
+		const source = serializeVaultDocument(
+			{ id: 'session-12', type: 'session', ingestionId: 'ingestion-12' },
+			'# Session 12\n\nOld recap.',
+			'GM: Secret transcript text.'
+		)
+		const updated = runSync(
+			updateVaultDocumentSource(
+				source,
+				{
+					id: 'session-12',
+					type: 'session',
+					after: [],
+					ingestionId: 'ingestion-12'
+				},
+				'# Session 12\n\nNew recap.'
+			)
+		)
+
+		expect(parseDocument('Sessions/Session 12.md', updated)).toMatchObject({
+			content: '# Session 12\n\nNew recap.',
+			transcript: 'GM: Secret transcript text.',
+			ingestionId: 'ingestion-12'
+		})
+	})
+
 	it('preserves existing Obsidian properties when adding required metadata', () => {
 		const source = `---
 tags:
@@ -104,6 +152,23 @@ custom: retained
 		expect(identified).toContain('tags:\n  - npc')
 		expect(identified).toContain('custom: retained')
 		expect(parseDocument('Characters/Varek.md', identified).content).toBe('# Varek')
+	})
+
+	it('preserves unknown YAML comments, scalar styles, and CRLF endings when updating', () => {
+		const source =
+			'---\r\n# vault comment\r\nid: char_varek\r\ntype: npc\r\ncustom: "quoted" # inline\r\nfolded: >-\r\n  retained value\r\n---\r\n\r\n# Varek\r\n'
+		const updated = runSync(
+			updateVaultDocumentSource(
+				source,
+				{ id: 'char_varek', type: 'npc', aliases: ['Keeper'], after: [] },
+				'# Varek\r\n\r\nUpdated.'
+			)
+		)
+
+		expect(updated).toContain('# vault comment\r\n')
+		expect(updated).toContain('custom: "quoted" # inline\r\n')
+		expect(updated).toContain('folded: >-\r\n  retained value\r\n')
+		expect(updated).not.toMatch(/(^|[^\r])\n/)
 	})
 
 	it('returns malformed YAML as an expected parsing failure', () => {
@@ -167,6 +232,28 @@ after:
 			domain: 'vault',
 			operation: 'parseDocument',
 			cause: { reason: 'eventPredecessorsOnNonEvent', type: 'npc' }
+		})
+	})
+
+	it('rejects Session ingestion metadata on other document types', () => {
+		const result = runSync(
+			flip(
+				parseVaultDocument(
+					'Lore/Notes.md',
+					`---
+type: lore
+ingestion_id: ingestion-12
+---
+
+# Notes`
+				)
+			)
+		)
+
+		expect(result).toMatchObject({
+			domain: 'vault',
+			operation: 'parseDocument',
+			cause: { reason: 'invalidSessionIngestionId', ingestionId: 'ingestion-12' }
 		})
 	})
 })

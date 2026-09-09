@@ -2,12 +2,24 @@ import { succeed } from 'effect/Effect'
 import type { DocumentType } from '../../../document'
 import { EMBEDDING_DIMENSIONS } from '../provider'
 import type {
+	AiModels,
+	AnalyzeSessionChunk,
 	AiProvider,
 	EmbedTexts,
 	GenerateAssistant,
 	GenerateText,
-	InferDocumentType
+	InferDocumentType,
+	StreamAssistant
 } from '../provider'
+
+export const mockAiModels = {
+	assistant: 'mock-assistant-v1',
+	campaignSummary: 'mock-text-v1',
+	documentSummary: 'mock-text-v1',
+	documentType: 'mock-document-type-v1',
+	sessionAnalysis: 'mock-session-analysis-v1',
+	embeddings: 'mock-token-hash-v1'
+} satisfies AiModels
 
 const directoryTypes: Record<string, DocumentType> = {
 	players: 'player',
@@ -90,19 +102,19 @@ const generateText: GenerateText = ({ system, prompt }) => {
 	)
 }
 
-const generateAssistant: GenerateAssistant = ({ prompt }) => {
+const assistantGeneration = (prompt: string) => {
 	const message = currentMessage(prompt)
 
 	if (!proposalRequest.test(message)) {
-		return succeed({
+		return {
 			message:
 				'Based on the available campaign lore, there is a connection the Dungeon Master can develop at the table.'
-		})
+		}
 	}
 
 	const category = categoryFor(message)
 
-	return succeed({
+	return {
 		message:
 			'I drafted a lore suggestion from that idea. Review it before adding it to the campaign.',
 		proposal: {
@@ -110,8 +122,26 @@ const generateAssistant: GenerateAssistant = ({ prompt }) => {
 			category,
 			content: `A campaign detail inspired by this direction: ${message}`
 		}
-	})
+	}
 }
+
+const generateAssistant: GenerateAssistant = ({ prompt }) => succeed(assistantGeneration(prompt))
+
+const streamAssistant: StreamAssistant = ({ prompt }) =>
+	succeed(
+		(async function* () {
+			const response = assistantGeneration(prompt)
+			const deltas = response.message.match(/\S+\s*/g) ?? []
+
+			for (const delta of deltas) {
+				yield { type: 'text-delta' as const, delta }
+			}
+
+			if (response.proposal) {
+				yield { type: 'proposal' as const, proposal: response.proposal }
+			}
+		})()
+	)
 
 const embedTexts: EmbedTexts = ({ values }) => succeed(values.map(embedText))
 
@@ -125,9 +155,34 @@ const inferDocumentType: InferDocumentType = ({ path, title, content }) => {
 	return succeed(contentPatterns.find(([, pattern]) => pattern.test(source))?.[0] ?? 'lore')
 }
 
+const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
+	const content = prompt.split(/^## Transcript chunk.*\nLines .*\n\n/m).at(-1) ?? ''
+	const excerpt = content
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find(Boolean)
+	if (!excerpt) return succeed([])
+
+	return succeed([
+		{
+			excerpt,
+			title: 'Session development',
+			documentType: 'event',
+			kind: 'development',
+			certainty: 'explicit',
+			content: excerpt,
+			references: [],
+			after: []
+		}
+	])
+}
+
 export const mockAiProvider: AiProvider = {
+	analyzeSessionChunk,
+	models: mockAiModels,
 	embedTexts,
 	generateAssistant,
 	generateText,
-	inferDocumentType
+	inferDocumentType,
+	streamAssistant
 }

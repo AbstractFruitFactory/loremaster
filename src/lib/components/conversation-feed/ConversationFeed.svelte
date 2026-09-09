@@ -26,7 +26,7 @@
 
 <script lang="ts">
 	import LoreProposal from '#lib/components/lore-proposal/LoreProposal.svelte'
-	import { tick } from 'svelte'
+	import type { Attachment } from 'svelte/attachments'
 
 	const sourceTypeLabels: Record<DocumentType, string> = {
 		player: 'Player',
@@ -37,6 +37,7 @@
 		lore: 'Lore',
 		event: 'Event'
 	}
+	const autoScrollThreshold = 48
 
 	let {
 		messages,
@@ -58,22 +59,34 @@
 		onproposalcancel: () => void
 	} = $props()
 
-	let feedElement = $state<HTMLDivElement | null>(null)
+	const scrollFeed: Attachment<HTMLDivElement> = (feedElement) => {
+		let shouldAutoScroll = true
+		const updateAutoScroll = () => {
+			const distanceFromBottom =
+				feedElement.scrollHeight - feedElement.scrollTop - feedElement.clientHeight
+			shouldAutoScroll = distanceFromBottom <= autoScrollThreshold
+		}
 
-	$effect.pre(() => {
-		messages.length
-		isResponding
-		proposal?.messageId
+		feedElement.addEventListener('scroll', updateAutoScroll, { passive: true })
 
-		tick().then(() => {
-			if (!feedElement) return
+		$effect(() => {
+			const lastMessage = messages[messages.length - 1]
+			messages.length
+			lastMessage?.content
+			lastMessage?.sources.length
+			isResponding
+			proposal?.messageId
 
-			feedElement.scrollTop = feedElement.scrollHeight
+			if (shouldAutoScroll) {
+				feedElement.scrollTop = feedElement.scrollHeight
+			}
 		})
-	})
+
+		return () => feedElement.removeEventListener('scroll', updateAutoScroll)
+	}
 </script>
 
-<div class="message-feed" aria-live="polite" bind:this={feedElement}>
+<div class="message-feed" aria-live="polite" aria-busy={isResponding} {@attach scrollFeed}>
 	{#if messages.length === 0}
 		<div class="welcome">
 			<p class="welcome-mark" aria-hidden="true">✦</p>
@@ -87,12 +100,23 @@
 		</div>
 	{:else}
 		<ol class="messages">
-			{#each messages as conversationMessage (conversationMessage.id)}
-				<li class={conversationMessage.role}>
+			{#each messages as conversationMessage, index (conversationMessage.id)}
+				{@const isPending =
+					isResponding &&
+					index === messages.length - 1 &&
+					conversationMessage.role === 'assistant' &&
+					!conversationMessage.content}
+				<li class={[conversationMessage.role, isPending && 'pending']}>
 					<p class="speaker">
 						{conversationMessage.role === 'user' ? 'You' : 'Loremaster'}
 					</p>
-					<div class="message-content">{conversationMessage.content}</div>
+					<div class="message-content">
+						{#if isPending}
+							<p role="status">Considering your campaign…</p>
+						{:else}
+							{conversationMessage.content}
+						{/if}
+					</div>
 					{#if conversationMessage.sources.length}
 						<div class="sources" aria-label="Answer sources">
 							<span class="sources-label">Sources</span>
@@ -121,12 +145,6 @@
 					{/key}
 				{/if}
 			{/each}
-			{#if isResponding}
-				<li class="assistant pending" role="status">
-					<p class="speaker">Loremaster</p>
-					<p>Considering your campaign…</p>
-				</li>
-			{/if}
 		</ol>
 	{/if}
 </div>
