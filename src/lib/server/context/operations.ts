@@ -24,8 +24,24 @@ export const STRONG_LEXICAL_SCORE = 5
 export const STRONG_SEMANTIC_SCORE = 5
 export const DEFAULT_SEMANTIC_RESULTS = 10
 export const DEFAULT_SEMANTIC_MIN_SCORE = 0.1
+export const DEFAULT_RETRIEVAL_HISTORY_MESSAGES = 6
+export const DEFAULT_RETRIEVAL_HISTORY_MESSAGE_CHARACTERS = 2_000
 
 const isZeroVector = (vector: number[]) => vector.every((value) => value === 0)
+
+const semanticRetrievalQuery = (message: string, history: ContextConversationMessage[]) => {
+	const recentHistory = history
+		.slice(-DEFAULT_RETRIEVAL_HISTORY_MESSAGES)
+		.map(
+			({ role, content }) =>
+				`${role === 'user' ? 'Dungeon Master' : 'Loremaster'}: ${content.slice(0, DEFAULT_RETRIEVAL_HISTORY_MESSAGE_CHARACTERS)}`
+		)
+		.join('\n')
+
+	return recentHistory
+		? `## Recent conversation\n${recentHistory}\n\n## Current request\n${message}`
+		: message
+}
 
 const estimateTimelineTokens = ({ events, edges }: TimelineContext) =>
 	Math.ceil(
@@ -163,12 +179,12 @@ export const contextOperations = ({
 		history: ContextConversationMessage[]
 	}): Effect<AssistantContext, Failure> =>
 		gen(function* () {
-			const { campaignId, message } = input
+			const { campaignId, message, history } = input
 			const [directMentions, lexicalMatches, semanticMatches] = yield* all(
 				[
 					findDirectMentions(campaignId, message),
 					searchLexical(campaignId, message),
-					searchSemantic(campaignId, message)
+					searchSemantic(campaignId, semanticRetrievalQuery(message, history))
 				],
 				{ concurrency: 'unbounded' }
 			)
