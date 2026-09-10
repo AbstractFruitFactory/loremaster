@@ -34,10 +34,7 @@ describe('streamAssistant', () => {
 		const events = []
 		for await (const event of streamAssistant(
 			'campaign id',
-			{
-				message: 'Who guards the gate?',
-				history: [{ role: 'user', content: 'Hello' }]
-			},
+			{ message: 'Who guards the gate?' },
 			{ signal: controller.signal, fetcher }
 		)) {
 			events.push(event)
@@ -54,10 +51,7 @@ describe('streamAssistant', () => {
 				'content-type': 'application/json',
 				accept: 'application/x-ndjson'
 			},
-			body: JSON.stringify({
-				message: 'Who guards the gate?',
-				history: [{ role: 'user', content: 'Hello' }]
-			}),
+			body: JSON.stringify({ message: 'Who guards the gate?' }),
 			signal: controller.signal
 		})
 	})
@@ -67,7 +61,7 @@ describe('streamAssistant', () => {
 
 		for await (const event of streamAssistant(
 			'campaign',
-			{ message: 'Hello', history: [] },
+			{ message: 'Hello' },
 			{
 				fetcher: () =>
 					Promise.resolve(
@@ -85,7 +79,7 @@ describe('streamAssistant', () => {
 		const consume = async () => {
 			for await (const event of streamAssistant(
 				'campaign',
-				{ message: 'Hello', history: [] },
+				{ message: 'Hello' },
 				{
 					fetcher: () =>
 						Promise.resolve(
@@ -106,7 +100,7 @@ describe('streamAssistant', () => {
 		const consume = async () => {
 			for await (const event of streamAssistant(
 				'campaign',
-				{ message: 'Hello', history: [] },
+				{ message: 'Hello' },
 				{
 					fetcher: () => Promise.resolve(createStreamResponse(['not-json\n']))
 				}
@@ -122,7 +116,7 @@ describe('streamAssistant', () => {
 		const consume = async () => {
 			for await (const event of streamAssistant(
 				'campaign',
-				{ message: 'Hello', history: [] },
+				{ message: 'Hello' },
 				{
 					fetcher: () =>
 						Promise.resolve(createStreamResponse(['{"type":"text-delta","delta":"Partial"}\n']))
@@ -147,7 +141,7 @@ describe('streamAssistant', () => {
 		)
 		const events = streamAssistant(
 			'campaign',
-			{ message: 'Hello', history: [] },
+			{ message: 'Hello' },
 			{ fetcher: () => Promise.resolve(response) }
 		)
 

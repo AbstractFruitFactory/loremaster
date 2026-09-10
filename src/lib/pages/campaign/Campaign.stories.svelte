@@ -36,6 +36,7 @@
 	const onaddlore: CampaignArgs['onaddlore'] = async ({ title }) => ({ title })
 
 	const interactiveArgs = {
+		conversationHistory: [],
 		onask,
 		onaddlore
 	} satisfies CampaignArgs

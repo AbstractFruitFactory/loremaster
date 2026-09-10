@@ -3,7 +3,6 @@
 
 	export type AskLoremasterInput = {
 		message: string
-		history: Array<{ role: 'user' | 'assistant'; content: string }>
 	}
 
 	export type AddLoreInput = LoreProposalDraft
@@ -18,6 +17,7 @@
 	import { onDestroy } from 'svelte'
 
 	type Props = {
+		conversationHistory: ConversationMessage[]
 		onask: (input: AskLoremasterInput, signal: AbortSignal) => AsyncIterable<AssistantStreamEvent>
 		onaddlore: (draft: AddLoreInput) => Promise<{ title: string }>
 	}
@@ -37,9 +37,9 @@
 		{ value: 'event', label: 'Events' }
 	]
 
-	let { onask, onaddlore }: Props = $props()
+	let { conversationHistory, onask, onaddlore }: Props = $props()
 
-	let messages = $state.raw<ConversationMessage[]>([])
+	let messages = $state.raw<ConversationMessage[]>(conversationHistory)
 	let proposal = $state<ActiveProposal | null>(null)
 	let message = $state('')
 	let isResponding = $state(false)
@@ -69,7 +69,6 @@
 		const submittedMessage = message.trim()
 		if (!submittedMessage || isResponding) return
 
-		const history = messages.slice(-12).map(({ role, content }) => ({ role, content }))
 		const assistantMessageId = createMessageId()
 		const requestController = new AbortController()
 		activeRequest = requestController
@@ -85,13 +84,7 @@
 		proposalError = ''
 
 		try {
-			for await (const event of onask(
-				{
-					message: submittedMessage,
-					history
-				},
-				requestController.signal
-			)) {
+			for await (const event of onask({ message: submittedMessage }, requestController.signal)) {
 				if (event.type === 'text-delta') {
 					updateAssistantMessage(assistantMessageId, (assistantMessage) => ({
 						...assistantMessage,

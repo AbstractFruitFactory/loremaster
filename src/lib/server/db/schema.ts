@@ -18,6 +18,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { documentTypes } from '../../document'
 import { EMBEDDING_DIMENSIONS } from '../ai/provider'
+import type { LoreSource } from '../assistant/types'
 import { revisionOperations, revisionSources } from '../vault/revisions/types'
 
 const tsvector = customType<{ data: string }>({
@@ -278,5 +279,26 @@ export const vaultFragmentEmbeddings = pgTable(
 			table.namespace,
 			table.vectorId
 		)
+	]
+)
+
+const conversationRoles = ['user', 'assistant'] as const
+
+export const conversationMessages = pgTable(
+	'conversation_messages',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		role: text('role', { enum: conversationRoles }).notNull(),
+		content: text('content').notNull(),
+		sources: jsonb('sources').$type<LoreSource[]>().notNull().default([]),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [
+		index('conversation_messages_campaign_created_index').on(table.campaignId, table.createdAt)
 	]
 )
