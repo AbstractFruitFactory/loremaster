@@ -5,10 +5,12 @@ import { z } from 'zod'
 import { assistant } from '#lib/server/app.js'
 import { askLoremasterRequestSchema } from '#lib/server/assistant/schema.js'
 import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
+import * as conversationDb from '#lib/server/db/conversation.js'
 import { logFailure } from '#lib/server/failure.js'
 import type { RequestHandler } from './$types'
 
 const campaignIdSchema = z.uuid()
+const conversationHistoryLimit = 12
 const encoder = new TextEncoder()
 const encodeEvent = (event: AssistantStreamEvent) => encoder.encode(`${JSON.stringify(event)}\n`)
 
@@ -23,9 +25,43 @@ export const POST: RequestHandler = async ({ params, request }) => {
 		return json({ message: 'Invalid assistant request' }, { status: 400 })
 	}
 
+	const historyResult = await runPromise(
+		pipe(
+			conversationDb.listRecent(campaignId.data, conversationHistoryLimit),
+			match({
+				onFailure: (failure) => ({ failure }),
+				onSuccess: (messages) => ({ messages })
+			})
+		)
+	)
+
+	if ('failure' in historyResult) {
+		logFailure(historyResult.failure)
+		return json({ message: 'Unable to load conversation history' }, { status: 500 })
+	}
+
+	const userMessageResult = await runPromise(
+		pipe(
+			conversationDb.create(campaignId.data, {
+				role: 'user',
+				content: body.data.message
+			}),
+			match({
+				onFailure: (failure) => ({ failure }),
+				onSuccess: (messages) => ({ messages })
+			})
+		)
+	)
+
+	if ('failure' in userMessageResult) {
+		logFailure(userMessageResult.failure)
+		return json({ message: 'Unable to save conversation' }, { status: 500 })
+	}
+
+	const history = historyResult.messages.map(({ role, content }) => ({ role, content }))
 	const result = await runPromise(
 		pipe(
-			assistant.streamChat(campaignId.data, body.data.message, body.data.history, request.signal),
+			assistant.streamChat(campaignId.data, body.data.message, history, request.signal),
 			match({
 				onFailure: (failure) => ({ failure }),
 				onSuccess: (stream) => ({ stream })
@@ -57,10 +93,39 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	const responseBody = new ReadableStream<Uint8Array>({
 		async start(controller) {
 			controller.enqueue(encodeEvent({ type: 'sources', sources: result.stream.sources }))
+			let assistantContent = ''
 
 			try {
 				for await (const event of result.stream.events) {
+					if (event.type === 'text-delta') assistantContent += event.delta
 					controller.enqueue(encodeEvent(event))
+				}
+
+				if (assistantContent.trim()) {
+					const assistantMessageResult = await runPromise(
+						pipe(
+							conversationDb.create(campaignId.data, {
+								role: 'assistant',
+								content: assistantContent,
+								sources: result.stream.sources
+							}),
+							match({
+								onFailure: (failure) => ({ failure }),
+								onSuccess: (messages) => ({ messages })
+							})
+						)
+					)
+
+					if ('failure' in assistantMessageResult) {
+						logFailure(assistantMessageResult.failure)
+						controller.enqueue(
+							encodeEvent({
+								type: 'error',
+								message: 'Loremaster responded, but the conversation could not be saved'
+							})
+						)
+						return
+					}
 				}
 
 				controller.enqueue(encodeEvent({ type: 'done' }))

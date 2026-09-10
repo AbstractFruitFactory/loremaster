@@ -2,13 +2,15 @@ import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
 
 export type AssistantStreamInput = {
 	message: string
-	history: Array<{ role: 'user' | 'assistant'; content: string }>
 }
 
 export type AssistantStreamOptions = {
 	signal?: AbortSignal
 	fetcher?: typeof fetch
 }
+
+const assistantUrl = (campaignId: string) =>
+	`/api/campaigns/${encodeURIComponent(campaignId)}/assistant`
 
 const getResponseError = async (response: Response) => {
 	const fallback = `Assistant request failed (${response.status})`
@@ -46,7 +48,7 @@ export async function* streamAssistant(
 	input: AssistantStreamInput,
 	{ signal, fetcher = fetch }: AssistantStreamOptions = {}
 ): AsyncGenerator<AssistantStreamEvent> {
-	const response = await fetcher(`/api/campaigns/${encodeURIComponent(campaignId)}/assistant`, {
+	const response = await fetcher(assistantUrl(campaignId), {
 		method: 'POST',
 		headers: {
 			'content-type': 'application/json',
