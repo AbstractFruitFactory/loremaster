@@ -4,6 +4,8 @@ export const scoreWeights: Record<ContextReason, number> = {
 	'direct-mention': 100,
 	'lexical-match': 50,
 	'semantic-match': 40,
+	'relationship-link': 35,
+	'relationship-backlink': 30,
 	'wiki-link': 25,
 	backlink: 20
 }
@@ -12,6 +14,8 @@ const reasonOrder: ContextReason[] = [
 	'direct-mention',
 	'lexical-match',
 	'semantic-match',
+	'relationship-link',
+	'relationship-backlink',
 	'wiki-link',
 	'backlink'
 ]

@@ -52,8 +52,10 @@ export const createServices = (ai: AiProvider) => {
 		ai: {
 			inferDocumentType: ai.inferDocumentType,
 			generateText: ai.generateText,
+			generateRelationshipLinks: ai.generateRelationshipLinks,
 			documentTypeModel: ai.models.documentType,
-			summaryModel: ai.models.documentSummary
+			summaryModel: ai.models.documentSummary,
+			relationshipModel: ai.models.relationshipLinks
 		},
 		db: {
 			getCampaignById: campaignDb.getById,

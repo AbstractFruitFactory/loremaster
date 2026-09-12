@@ -14,7 +14,13 @@ export type ContextFragment = {
 }
 
 export type ContextReason =
-	'direct-mention' | 'lexical-match' | 'semantic-match' | 'wiki-link' | 'backlink'
+	| 'direct-mention'
+	| 'lexical-match'
+	| 'semantic-match'
+	| 'relationship-link'
+	| 'relationship-backlink'
+	| 'wiki-link'
+	| 'backlink'
 
 export type ContextCandidate = {
 	fragment: ContextFragment

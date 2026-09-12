@@ -14,6 +14,13 @@ import {
 } from './markdown'
 import type { vaultRevisionOperations } from './revisions/operations'
 import type { RevisionSource } from './revisions/types'
+import {
+	canHaveRelationshipLinks,
+	relationshipCandidates,
+	relationshipPrompt,
+	relationshipSystemPrompt,
+	validateRelationshipLinks
+} from './relationships'
 import { documentSummaryPrompt } from './summary'
 import type { VaultStorage } from './storage/storage'
 import type {
@@ -72,9 +79,10 @@ export const vaultOperations = ({
 	storage,
 	timeline
 }: {
-	ai: Pick<AiProvider, 'inferDocumentType' | 'generateText'> & {
+	ai: Pick<AiProvider, 'inferDocumentType' | 'generateText' | 'generateRelationshipLinks'> & {
 		documentTypeModel: string
 		summaryModel: string
+		relationshipModel: string
 	}
 	db: {
 		getCampaignById: typeof CampaignDb.getById
@@ -85,6 +93,7 @@ export const vaultOperations = ({
 		indexDocument: typeof VaultDb.indexDocument
 		deleteDocumentIndex: typeof VaultDb.deleteDocumentIndex
 		replaceCampaignIndex: typeof VaultDb.replaceCampaignIndex
+		replaceRelationshipLinks: typeof VaultDb.replaceRelationshipLinks
 	}
 	contextIndex: {
 		deleteDocumentIndex: (campaignId: string, documentId: string) => Effect<void, Failure>
@@ -111,6 +120,31 @@ export const vaultOperations = ({
 			map((summary) => summary.trim())
 		)
 
+	const replaceDerivedRelationshipLinks = (
+		campaignId: string,
+		document: VaultDocument,
+		documents: VaultDocument[]
+	) => {
+		if (!canHaveRelationshipLinks(document)) {
+			return db.replaceRelationshipLinks(campaignId, document.id, [])
+		}
+
+		const candidates = relationshipCandidates(document, documents)
+		if (!candidates.length) {
+			return db.replaceRelationshipLinks(campaignId, document.id, [])
+		}
+
+		return pipe(
+			ai.generateRelationshipLinks({
+				model: ai.relationshipModel,
+				system: relationshipSystemPrompt,
+				prompt: relationshipPrompt(document, candidates)
+			}),
+			map((links) => validateRelationshipLinks(links, candidates)),
+			flatMap((links) => db.replaceRelationshipLinks(campaignId, document.id, links))
+		)
+	}
+
 	const attachDocumentSummaries = (campaignId: string) => (documents: VaultDocument[]) => {
 		if (!documents.length) return succeed(documents)
 
@@ -136,7 +170,13 @@ export const vaultOperations = ({
 				pipe(
 					db.indexDocument(campaignId, toDocumentIndex(documentWithSummary)),
 					flatMap(() => contextIndex.indexDocument(campaignId, documentWithSummary)),
-					map(() => documentWithSummary)
+					flatMap(() => loadDocuments(campaignId)),
+					flatMap((documents) =>
+						pipe(
+							replaceDerivedRelationshipLinks(campaignId, documentWithSummary, documents),
+							map(() => documentWithSummary)
+						)
+					)
 				)
 			)
 		)
@@ -538,6 +578,9 @@ export const vaultOperations = ({
 
 			yield* db.replaceCampaignIndex(campaignId, documentsWithSummaries.map(toDocumentIndex))
 			yield* contextIndex.reindexCampaign(campaignId, documentsWithSummaries)
+			for (const document of documentsWithSummaries) {
+				yield* replaceDerivedRelationshipLinks(campaignId, document, documentsWithSummaries)
+			}
 
 			return documentsWithSummaries
 		})

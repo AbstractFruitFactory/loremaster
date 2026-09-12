@@ -13,6 +13,7 @@ import {
 	type ExtractedSessionClaim,
 	type SessionEntityResolution
 } from '../../ingestion/types'
+import type { RelationshipLink } from '../../vault/types'
 import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider'
 
 type OpenAiClient = Pick<OpenAI, 'embeddings' | 'responses'>
@@ -23,6 +24,7 @@ export const openAiModels = {
 	documentSummary: 'gpt-5.6-luna',
 	documentType: 'gpt-5.6-luna',
 	sessionAnalysis: 'gpt-5.6-terra',
+	relationshipLinks: 'gpt-5.6-luna',
 	embeddings: 'text-embedding-3-small'
 } satisfies AiModels
 
@@ -135,6 +137,51 @@ const parseSessionEntityResolutions = (response: OpenAiResponse): SessionEntityR
 	)
 	return call?.type === 'function_call'
 		? sessionEntityResolutionsSchema.parse(JSON.parse(call.arguments)).resolutions
+		: []
+}
+
+const relationshipLinksSchema = z.object({
+	links: z.array(
+		z.object({
+			targetDocumentId: z.string().trim().min(1),
+			relationship: z.string().trim().min(1)
+		})
+	)
+})
+
+const relationshipLinksTool = {
+	type: 'function' as const,
+	name: 'record_relationship_links',
+	description:
+		'Record current outgoing relationship links from the source entity to supplied candidate entities.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			links: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						targetDocumentId: { type: 'string' },
+						relationship: { type: 'string' }
+					},
+					required: ['targetDocumentId', 'relationship'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['links'],
+		additionalProperties: false
+	}
+}
+
+const parseRelationshipLinks = (response: OpenAiResponse): RelationshipLink[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === relationshipLinksTool.name
+	)
+	return call?.type === 'function_call'
+		? relationshipLinksSchema.parse(JSON.parse(call.arguments)).links
 		: []
 }
 
@@ -334,6 +381,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 				return parseSessionEntityResolutions(response)
 			},
 			catch: (cause) => failure('ai', 'resolveSessionEntities', cause)
+		}),
+
+	generateRelationshipLinks: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [relationshipLinksTool],
+					tool_choice: { type: 'function', name: relationshipLinksTool.name }
+				})
+				return parseRelationshipLinks(response)
+			},
+			catch: (cause) => failure('ai', 'generateRelationshipLinks', cause)
 		})
 })
 
@@ -353,6 +414,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		embedTexts: () => missingApiKey('embedTexts'),
 		inferDocumentType: () => missingApiKey('inferDocumentType'),
 		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk'),
-		resolveSessionEntities: () => missingApiKey('resolveSessionEntities')
+		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
+		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}
 }

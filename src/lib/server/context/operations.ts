@@ -59,8 +59,10 @@ type ContextOperationsDependencies = {
 		getFragmentsByIds: typeof ContextDb.getFragmentsByIds
 		getFragmentsForDocuments: typeof ContextDb.getFragmentsForDocuments
 		getBacklinksForDocuments: typeof VaultDb.getBacklinksForDocuments
+		getIncomingRelationshipLinksForDocuments: typeof VaultDb.getIncomingRelationshipLinksForDocuments
 		findDocumentIdsByNames: typeof ContextDb.findDocumentIdsByNames
 		getOutgoingLinksForDocuments: typeof VaultDb.getOutgoingLinksForDocuments
+		getOutgoingRelationshipLinksForDocuments: typeof VaultDb.getOutgoingRelationshipLinksForDocuments
 		searchLexicalFragments: typeof ContextDb.searchLexicalFragments
 		searchVectors: typeof VectorDb.searchVectors
 	}
@@ -142,9 +144,11 @@ export const contextOperations = ({
 		pipe(
 			all([
 				db.getOutgoingLinksForDocuments(campaignId, seedDocumentIds),
-				db.getBacklinksForDocuments(campaignId, seedDocumentIds)
+				db.getBacklinksForDocuments(campaignId, seedDocumentIds),
+				db.getOutgoingRelationshipLinksForDocuments(campaignId, seedDocumentIds),
+				db.getIncomingRelationshipLinksForDocuments(campaignId, seedDocumentIds)
 			]),
-			flatMap(([outgoingLinks, backlinks]) => {
+			flatMap(([outgoingLinks, backlinks, relationshipLinks, relationshipBacklinks]) => {
 				const reasonsByDocumentId = new Map<string, Set<ContextReason>>()
 
 				const addReason = (links: VaultDb.LinkedDocument[], reason: ContextReason) => {
@@ -157,6 +161,8 @@ export const contextOperations = ({
 					}
 				}
 
+				addReason(relationshipLinks, 'relationship-link')
+				addReason(relationshipBacklinks, 'relationship-backlink')
 				addReason(outgoingLinks, 'wiki-link')
 				addReason(backlinks, 'backlink')
 
