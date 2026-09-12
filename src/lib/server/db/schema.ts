@@ -137,6 +137,51 @@ export const vaultLinks = pgTable(
 	]
 )
 
+export const vaultRelationshipLinks = pgTable(
+	'vault_relationship_links',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		sourceDocumentId: text('source_document_id').notNull(),
+		targetDocumentId: text('target_document_id').notNull(),
+		relationship: varchar('relationship', { length: 48 }).notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.campaignId,
+				table.sourceDocumentId,
+				table.targetDocumentId,
+				table.relationship
+			],
+			name: 'vault_relationship_links_campaign_source_target_relationship_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.sourceDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'vault_relationship_links_campaign_source_document_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.targetDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'vault_relationship_links_campaign_target_document_fk'
+		}).onDelete('cascade'),
+		check(
+			'vault_relationship_links_different_documents_check',
+			sql`${table.sourceDocumentId} <> ${table.targetDocumentId}`
+		),
+		index('vault_relationship_links_campaign_source_index').on(
+			table.campaignId,
+			table.sourceDocumentId
+		),
+		index('vault_relationship_links_campaign_target_index').on(
+			table.campaignId,
+			table.targetDocumentId
+		)
+	]
+)
+
 export const eventChronologyEdges = pgTable(
 	'event_chronology_edges',
 	{

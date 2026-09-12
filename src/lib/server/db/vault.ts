@@ -2,14 +2,18 @@ import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { map, succeed, tryPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { resolveVaultLinks } from '../vault/links'
-import type { VaultDocumentIndex } from '../vault/types'
+import type { RelationshipLink, VaultDocumentIndex } from '../vault/types'
 import { failure } from '../failure'
 import { db } from '.'
-import { eventChronologyEdges, vaultDocuments, vaultLinks } from './schema'
+import { eventChronologyEdges, vaultDocuments, vaultLinks, vaultRelationshipLinks } from './schema'
 
 export type LinkedDocument = {
 	seedDocumentId: string
 	documentId: string
+}
+
+export type RelationshipLinkedDocument = LinkedDocument & {
+	relationship: string
 }
 
 const documentValues = (campaignId: string, document: VaultDocumentIndex) => ({
@@ -188,6 +192,93 @@ export const getBacklinksForDocuments = (campaignId: string, documentIds: string
 	)
 }
 
+export const getOutgoingRelationshipLinksForDocuments = (
+	campaignId: string,
+	documentIds: string[]
+) => {
+	if (!documentIds.length) return succeed([])
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						seedDocumentId: vaultRelationshipLinks.sourceDocumentId,
+						documentId: vaultRelationshipLinks.targetDocumentId,
+						relationship: vaultRelationshipLinks.relationship
+					})
+					.from(vaultRelationshipLinks)
+					.where(
+						and(
+							eq(vaultRelationshipLinks.campaignId, campaignId),
+							inArray(vaultRelationshipLinks.sourceDocumentId, documentIds)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultOutgoingRelationshipLinks', cause)
+		}),
+		map((links): RelationshipLinkedDocument[] => links)
+	)
+}
+
+export const getIncomingRelationshipLinksForDocuments = (
+	campaignId: string,
+	documentIds: string[]
+) => {
+	if (!documentIds.length) return succeed([])
+
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						seedDocumentId: vaultRelationshipLinks.targetDocumentId,
+						documentId: vaultRelationshipLinks.sourceDocumentId,
+						relationship: vaultRelationshipLinks.relationship
+					})
+					.from(vaultRelationshipLinks)
+					.where(
+						and(
+							eq(vaultRelationshipLinks.campaignId, campaignId),
+							inArray(vaultRelationshipLinks.targetDocumentId, documentIds)
+						)
+					),
+			catch: (cause) => failure('database', 'getVaultIncomingRelationshipLinks', cause)
+		}),
+		map((links): RelationshipLinkedDocument[] => links)
+	)
+}
+
+export const replaceRelationshipLinks = (
+	campaignId: string,
+	sourceDocumentId: string,
+	links: RelationshipLink[]
+) =>
+	tryPromise({
+		try: () =>
+			db.transaction(async (transaction) => {
+				await transaction
+					.delete(vaultRelationshipLinks)
+					.where(
+						and(
+							eq(vaultRelationshipLinks.campaignId, campaignId),
+							eq(vaultRelationshipLinks.sourceDocumentId, sourceDocumentId)
+						)
+					)
+
+				if (links.length) {
+					await transaction.insert(vaultRelationshipLinks).values(
+						links.map(({ targetDocumentId, relationship }) => ({
+							campaignId,
+							sourceDocumentId,
+							targetDocumentId,
+							relationship
+						}))
+					)
+				}
+			}),
+		catch: (cause) => failure('database', 'replaceVaultRelationshipLinks', cause)
+	})
+
 export const indexDocument = (campaignId: string, document: VaultDocumentIndex) =>
 	tryPromise({
 		try: () =>
@@ -230,6 +321,14 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 							indexedAt: new Date().toISOString()
 						}
 					})
+				await transaction
+					.delete(vaultRelationshipLinks)
+					.where(
+						and(
+							eq(vaultRelationshipLinks.campaignId, campaignId),
+							eq(vaultRelationshipLinks.sourceDocumentId, document.id)
+						)
+					)
 				await transaction
 					.delete(vaultLinks)
 					.where(
@@ -296,6 +395,9 @@ export const replaceCampaignIndex = (campaignId: string, documents: VaultDocumen
 				await transaction
 					.delete(eventChronologyEdges)
 					.where(eq(eventChronologyEdges.campaignId, campaignId))
+				await transaction
+					.delete(vaultRelationshipLinks)
+					.where(eq(vaultRelationshipLinks.campaignId, campaignId))
 				await transaction.delete(vaultLinks).where(eq(vaultLinks.campaignId, campaignId))
 				await transaction.delete(vaultDocuments).where(eq(vaultDocuments.campaignId, campaignId))
 

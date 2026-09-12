@@ -35,6 +35,11 @@ export type VaultLinkIndex = {
 	targetDocumentId: string | null
 }
 
+export type RelationshipLink = {
+	targetDocumentId: string
+	relationship: string
+}
+
 export type VaultDocumentIndex = Pick<
 	VaultDocument,
 	'id' | 'path' | 'title' | 'type' | 'after' | 'links' | 'summary'

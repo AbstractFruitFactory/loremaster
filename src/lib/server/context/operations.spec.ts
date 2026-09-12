@@ -1,7 +1,7 @@
 import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { LexicalFragmentMatch } from '../db/context'
-import type { LinkedDocument } from '../db/vault'
+import type { LinkedDocument, RelationshipLinkedDocument } from '../db/vault'
 import type { TimelineContext } from '../timeline/types'
 import { contextOperations } from './operations'
 import type { ContextSource, SemanticSearchResult } from './types'
@@ -33,6 +33,8 @@ const createContext = ({
 	semanticResults = [],
 	outgoingLinks = [],
 	backlinks = [],
+	relationshipOutgoingLinks = [],
+	relationshipBacklinks = [],
 	queryVector = [1],
 	timelineContext = { events: [], edges: [], layers: [] }
 }: {
@@ -41,6 +43,8 @@ const createContext = ({
 	semanticResults?: SemanticSearchResult[]
 	outgoingLinks?: LinkedDocument[]
 	backlinks?: LinkedDocument[]
+	relationshipOutgoingLinks?: RelationshipLinkedDocument[]
+	relationshipBacklinks?: RelationshipLinkedDocument[]
 	queryVector?: number[]
 	timelineContext?: TimelineContext
 } = {}) => {
@@ -49,6 +53,7 @@ const createContext = ({
 			succeed(normalizedNames.includes('varek') ? ['varek'] : [])
 		),
 		getBacklinksForDocuments: vi.fn(() => succeed(backlinks)),
+		getIncomingRelationshipLinksForDocuments: vi.fn(() => succeed(relationshipBacklinks)),
 		getFragmentsByIds: vi.fn((_campaignId: string, fragmentIds: string[]) => {
 			const sourcesById = new Map(sources.map((item) => [item.fragment.id, item]))
 			return succeed(
@@ -62,6 +67,7 @@ const createContext = ({
 			succeed(sources.filter(({ fragment }) => documentIds.includes(fragment.documentId)))
 		),
 		getOutgoingLinksForDocuments: vi.fn(() => succeed(outgoingLinks)),
+		getOutgoingRelationshipLinksForDocuments: vi.fn(() => succeed(relationshipOutgoingLinks)),
 		searchLexicalFragments: vi.fn(() => succeed(lexicalMatches)),
 		searchVectors: vi.fn(() => succeed(semanticResults))
 	}
@@ -83,7 +89,10 @@ describe('context operations', () => {
 			lexicalMatches: [{ source: varek, score: 6 }],
 			semanticResults: [{ fragmentId: 'moonblade:fragment:0', score: 0.8 }],
 			outgoingLinks: [{ seedDocumentId: 'varek', documentId: 'mara' }],
-			backlinks: [{ seedDocumentId: 'moonblade', documentId: 'archive' }]
+			backlinks: [{ seedDocumentId: 'moonblade', documentId: 'archive' }],
+			relationshipOutgoingLinks: [
+				{ seedDocumentId: 'varek', documentId: 'archive', relationship: 'works for' }
+			]
 		})
 
 		const result = await runPromise(
@@ -95,6 +104,10 @@ describe('context operations', () => {
 		)
 
 		expect(db.getOutgoingLinksForDocuments).toHaveBeenCalledWith(campaignId, ['varek', 'moonblade'])
+		expect(db.getOutgoingRelationshipLinksForDocuments).toHaveBeenCalledWith(campaignId, [
+			'varek',
+			'moonblade'
+		])
 		expect(result.items.find(({ fragment }) => fragment.documentId === 'varek')?.reasons).toEqual([
 			'direct-mention',
 			'lexical-match'
@@ -106,7 +119,7 @@ describe('context operations', () => {
 			'wiki-link'
 		])
 		expect(result.items.find(({ fragment }) => fragment.documentId === 'archive')?.reasons).toEqual(
-			['backlink']
+			['relationship-link', 'backlink']
 		)
 	})
 

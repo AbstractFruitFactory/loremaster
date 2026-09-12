@@ -3,6 +3,7 @@ import type { DocumentType } from '../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant/types'
 import type { Failure } from '../failure'
 import type { ExtractedSessionClaim, SessionEntityResolution } from '../ingestion/types'
+import type { RelationshipLink } from '../vault/types'
 
 export const EMBEDDING_DIMENSIONS = 1536
 
@@ -43,12 +44,17 @@ export type ResolveSessionEntities = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
 
+export type GenerateRelationshipLinks = (
+	input: AiPrompt & { model: string }
+) => Effect<RelationshipLink[], Failure<'ai', 'generateRelationshipLinks'>>
+
 export type AiModels = {
 	assistant: string
 	campaignSummary: string
 	documentSummary: string
 	documentType: string
 	sessionAnalysis: string
+	relationshipLinks: string
 	embeddings: string
 }
 
@@ -61,6 +67,7 @@ export type AiProvider = {
 	inferDocumentType: InferDocumentType
 	analyzeSessionChunk: AnalyzeSessionChunk
 	resolveSessionEntities: ResolveSessionEntities
+	generateRelationshipLinks: GenerateRelationshipLinks
 }
 
 export type AiOperation = Exclude<keyof AiProvider, 'models'>

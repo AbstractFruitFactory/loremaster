@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { flip, runPromise, runSync, succeed } from 'effect/Effect'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { GenerateText, InferDocumentType } from '../ai/provider'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockedFunction } from 'vitest'
+import type { GenerateRelationshipLinks, GenerateText, InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
 import { timelineOperations } from '../timeline/operations'
@@ -13,7 +13,7 @@ import { vaultRevisionOperations } from './revisions/operations'
 import { filesystemRevisionStorage } from './revisions/storage'
 import type { RevisionHead, VaultRevision } from './revisions/types'
 import { filesystemVaultStorage } from './storage/filesystem'
-import type { VaultDocumentIndex } from './types'
+import type { RelationshipLink, VaultDocumentIndex } from './types'
 
 type VaultDatabase = Parameters<typeof vaultOperations>[0]['db']
 type ContextIndex = Parameters<typeof vaultOperations>[0]['contextIndex']
@@ -26,6 +26,7 @@ const campaign: Campaign = {
 }
 const documentTypeModel = 'mock-document-type-v1'
 const documentSummaryModel = 'mock-text-v1'
+const relationshipModel = 'mock-relationship-links-v1'
 
 describe('vault operations', () => {
 	let root: string
@@ -33,9 +34,11 @@ describe('vault operations', () => {
 	let indexedDocuments: Map<string, VaultDocumentIndex>
 	let operations: ReturnType<typeof vaultOperations>
 	let outgoingLinks: Map<string, string[]>
+	let relationshipLinks: Map<string, RelationshipLink[]>
 	let contextIndex: ContextIndex
 	let inferDocumentType: InferDocumentType
 	let generateText: GenerateText
+	let generateRelationshipLinks: MockedFunction<GenerateRelationshipLinks>
 	let storage: ReturnType<typeof filesystemVaultStorage>
 	let revisionHeads: Map<string, RevisionHead>
 	let revisionRecords: VaultRevision[]
@@ -45,11 +48,13 @@ describe('vault operations', () => {
 		backlinks = new Map()
 		indexedDocuments = new Map()
 		outgoingLinks = new Map()
+		relationshipLinks = new Map()
 		storage = filesystemVaultStorage(root)
 		revisionHeads = new Map()
 		revisionRecords = []
 		inferDocumentType = vi.fn(mockAiProvider.inferDocumentType)
 		generateText = vi.fn(mockAiProvider.generateText)
+		generateRelationshipLinks = vi.fn(mockAiProvider.generateRelationshipLinks)
 		contextIndex = {
 			deleteDocumentIndex: vi.fn(() => succeed(undefined)),
 			indexDocument: vi.fn(() => succeed(undefined)),
@@ -80,6 +85,11 @@ describe('vault operations', () => {
 			},
 			replaceCampaignIndex: (_campaignId, documents) => {
 				indexedDocuments = new Map(documents.map((document) => [document.id, document]))
+				relationshipLinks = new Map()
+				return succeed(undefined)
+			},
+			replaceRelationshipLinks: (_campaignId, documentId, links) => {
+				relationshipLinks.set(documentId, links)
 				return succeed(undefined)
 			}
 		}
@@ -123,8 +133,10 @@ describe('vault operations', () => {
 			ai: {
 				inferDocumentType,
 				generateText,
+				generateRelationshipLinks,
 				documentTypeModel,
-				summaryModel: documentSummaryModel
+				summaryModel: documentSummaryModel,
+				relationshipModel
 			},
 			db,
 			contextIndex,
@@ -147,6 +159,44 @@ describe('vault operations', () => {
 	it('lists an absent vault without creating its directory', async () => {
 		expect(await runPromise(storage.list(campaign.id))).toEqual([])
 		await expect(stat(join(root, campaign.id))).rejects.toMatchObject({ code: 'ENOENT' })
+	})
+
+	it('recomputes outgoing relationship links when Lore changes', async () => {
+		const tomas = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'NPCs/Tomas.md',
+				type: 'npc',
+				content: '# Tomas\n'
+			})
+		)
+		generateRelationshipLinks.mockImplementation(({ prompt }) => {
+			const input = JSON.parse(prompt) as { source: { content: string } }
+			return succeed(
+				input.source.content.includes('searching for Tomas')
+					? [{ targetDocumentId: tomas.id, relationship: 'searching for' }]
+					: []
+			)
+		})
+
+		const mara = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'NPCs/Mara.md',
+				type: 'npc',
+				content: '# Mara\n\nMara is searching for Tomas.'
+			})
+		)
+		expect(relationshipLinks.get(mara.id)).toEqual([
+			{ targetDocumentId: tomas.id, relationship: 'searching for' }
+		])
+
+		await runPromise(
+			operations.updateDocument(campaign.id, mara.id, {
+				type: 'npc',
+				content: '# Mara\n\nMara found Tomas.',
+				expectedRevisionId: mara.currentRevisionId
+			})
+		)
+		expect(relationshipLinks.get(mara.id)).toEqual([])
 	})
 
 	it('creates, indexes, and reads a document from the filesystem', async () => {
