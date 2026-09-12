@@ -2,7 +2,7 @@ import type { Effect } from 'effect/Effect'
 import type { DocumentType } from '../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant/types'
 import type { Failure } from '../failure'
-import type { ExtractedSessionClaim } from '../ingestion/types'
+import type { ExtractedSessionClaim, SessionEntityResolution } from '../ingestion/types'
 
 export const EMBEDDING_DIMENSIONS = 1536
 
@@ -39,6 +39,10 @@ export type AnalyzeSessionChunk = (
 	input: AiPrompt & { model: string }
 ) => Effect<ExtractedSessionClaim[], Failure<'ai', 'analyzeSessionChunk'>>
 
+export type ResolveSessionEntities = (
+	input: AiPrompt & { model: string }
+) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
+
 export type AiModels = {
 	assistant: string
 	campaignSummary: string
@@ -56,6 +60,7 @@ export type AiProvider = {
 	embedTexts: EmbedTexts
 	inferDocumentType: InferDocumentType
 	analyzeSessionChunk: AnalyzeSessionChunk
+	resolveSessionEntities: ResolveSessionEntities
 }
 
 export type AiOperation = Exclude<keyof AiProvider, 'models'>

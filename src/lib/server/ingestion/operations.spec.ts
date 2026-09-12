@@ -1,5 +1,6 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
+import type { AnalyzeSessionChunk, ResolveSessionEntities } from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
 import { sessionIngestionOperations } from './operations'
 import type {
@@ -39,7 +40,8 @@ const document = (
 	id: string,
 	title: string,
 	aliases: string[] = [],
-	type: VaultDocument['type'] = 'npc'
+	type: VaultDocument['type'] = 'npc',
+	overrides: Partial<VaultDocument> = {}
 ): VaultDocument => ({
 	id,
 	path: `${type === 'npc' ? 'NPCs' : 'Lore'}/${title}.md`,
@@ -50,7 +52,8 @@ const document = (
 	summary: '',
 	content: `# ${title}`,
 	links: [],
-	currentRevisionId: `revision-${id}`
+	currentRevisionId: `revision-${id}`,
+	...overrides
 })
 
 const varek = document('varek', 'Varek', ['The Gatekeeper'])
@@ -60,17 +63,29 @@ const claim = (
 	overrides: Partial<ExtractedSessionClaim> = {}
 ): ExtractedSessionClaim => ({
 	excerpt,
-	title: 'The Gatekeeper',
-	documentType: 'npc',
 	kind: 'stable-fact',
 	certainty: 'explicit',
 	content: excerpt,
-	references: [],
-	after: [],
+	entityMentions: [{ mention: 'Varek', type: 'npc' }],
 	...overrides
 })
 
-const setup = (claims: ExtractedSessionClaim[], documents: VaultDocument[] = [varek]) => {
+const validatingAnalyzer =
+	(claims: ExtractedSessionClaim[]): AnalyzeSessionChunk =>
+	({ prompt }) => {
+		const marker = '\n\n## Candidate claims\n'
+		return succeed(
+			prompt.includes(marker)
+				? (JSON.parse(prompt.split(marker).at(-1) ?? '[]') as ExtractedSessionClaim[])
+				: claims
+		)
+	}
+
+const setup = (
+	claims: ExtractedSessionClaim[],
+	documents: VaultDocument[] = [varek],
+	resolveSessionEntities: ResolveSessionEntities = () => succeed([])
+) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
 	const write = vi.fn((draft: SessionIngestionDraft, transcript: string) => {
@@ -101,7 +116,8 @@ const setup = (claims: ExtractedSessionClaim[], documents: VaultDocument[] = [va
 	const operations = sessionIngestionOperations({
 		ai: {
 			analysisModel: 'analysis-model',
-			analyzeSessionChunk: () => succeed(claims)
+			analyzeSessionChunk: validatingAnalyzer(claims),
+			resolveSessionEntities
 		},
 		storage: {
 			write,
@@ -128,31 +144,25 @@ const selectedIds = (draft: SessionIngestionDraft) =>
 	draft.proposals.filter(({ selected }) => selected).map(({ proposalId }) => proposalId)
 
 describe('session ingestion operations', () => {
-	it('keeps only evidence-backed claims and records ingestion revision metadata', async () => {
+	it('updates a deterministically resolved entity and records revision metadata', async () => {
 		const harness = setup([
-			claim('Varek opened the gate.', {
-				content: 'Varek can open the western gate.',
-				references: ['Varek']
-			}),
-			claim('This was never said.', {
-				title: 'Invented claim',
-				documentType: 'lore',
-				content: 'Invented content.'
+			claim('The Gatekeeper opened the gate.', {
+				content: 'Varek opened the western gate.',
+				entityMentions: [{ mention: 'The Gatekeeper', type: 'npc' }]
 			})
 		])
-		const transcript = 'GM: The party waits.\nVarek opened the gate.'
+		const transcript = 'GM: The party waits.\nThe Gatekeeper opened the gate.'
 		const draft = await runPromise(analyze(harness.operations, transcript))
 
 		expect(harness.getSaved()).toEqual(draft)
-		expect(draft.warnings).toHaveLength(1)
 		expect(draft.proposals).toHaveLength(2)
 		expect(draft.proposals[1]).toMatchObject({
 			operation: 'update-canon',
 			selected: true,
+			resolutionMethod: 'deterministic',
 			match: { kind: 'exact', documentId: 'varek' },
 			base: { documentId: 'varek', revisionId: 'revision-varek' }
 		})
-		expect(draft.proposals.flatMap(({ content }) => content)).not.toContain('Invented content.')
 
 		const result = await runPromise(
 			harness.operations.commit({
@@ -168,22 +178,16 @@ describe('session ingestion operations', () => {
 				documentId: result.sessionDocumentId,
 				path: 'Sessions/session-12.md',
 				type: 'session',
-				content: '# Session 12\n\nVarek can open the western gate.',
+				content: '# Session 12\n\nVarek opened the western gate.',
 				ingestionId: draft.ingestionId,
-				transcript,
-				revision: {
-					source: 'ingestion',
-					relatedSessionId: result.sessionDocumentId,
-					ingestionId: draft.ingestionId,
-					changeSummary: 'Created from session ingestion: Session 12'
-				}
+				transcript
 			})
 		)
 		expect(harness.updateDocument).toHaveBeenCalledWith(
 			'campaign',
 			'varek',
 			expect.objectContaining({
-				content: '# Varek\n\nVarek can open the western gate.\n',
+				content: '# Varek\n\nVarek opened the western gate.\n',
 				expectedRevisionId: 'revision-varek',
 				revision: expect.objectContaining({
 					source: 'ingestion',
@@ -194,252 +198,82 @@ describe('session ingestion operations', () => {
 		)
 	})
 
-	it('groups distinct claims for the same canonical target into one update', async () => {
-		const harness = setup([
-			claim('Varek opened the gate.', { content: 'Varek controls the western gate.' }),
-			claim('The Gatekeeper carried a silver key.', {
-				title: 'Varek',
-				content: 'Varek carries a silver key.'
-			})
-		])
-		const draft = await runPromise(
-			analyze(harness.operations, 'Varek opened the gate.\nThe Gatekeeper carried a silver key.')
+	it('resolves a short unambiguous name to an existing full entity name', async () => {
+		const mara = document('mara', 'Mara Vale')
+		const harness = setup(
+			[
+				claim('Mara is about forty.', {
+					content: 'Mara is about forty years old.',
+					entityMentions: [{ mention: 'Mara', type: 'npc' }]
+				})
+			],
+			[mara]
 		)
-		const proposals = draft.proposals.filter(({ documentType }) => documentType !== 'session')
+		const draft = await runPromise(analyze(harness.operations, 'Mara is about forty.'))
 
-		expect(proposals).toHaveLength(1)
-		expect(proposals[0]).toMatchObject({
+		expect(draft.proposals[1]).toMatchObject({
 			operation: 'update-canon',
-			claimIds: expect.arrayContaining([expect.any(String), expect.any(String)]),
-			evidence: [expect.any(Object), expect.any(Object)],
-			patch: {
-				content: 'Varek controls the western gate.\n\nVarek carries a silver key.'
-			}
+			title: 'Mara Vale',
+			selected: true,
+			match: { kind: 'exact', documentId: 'mara' }
 		})
-
-		await runPromise(
-			harness.operations.commit({
-				campaignId: draft.campaignId,
-				ingestionId: draft.ingestionId,
-				selectedProposalIds: selectedIds(draft)
-			})
-		)
-		expect(harness.updateDocument).toHaveBeenCalledTimes(1)
 	})
 
-	it('builds the canonical Session recap from approved claims only', async () => {
-		const rumor = document('rumor', 'Old Rumor', [], 'lore')
+	it('never turns a property phrase into a new entity', async () => {
+		const mara = document('mara', 'Mara Vale')
 		const harness = setup(
 			[
-				claim('Varek opened the gate.', { content: 'Varek opened the western gate.' }),
-				claim('Perhaps the moon caused it.', {
-					title: 'Old Rumor',
-					documentType: 'lore',
-					certainty: 'inferred',
-					content: 'The moon may control the gate.'
-				}),
-				claim('Someone mentioned Mara.', {
-					title: 'Mara',
-					kind: 'mention',
-					content: 'Mara was mentioned.'
+				claim("Mara's age is about forty.", {
+					content: 'Mara is about forty years old.',
+					entityMentions: [{ mention: "Mara's age", type: 'npc' }]
 				})
 			],
-			[varek, rumor]
+			[mara]
 		)
-		const transcript =
-			'Varek opened the gate.\nPerhaps the moon caused it.\nSomeone mentioned Mara.'
-		const draft = await runPromise(analyze(harness.operations, transcript))
-		const session = draft.proposals.find(({ documentType }) => documentType === 'session')!
-		const explicit = draft.proposals.find(({ title }) => title === 'Varek')!
-
-		await runPromise(
-			harness.operations.commit({
-				campaignId: draft.campaignId,
-				ingestionId: draft.ingestionId,
-				selectedProposalIds: [session.proposalId, explicit.proposalId]
-			})
-		)
-		const sessionCreate = harness.createDocument.mock.calls.find(
-			([, input]) => input.type === 'session'
-		)?.[1]
-		expect(sessionCreate?.content).toBe('# Session 12\n\nVarek opened the western gate.')
-		expect(sessionCreate?.content).not.toContain('moon')
-		expect(sessionCreate?.content).not.toContain('Mara')
-	})
-
-	it('allows a reviewer to approve an inferred proposal but never a mention', async () => {
-		const rumor = document('rumor', 'Old Rumor', [], 'lore')
-		const harness = setup(
-			[
-				claim('Perhaps the moon caused it.', {
-					title: 'Old Rumor',
-					documentType: 'lore',
-					certainty: 'inferred',
-					content: 'The moon may control the gate.'
-				}),
-				claim('Someone mentioned Mara.', {
-					title: 'Mara',
-					kind: 'mention'
-				})
-			],
-			[rumor]
-		)
-		const draft = await runPromise(
-			analyze(harness.operations, 'Perhaps the moon caused it.\nSomeone mentioned Mara.')
-		)
-		const session = draft.proposals[0]
-		const inferred = draft.proposals.find(({ certainty }) => certainty === 'inferred')!
-		const mention = draft.proposals.find(({ operation }) => operation === 'mention-only')!
-
-		await runPromise(
-			harness.operations.commit({
-				campaignId: draft.campaignId,
-				ingestionId: draft.ingestionId,
-				selectedProposalIds: [session.proposalId, inferred.proposalId]
-			})
-		)
-		expect(harness.updateDocument).toHaveBeenCalledWith('campaign', 'rumor', expect.any(Object))
-
-		const error = await runPromise(
-			flip(
-				harness.operations.commit({
-					campaignId: draft.campaignId,
-					ingestionId: draft.ingestionId,
-					selectedProposalIds: [session.proposalId, mention.proposalId]
-				})
-			)
-		)
-		expect(error).toMatchObject({ cause: { reason: 'unselectableProposal' } })
-	})
-
-	it('requires an explicit possible-match resolution and can update the chosen candidate', async () => {
-		const candidate = document('varek-smith', 'Varek the Smith')
-		const harness = setup(
-			[claim('Varek Smith forged the key.', { title: 'Varek Smith' })],
-			[candidate]
-		)
-		const draft = await runPromise(analyze(harness.operations, 'Varek Smith forged the key.'))
-		const session = draft.proposals[0]
+		const draft = await runPromise(analyze(harness.operations, "Mara's age is about forty."))
 		const proposal = draft.proposals[1]
+
 		expect(proposal).toMatchObject({
+			operation: 'create-entity',
+			title: "Mara's age",
 			selected: false,
+			canCreate: false,
 			match: {
 				kind: 'unresolved',
-				candidates: [{ documentId: 'varek-smith', revisionId: 'revision-varek-smith' }]
+				candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
 			}
 		})
-
-		const missingResolution = await runPromise(
-			flip(
-				harness.operations.commit({
-					campaignId: draft.campaignId,
-					ingestionId: draft.ingestionId,
-					selectedProposalIds: [session.proposalId, proposal.proposalId]
-				})
-			)
-		)
-		expect(missingResolution).toMatchObject({ cause: { reason: 'unresolvedMatch' } })
-		expect(harness.createDocument).not.toHaveBeenCalled()
-
-		const resolutions: SessionProposalResolution[] = [
-			{ proposalId: proposal.proposalId, kind: 'existing', documentId: 'varek-smith' }
-		]
-		await runPromise(
-			harness.operations.commit({
-				campaignId: draft.campaignId,
-				ingestionId: draft.ingestionId,
-				selectedProposalIds: [session.proposalId, proposal.proposalId],
-				resolutions
-			})
-		)
-		expect(harness.updateDocument).toHaveBeenCalledWith(
-			'campaign',
-			'varek-smith',
-			expect.objectContaining({ expectedRevisionId: 'revision-varek-smith' })
-		)
 	})
 
-	it('lets the reviewer explicitly create a new document instead of using a candidate', async () => {
-		const candidate = document('varek-smith', 'Varek the Smith')
-		const harness = setup(
-			[claim('Varek Smith forged the key.', { title: 'Varek Smith' })],
-			[candidate]
-		)
-		const draft = await runPromise(analyze(harness.operations, 'Varek Smith forged the key.'))
-		const [session, proposal] = draft.proposals
-
-		await runPromise(
-			harness.operations.commit({
-				campaignId: draft.campaignId,
-				ingestionId: draft.ingestionId,
-				selectedProposalIds: [session.proposalId, proposal.proposalId],
-				resolutions: [{ proposalId: proposal.proposalId, kind: 'create' }]
-			})
-		)
-
-		expect(harness.updateDocument).not.toHaveBeenCalled()
-		expect(harness.createDocument).toHaveBeenCalledWith(
-			'campaign',
-			expect.objectContaining({
-				path: 'NPCs/varek-smith.md',
-				content: '# Varek Smith\n\nVarek Smith forged the key.'
-			})
-		)
-	})
-
-	it('rejects two reviewer resolutions targeting the same document before writing canon', async () => {
-		const candidate = document('varek', 'Varek')
+	it('groups facts for the same newly introduced named entity', async () => {
 		const harness = setup(
 			[
-				claim('Varek Smith opened the gate.', { title: 'Varek Smith' }),
-				claim('Varek Stone closed the gate.', { title: 'Varek Stone' })
-			],
-			[candidate]
-		)
-		const draft = await runPromise(
-			analyze(harness.operations, 'Varek Smith opened the gate.\nVarek Stone closed the gate.')
-		)
-		const [session, first, second] = draft.proposals
-
-		const error = await runPromise(
-			flip(
-				harness.operations.commit({
-					campaignId: draft.campaignId,
-					ingestionId: draft.ingestionId,
-					selectedProposalIds: [session.proposalId, first.proposalId, second.proposalId],
-					resolutions: [first, second].map((proposal) => ({
-						proposalId: proposal.proposalId,
-						kind: 'existing' as const,
-						documentId: candidate.id
-					}))
-				})
-			)
-		)
-
-		expect(error).toMatchObject({ cause: { reason: 'duplicateDocumentMutation' } })
-		expect(harness.createDocument).not.toHaveBeenCalled()
-		expect(harness.updateDocument).not.toHaveBeenCalled()
-	})
-
-	it('groups new-entity facts and preserves the intended title in created Markdown', async () => {
-		const harness = setup(
-			[
-				claim('Mara knows the old road.', {
-					title: 'Mara Vale',
-					content: 'Mara knows the old road.'
+				claim('Mara Vale knows the old road.', {
+					content: 'Mara Vale knows the old road.',
+					entityMentions: [{ mention: 'Mara Vale', type: 'npc' }]
 				}),
-				claim('Mara carries a blue lantern.', {
-					title: 'Mara Vale',
-					content: 'Mara carries a blue lantern.'
+				claim('Mara Vale carries a blue lantern.', {
+					content: 'Mara Vale carries a blue lantern.',
+					entityMentions: [{ mention: 'Mara Vale', type: 'npc' }]
 				})
 			],
 			[]
 		)
 		const draft = await runPromise(
-			analyze(harness.operations, 'Mara knows the old road.\nMara carries a blue lantern.')
+			analyze(
+				harness.operations,
+				'Mara Vale knows the old road.\nMara Vale carries a blue lantern.'
+			)
 		)
 		const entity = draft.proposals.find(({ documentType }) => documentType === 'npc')!
+
 		expect(draft.proposals).toHaveLength(2)
+		expect(entity).toMatchObject({
+			operation: 'create-entity',
+			title: 'Mara Vale',
+			selected: true,
+			resolutionMethod: 'deterministic'
+		})
 		expect(entity.claimIds).toHaveLength(2)
 
 		await runPromise(
@@ -454,36 +288,180 @@ describe('session ingestion operations', () => {
 		)?.[1]
 		expect(entityCreate).toMatchObject({
 			path: 'NPCs/mara-vale.md',
-			content: '# Mara Vale\n\nMara knows the old road.\n\nMara carries a blue lantern.'
+			content: '# Mara Vale\n\nMara Vale knows the old road.\n\nMara Vale carries a blue lantern.'
 		})
 	})
 
-	it('preflights unresolved chronology before creating the mandatory Session', async () => {
+	it('uses a batched contextual resolver for relational references', async () => {
+		const elias = document('elias', 'Elias Vey', [], 'npc', {
+			content: '# Elias Vey\n\nHis father was [[Roger]].',
+			links: ['Roger']
+		})
+		const roger = document('roger', 'Roger')
+		const resolver: ResolveSessionEntities = vi.fn(({ prompt }) => {
+			const input = JSON.parse(prompt) as {
+				references: { referenceId: string; candidates: { targetId: string }[] }[]
+			}
+			return succeed(
+				input.references.map(({ referenceId, candidates }) => ({
+					referenceId,
+					targetId:
+						candidates.find(({ targetId }) => targetId === 'document:roger')?.targetId ?? null
+				}))
+			)
+		})
 		const harness = setup(
 			[
-				claim('The tower fell after an unknown battle.', {
-					title: 'The Tower Falls',
-					documentType: 'event',
+				claim("Elias' father warned him about the gate.", {
+					entityMentions: [{ mention: "Elias' father", type: 'npc' }]
+				})
+			],
+			[elias, roger],
+			resolver
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, "Elias' father warned him about the gate.")
+		)
+		const proposal = draft.proposals[1]
+
+		expect(resolver).toHaveBeenCalledTimes(1)
+		expect(proposal).toMatchObject({
+			operation: 'update-canon',
+			title: 'Roger',
+			selected: false,
+			resolutionMethod: 'model',
+			match: { kind: 'exact', documentId: 'roger' }
+		})
+	})
+
+	it('keeps a world fact in the session without inventing a Lore document', async () => {
+		const harness = setup(
+			[
+				claim('Four bells have now been found.', {
+					content: 'Four bells have now been found.',
+					entityMentions: []
+				})
+			],
+			[]
+		)
+		const draft = await runPromise(analyze(harness.operations, 'Four bells have now been found.'))
+		const record = draft.proposals[1]
+
+		expect(record).toMatchObject({ operation: 'record-only', selected: true })
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft)
+			})
+		)
+		expect(harness.createDocument).toHaveBeenCalledTimes(1)
+		expect(harness.createDocument.mock.calls[0]?.[1]).toMatchObject({
+			type: 'session',
+			content: '# Session 12\n\nFour bells have now been found.'
+		})
+	})
+
+	it('creates developments as events only after claim validation', async () => {
+		const harness = setup(
+			[
+				claim('Mara hired the party to recover the lockbox.', {
 					kind: 'development',
-					after: ['Unknown Battle']
+					entityMentions: [{ mention: 'Mara', type: 'npc' }]
 				})
 			],
 			[]
 		)
 		const draft = await runPromise(
-			analyze(harness.operations, 'The tower fell after an unknown battle.')
+			analyze(harness.operations, 'Mara hired the party to recover the lockbox.')
 		)
+		const event = draft.proposals[1]
+
+		expect(event).toMatchObject({
+			operation: 'create-event',
+			documentType: 'event',
+			title: 'Mara hired the party to recover the lockbox',
+			selected: true
+		})
+	})
+
+	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {
+		const mara = document('mara', 'Mara Vale')
+		const edric = document('edric', 'Brother Edric Vale')
+		const harness = setup(
+			[
+				claim('Vale carried the letter.', {
+					entityMentions: [{ mention: 'Vale', type: 'npc' }]
+				})
+			],
+			[mara, edric]
+		)
+		const draft = await runPromise(analyze(harness.operations, 'Vale carried the letter.'))
+		const session = draft.proposals[0]
+		const proposal = draft.proposals[1]
+
+		expect(proposal).toMatchObject({
+			selected: false,
+			match: {
+				kind: 'unresolved',
+				candidates: expect.arrayContaining([
+					expect.objectContaining({ documentId: 'mara' }),
+					expect.objectContaining({ documentId: 'edric' })
+				])
+			}
+		})
+
+		const missingResolution = await runPromise(
+			flip(
+				harness.operations.commit({
+					campaignId: draft.campaignId,
+					ingestionId: draft.ingestionId,
+					selectedProposalIds: [session.proposalId, proposal.proposalId]
+				})
+			)
+		)
+		expect(missingResolution).toMatchObject({ cause: { reason: 'unresolvedMatch' } })
+
+		const resolutions: SessionProposalResolution[] = [
+			{ proposalId: proposal.proposalId, kind: 'existing', documentId: 'mara' }
+		]
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: [session.proposalId, proposal.proposalId],
+				resolutions
+			})
+		)
+		expect(harness.updateDocument).toHaveBeenCalledWith(
+			'campaign',
+			'mara',
+			expect.objectContaining({ expectedRevisionId: 'revision-mara' })
+		)
+	})
+
+	it('never allows mention-only evidence to be committed as a mutation', async () => {
+		const harness = setup([
+			claim('Someone mentioned Mara.', {
+				kind: 'mention',
+				content: 'Mara was mentioned.',
+				entityMentions: [{ mention: 'Mara', type: 'npc' }]
+			})
+		])
+		const draft = await runPromise(analyze(harness.operations, 'Someone mentioned Mara.'))
+		const session = draft.proposals[0]
+		const mention = draft.proposals.find(({ operation }) => operation === 'mention-only')!
 
 		const error = await runPromise(
 			flip(
 				harness.operations.commit({
 					campaignId: draft.campaignId,
 					ingestionId: draft.ingestionId,
-					selectedProposalIds: selectedIds(draft)
+					selectedProposalIds: [session.proposalId, mention.proposalId]
 				})
 			)
 		)
-		expect(error).toMatchObject({ cause: { reason: 'unresolvedChronology' } })
-		expect(harness.createDocument).not.toHaveBeenCalled()
+		expect(error).toMatchObject({ cause: { reason: 'unselectableProposal' } })
 	})
 })

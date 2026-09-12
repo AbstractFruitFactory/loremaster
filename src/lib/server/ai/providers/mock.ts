@@ -9,8 +9,10 @@ import type {
 	GenerateAssistant,
 	GenerateText,
 	InferDocumentType,
+	ResolveSessionEntities,
 	StreamAssistant
 } from '../provider'
+import type { ExtractedSessionClaim } from '../../ingestion/types'
 
 export const mockAiModels = {
 	assistant: 'mock-assistant-v1',
@@ -156,6 +158,13 @@ const inferDocumentType: InferDocumentType = ({ path, title, content }) => {
 }
 
 const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
+	const candidateMarker = '\n\n## Candidate claims\n'
+	if (prompt.includes(candidateMarker)) {
+		return succeed(
+			JSON.parse(prompt.split(candidateMarker).at(-1) ?? '[]') as ExtractedSessionClaim[]
+		)
+	}
+
 	const content = prompt.split(/^## Transcript chunk.*\nLines .*\n\n/m).at(-1) ?? ''
 	const excerpt = content
 		.split(/\r?\n/)
@@ -166,19 +175,29 @@ const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
 	return succeed([
 		{
 			excerpt,
-			title: 'Session development',
-			documentType: 'event',
 			kind: 'development',
 			certainty: 'explicit',
 			content: excerpt,
-			references: [],
-			after: []
+			entityMentions: []
 		}
 	])
 }
 
+const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
+	const input = JSON.parse(prompt) as {
+		references?: { referenceId: string; candidates: { targetId: string }[] }[]
+	}
+	return succeed(
+		(input.references ?? []).map(({ referenceId, candidates }) => ({
+			referenceId,
+			targetId: candidates[0]?.targetId ?? null
+		}))
+	)
+}
+
 export const mockAiProvider: AiProvider = {
 	analyzeSessionChunk,
+	resolveSessionEntities,
 	models: mockAiModels,
 	embedTexts,
 	generateAssistant,
