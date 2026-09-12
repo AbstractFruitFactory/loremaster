@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { VaultDocument } from '../vault/types'
-import { matchDocument } from './matching'
+import { contextualCandidates, matchDocument } from './matching'
 
-const document = (id: string, title: string, aliases: string[] = []): VaultDocument => ({
+const document = (
+	id: string,
+	title: string,
+	aliases: string[] = [],
+	overrides: Partial<VaultDocument> = {}
+): VaultDocument => ({
 	id,
 	path: `NPCs/${title}.md`,
 	title,
@@ -12,13 +17,14 @@ const document = (id: string, title: string, aliases: string[] = []): VaultDocum
 	summary: '',
 	content: `# ${title}`,
 	links: [],
-	currentRevisionId: `${id}-revision`
+	currentRevisionId: `${id}-revision`,
+	...overrides
 })
 
-describe('session proposal matching', () => {
-	it('automatically matches only one exact title or alias', () => {
+describe('session entity matching', () => {
+	it('matches a unique exact title or alias', () => {
 		expect(
-			matchDocument('The Gatekeeper', [document('varek', 'Varek', ['The Gatekeeper'])])
+			matchDocument('The Gatekeeper', [document('varek', 'Varek', ['The Gatekeeper'])], 'npc')
 		).toEqual({
 			kind: 'exact',
 			documentId: 'varek',
@@ -26,20 +32,49 @@ describe('session proposal matching', () => {
 			documentType: 'npc'
 		})
 
-		expect(matchDocument('Varek', [document('one', 'Varek'), document('two', 'Varek')]).kind).toBe(
-			'unresolved'
-		)
+		expect(
+			matchDocument('Varek', [document('one', 'Varek'), document('two', 'Varek')], 'npc').kind
+		).toBe('unresolved')
 	})
 
-	it('returns ranked lexical candidates without treating them as matches', () => {
-		const match = matchDocument('Varek Smith', [
-			document('varek', 'Varek the Smith'),
-			document('mara', 'Mara')
-		])
+	it('resolves an unambiguous partial name but leaves ambiguous names unresolved', () => {
+		expect(matchDocument('Mara', [document('mara', 'Mara Vale')], 'npc')).toMatchObject({
+			kind: 'exact',
+			documentId: 'mara',
+			title: 'Mara Vale'
+		})
 
+		const match = matchDocument(
+			'Vale',
+			[document('mara', 'Mara Vale'), document('edric', 'Brother Edric Vale')],
+			'npc'
+		)
 		expect(match).toMatchObject({
 			kind: 'unresolved',
-			candidates: [{ documentId: 'varek', revisionId: 'varek-revision', title: 'Varek the Smith' }]
+			candidates: expect.arrayContaining([
+				expect.objectContaining({ documentId: 'mara' }),
+				expect.objectContaining({ documentId: 'edric' })
+			])
 		})
+	})
+
+	it('finds relationship candidates around a resolved anchor', () => {
+		const elias = document('elias', 'Elias Vey', [], {
+			content: '# Elias Vey\n\nHis father was [[Roger]].',
+			links: ['Roger']
+		})
+		const roger = document('roger', 'Roger')
+		const mara = document('mara', 'Mara Vale')
+
+		const candidates = contextualCandidates(
+			"Elias' father",
+			"Elias' father warned him about the gate.",
+			[elias, roger, mara],
+			'npc'
+		)
+
+		expect(candidates).toEqual(
+			expect.arrayContaining([expect.objectContaining({ documentId: 'roger', title: 'Roger' })])
+		)
 	})
 })

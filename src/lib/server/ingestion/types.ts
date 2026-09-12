@@ -13,15 +13,22 @@ export type IngestionDocumentType = (typeof ingestionDocumentTypes)[number]
 
 export type SessionClaimKind = 'stable-fact' | 'development' | 'mention'
 
+export type EntityMention = {
+	mention: string
+	type: IngestionDocumentType
+}
+
 export type ExtractedSessionClaim = {
 	excerpt: string
-	title: string
-	documentType: IngestionDocumentType
 	kind: SessionClaimKind
 	certainty: 'explicit' | 'inferred'
 	content: string
-	references: string[]
-	after: string[]
+	entityMentions: EntityMention[]
+}
+
+export type SessionEntityResolution = {
+	referenceId: string
+	targetId: string | null
 }
 
 export type TranscriptChunk = {
@@ -68,7 +75,7 @@ export type SessionProposal = {
 	proposalId: string
 	claimIds: string[]
 	groupId?: string
-	operation: 'create-entity' | 'create-event' | 'update-canon' | 'mention-only'
+	operation: 'create-entity' | 'create-event' | 'update-canon' | 'mention-only' | 'record-only'
 	documentType: DocumentType
 	title: string
 	certainty: 'explicit' | 'inferred'
@@ -78,6 +85,8 @@ export type SessionProposal = {
 	references: ProposalReference[]
 	after: ProposalReference[]
 	content: string
+	resolutionMethod?: 'deterministic' | 'model'
+	canCreate?: boolean
 	base?: { documentId: string; revisionId: string }
 	patch?: CanonPatch
 }

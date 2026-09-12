@@ -113,12 +113,20 @@
 						<p class="guidance">This recap is rebuilt from the claims selected below.</p>
 					{:else if proposal.operation === 'mention-only'}
 						<p class="guidance">Mention-only claims are evidence context and never change canon.</p>
+					{:else if proposal.operation === 'record-only'}
+						<p class="guidance">
+							This claim is kept in the session recap without creating or updating a Lore entry.
+						</p>
+					{:else if proposal.resolutionMethod === 'model'}
+						<p class="guidance">
+							The entity match used campaign context. Review it before applying the change.
+						</p>
 					{:else if proposal.certainty === 'inferred'}
 						<p class="guidance">This inference is excluded unless you explicitly approve it.</p>
 					{/if}
 
 					{#if proposal.match.kind === 'exact'}
-						<p class="match">Exact match: {proposal.match.title}</p>
+						<p class="match">Matched: {proposal.match.title}</p>
 					{:else if proposal.match.candidates.length && proposal.operation !== 'mention-only'}
 						<label class="resolution">
 							<span>Resolve possible match</span>
@@ -126,11 +134,17 @@
 								value={resolutions[proposal.proposalId] ?? ''}
 								onchange={(event) => chooseResolution(proposal, event.currentTarget.value)}
 							>
-								<option value="" disabled>Choose an existing document or create a new one</option>
+								<option value="" disabled>
+									{proposal.canCreate
+										? 'Choose an existing document or create a new one'
+										: 'Choose an existing document'}
+								</option>
 								{#each proposal.match.candidates as candidate}
 									<option value={candidate.documentId}>Update {candidate.title}</option>
 								{/each}
-								<option value="create">Create new “{proposal.title}”</option>
+								{#if proposal.canCreate}
+									<option value="create">Create new “{proposal.title}”</option>
+								{/if}
 							</select>
 						</label>
 					{/if}

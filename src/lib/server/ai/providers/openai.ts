@@ -8,7 +8,11 @@ import { z } from 'zod'
 import { documentTypes, isDocumentType } from '../../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../../assistant/types'
 import { failure } from '../../failure'
-import { ingestionDocumentTypes, type ExtractedSessionClaim } from '../../ingestion/types'
+import {
+	ingestionDocumentTypes,
+	type ExtractedSessionClaim,
+	type SessionEntityResolution
+} from '../../ingestion/types'
 import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider'
 
 type OpenAiClient = Pick<OpenAI, 'embeddings' | 'responses'>
@@ -22,17 +26,19 @@ export const openAiModels = {
 	embeddings: 'text-embedding-3-small'
 } satisfies AiModels
 
+const entityMentionSchema = z.object({
+	mention: z.string().trim().min(1),
+	type: z.enum(ingestionDocumentTypes)
+})
+
 const sessionClaimsSchema = z.object({
 	claims: z.array(
 		z.object({
 			excerpt: z.string().min(1),
-			title: z.string().trim().min(1),
-			documentType: z.enum(ingestionDocumentTypes),
 			kind: z.enum(['stable-fact', 'development', 'mention']),
 			certainty: z.enum(['explicit', 'inferred']),
 			content: z.string().trim().min(1),
-			references: z.array(z.string().trim().min(1)),
-			after: z.array(z.string().trim().min(1))
+			entityMentions: z.array(entityMentionSchema)
 		})
 	)
 })
@@ -40,7 +46,8 @@ const sessionClaimsSchema = z.object({
 const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
-	description: 'Record atomic campaign claims with exact supporting quotations.',
+	description:
+		'Record atomic campaign claims as evidence plus the entity mentions present in that evidence. Claims do not choose Lore documents or document titles.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -51,24 +58,23 @@ const sessionClaimsTool = {
 					type: 'object',
 					properties: {
 						excerpt: { type: 'string' },
-						title: { type: 'string' },
-						documentType: { type: 'string', enum: ingestionDocumentTypes },
 						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
 						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
 						content: { type: 'string' },
-						references: { type: 'array', items: { type: 'string' } },
-						after: { type: 'array', items: { type: 'string' } }
+						entityMentions: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									mention: { type: 'string' },
+									type: { type: 'string', enum: ingestionDocumentTypes }
+								},
+								required: ['mention', 'type'],
+								additionalProperties: false
+							}
+						}
 					},
-					required: [
-						'excerpt',
-						'title',
-						'documentType',
-						'kind',
-						'certainty',
-						'content',
-						'references',
-						'after'
-					],
+					required: ['excerpt', 'kind', 'certainty', 'content', 'entityMentions'],
 					additionalProperties: false
 				}
 			}
@@ -84,6 +90,51 @@ const parseSessionClaims = (response: OpenAiResponse): ExtractedSessionClaim[] =
 	)
 	return call?.type === 'function_call'
 		? sessionClaimsSchema.parse(JSON.parse(call.arguments)).claims
+		: []
+}
+
+const sessionEntityResolutionsSchema = z.object({
+	resolutions: z.array(
+		z.object({
+			referenceId: z.string().trim().min(1),
+			targetId: z.string().trim().min(1).nullable()
+		})
+	)
+})
+
+const sessionEntityResolutionsTool = {
+	type: 'function' as const,
+	name: 'resolve_session_entities',
+	description:
+		'Resolve ambiguous entity mentions by choosing only from the supplied candidate targets, or leave them unresolved.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			resolutions: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						referenceId: { type: 'string' },
+						targetId: { type: ['string', 'null'] }
+					},
+					required: ['referenceId', 'targetId'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['resolutions'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionEntityResolutions = (response: OpenAiResponse): SessionEntityResolution[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionEntityResolutionsTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionEntityResolutionsSchema.parse(JSON.parse(call.arguments)).resolutions
 		: []
 }
 
@@ -269,6 +320,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 				return parseSessionClaims(response)
 			},
 			catch: (cause) => failure('ai', 'analyzeSessionChunk', cause)
+		}),
+
+	resolveSessionEntities: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionEntityResolutionsTool],
+					tool_choice: { type: 'function', name: sessionEntityResolutionsTool.name }
+				})
+				return parseSessionEntityResolutions(response)
+			},
+			catch: (cause) => failure('ai', 'resolveSessionEntities', cause)
 		})
 })
 
@@ -287,6 +352,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		streamAssistant: () => missingApiKey('streamAssistant'),
 		embedTexts: () => missingApiKey('embedTexts'),
 		inferDocumentType: () => missingApiKey('inferDocumentType'),
-		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk')
+		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk'),
+		resolveSessionEntities: () => missingApiKey('resolveSessionEntities')
 	}
 }
