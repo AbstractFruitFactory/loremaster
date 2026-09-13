@@ -1,0 +1,35 @@
+name: Blackwater hard-question benchmark
+
+on:
+  push:
+    branches: [line-range-benchmark]
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: line-range-benchmark
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run hard-question live benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          pnpm exec vite-node --config scripts/vite.config.ts scripts/run-blackwater-hard-benchmark.ts | tee hard-report.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: blackwater-hard-benchmark-report
+          path: hard-report.log
