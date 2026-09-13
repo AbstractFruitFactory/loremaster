@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   patch:
-    if: "${{ github.event.head_commit.message == 'chore: fix semantic event title workflow' }}"
+    if: "${{ github.event.head_commit.message == 'chore: fix event title prompt escaping' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,7 +72,7 @@ jobs:
           replace_once(
               'src/lib/server/ingestion/index.ts',
               "Mark interpretation as inferred and mere names as mentions. Do not turn a property or topic into an entity: use \"Mara\", not \"Mara\\'s age\".",
-              "Mark interpretation as inferred and mere names as mentions. For every development claim, set eventTitle to a concise factual label suitable for a timeline or list: usually 3-8 words and under 60 characters. The title must summarize only the claim content and must not introduce new identity, motive, causality, chronology, or interpretation. Prefer plain labels such as \"Empty Bell cracks\", \"Talven's body discovered\", or \"Saltwater draft in Weaver's Cut\" rather than full sentences or dramatic prose. For stable-fact and mention claims, set eventTitle to null. Do not turn a property or topic into an entity: use \"Mara\", not \"Mara\\'s age\"."
+              "Mark interpretation as inferred and mere names as mentions. For every development claim, set eventTitle to a concise factual label suitable for a timeline or list: usually 3-8 words and under 60 characters. The title must summarize only the claim content and must not introduce new identity, motive, causality, chronology, or interpretation. Prefer plain labels such as \"Empty Bell cracks\", \"Talven\\'s body discovered\", or \"Saltwater draft in Weaver\\'s Cut\" rather than full sentences or dramatic prose. For stable-fact and mention claims, set eventTitle to null. Do not turn a property or topic into an entity: use \"Mara\", not \"Mara\\'s age\"."
           )
           replace_once(
               'src/lib/server/ingestion/index.ts',
