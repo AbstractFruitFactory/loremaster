@@ -1,0 +1,34 @@
+name: Cinderwake generalization benchmark
+
+on:
+  push:
+    branches:
+      - generalization-benchmark
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: generalization-benchmark
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck benchmark
+        run: pnpm exec tsc --noEmit --pretty false
+      - name: Run live benchmark
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          pnpm exec vite-node --config scripts/vite.config.ts scripts/run-cinderwake-benchmark.ts | tee cinderwake-benchmark.log
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cinderwake-generalization-report
+          path: cinderwake-benchmark.log
