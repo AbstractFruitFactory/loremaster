@@ -10,7 +10,9 @@ import type { AssistantGeneration, AssistantGenerationEvent } from '../../assist
 import { failure } from '../../failure'
 import {
 	ingestionDocumentTypes,
+	sessionClaimValidationReasons,
 	type ExtractedSessionClaim,
+	type SessionClaimEvidenceRepair,
 	type SessionClaimValidation,
 	type SessionEntityResolution
 } from '../../ingestion/types'
@@ -122,6 +124,7 @@ const sessionClaimValidationsSchema = z.object({
 			candidateId: z.string().trim().min(1),
 			accepted: z.boolean(),
 			certainty: z.enum(['explicit', 'inferred']),
+			reason: z.enum(sessionClaimValidationReasons),
 			referenceValidations: z.array(
 				z.object({
 					referenceId: z.string().trim().min(1),
@@ -149,6 +152,7 @@ const sessionClaimValidationsTool = {
 						candidateId: { type: 'string' },
 						accepted: { type: 'boolean' },
 						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+						reason: { type: 'string', enum: sessionClaimValidationReasons },
 						referenceValidations: {
 							type: 'array',
 							items: {
@@ -162,7 +166,7 @@ const sessionClaimValidationsTool = {
 							}
 						}
 					},
-					required: ['candidateId', 'accepted', 'certainty', 'referenceValidations'],
+					required: ['candidateId', 'accepted', 'certainty', 'reason', 'referenceValidations'],
 					additionalProperties: false
 				}
 			}
@@ -178,6 +182,57 @@ const parseSessionClaimValidations = (response: OpenAiResponse): SessionClaimVal
 	)
 	return call?.type === 'function_call'
 		? sessionClaimValidationsSchema.parse(JSON.parse(call.arguments)).validations
+		: []
+}
+
+const sessionClaimEvidenceRepairsSchema = z.object({
+	repairs: z.array(
+		z.object({
+			candidateId: z.string().trim().min(1),
+			evidence: z.array(evidenceRangeSchema).max(MAX_EVIDENCE_RANGES)
+		})
+	)
+})
+
+const sessionClaimEvidenceRepairsTool = {
+	type: 'function' as const,
+	name: 'repair_session_claim_evidence',
+	description:
+		'Repair only the transcript evidence line ranges for supplied candidate claims without rewriting claim content or metadata.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			repairs: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						candidateId: { type: 'string' },
+						evidence: {
+							type: 'array',
+							items: evidenceRangeJsonSchema,
+							maxItems: MAX_EVIDENCE_RANGES
+						}
+					},
+					required: ['candidateId', 'evidence'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['repairs'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionClaimEvidenceRepairs = (
+	response: OpenAiResponse
+): SessionClaimEvidenceRepair[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionClaimEvidenceRepairsTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionClaimEvidenceRepairsSchema.parse(JSON.parse(call.arguments)).repairs
 		: []
 }
 
@@ -469,6 +524,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'validateSessionClaims', cause)
 		}),
 
+	repairSessionClaimEvidence: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionClaimEvidenceRepairsTool],
+					tool_choice: { type: 'function', name: sessionClaimEvidenceRepairsTool.name }
+				})
+				return parseSessionClaimEvidenceRepairs(response)
+			},
+			catch: (cause) => failure('ai', 'repairSessionClaimEvidence', cause)
+		}),
+
 	resolveSessionEntities: ({ model, system, prompt }) =>
 		tryPromise({
 			try: async () => {
@@ -515,6 +584,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		inferDocumentType: () => missingApiKey('inferDocumentType'),
 		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk'),
 		validateSessionClaims: () => missingApiKey('validateSessionClaims'),
+		repairSessionClaimEvidence: () => missingApiKey('repairSessionClaimEvidence'),
 		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
 		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}

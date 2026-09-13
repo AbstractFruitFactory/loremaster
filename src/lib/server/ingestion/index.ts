@@ -16,6 +16,7 @@ import type {
 	IngestionDocumentType,
 	ProposalCandidate,
 	ProposalMatch,
+	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
 	SessionIngestionDraft,
 	SessionEntityResolution,
@@ -503,7 +504,10 @@ export const sessionIngestion = ({
 }: {
 	ai: Pick<
 		AiProvider,
-		'analyzeSessionChunk' | 'validateSessionClaims' | 'resolveSessionEntities'
+		| 'analyzeSessionChunk'
+		| 'validateSessionClaims'
+		| 'repairSessionClaimEvidence'
+		| 'resolveSessionEntities'
 	> & {
 		analysisModel: string
 	}
@@ -819,7 +823,9 @@ export const sessionIngestion = ({
 	const extractionSystem =
 		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how Lore should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
 	const validationSystem =
-		'Independently verify candidate campaign claims against their cited transcript evidence. Judge claim content separately from semantic entity-reference metadata. For each candidateId, accepted refers only to whether the cited evidence collectively supports the exact claim content. Reject the claim when its content itself adds unsupported motive, causality, chronology, identity, relationships, current state, attribution, or other details; turns a character claim into objective truth; or removes material uncertainty. In particular, if the claim content names a person or object where the cited evidence only contains an unresolved pronoun or abbreviation, reject the claim unless the cited ranges establish that identity. Separately return one decision for every supplied referenceId. Accept an entity reference only when the cited evidence establishes that the claim concerns that entity. An unsupported extra entity reference must not cause an otherwise supported claim to be rejected unless that same unsupported identity or detail is asserted in the claim content. Do not rewrite claims or entity references. For an accepted claim, keep certainty unchanged or downgrade explicit to inferred; never upgrade inferred to explicit. The surrounding numbered chunk may help interpret structure, but substantive support and identity grounding must come from the cited evidence.'
+		'Independently verify candidate campaign claims against their cited transcript evidence. Judge claim content separately from semantic entity-reference metadata. For each candidateId, accepted refers only to whether the cited evidence collectively supports the exact claim content. Always return a reason. Use supported only when accepted is true. When rejected, use insufficient-evidence only when the exact existing claim appears supportable from other lines in the supplied transcript chunk and could be grounded by replacing or expanding the cited ranges without rewriting the claim. Use contradicted-by-evidence when the source contradicts the claim, unsupported-inference when the chunk does not establish the asserted identity, motive, causality, chronology, relationship, or other detail, and lost-attribution when the claim turns testimony, belief, rumor, a written statement, or uncertainty into objective truth. Reject the claim when its content itself adds unsupported motive, causality, chronology, identity, relationships, current state, attribution, or other details; turns a character claim into objective truth; or removes material uncertainty. In particular, if the claim content names a person or object where the cited evidence only contains an unresolved pronoun or abbreviation, classify it as insufficient-evidence only if other lines in this supplied chunk establish that identity; otherwise classify it as unsupported-inference. Separately return one decision for every supplied referenceId. Accept an entity reference only when the cited evidence establishes that the claim concerns that entity. An unsupported extra entity reference must not cause an otherwise supported claim to be rejected unless that same unsupported identity or detail is asserted in the claim content. Do not rewrite claims or entity references. For an accepted claim, keep certainty unchanged or downgrade explicit to inferred; never upgrade inferred to explicit. The surrounding numbered chunk may be used to decide whether missing context exists and therefore whether insufficient-evidence is the right rejection reason, but substantive support for an accepted claim must come from the cited evidence.'
+	const evidenceRepairSystem =
+		'Repair only the evidence line ranges for candidate claims that were rejected solely because their current citations were insufficient. Do not rewrite claim content, kind, certainty, or entity references. For each candidateId, inspect the supplied numbered transcript chunk and return the smallest set of replacement line ranges that collectively supports the exact existing normalized claim, including every identity, attribution, relationship, chronology statement, and coreference it expresses. You may expand the original range or cite multiple separated ranges. Never repair an unsupported claim by weakening, reinterpreting, or changing it. If the exact claim cannot be fully grounded anywhere in the supplied chunk, return an empty evidence array. Never cite outside the supplied chunk.'
 
 	const numberedChunkContent = (chunk: TranscriptChunk) =>
 		chunk.content
@@ -842,12 +848,14 @@ export const sessionIngestion = ({
 		claimIndex: number,
 		claim: ExtractedSessionClaim,
 		reason: string,
-		evidence: Evidence[] = []
+		evidence: Evidence[] = [],
+		validationReason?: SessionClaimValidation['reason']
 	) => {
 		const details = {
 			chunkId: chunk.chunkId,
 			claim: claimIndex + 1,
 			reason,
+			validationReason,
 			content: claim.content,
 			evidenceRanges: claim.evidence,
 			evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
@@ -860,7 +868,7 @@ export const sessionIngestion = ({
 		if (process.env.NODE_ENV !== 'production') {
 			console.warn('[session-ingestion] discarded claim', details)
 		}
-		return `${chunk.chunkId} claim ${claimIndex + 1} discarded [${reason}] evidence=${evidenceRangesLabel(claim)} entities=${entityReferencesLabel(claim)} content=${JSON.stringify(claim.content)}`
+		return `${chunk.chunkId} claim ${claimIndex + 1} discarded [${reason}]${validationReason ? ` validationReason=${validationReason}` : ''} evidence=${evidenceRangesLabel(claim)} entities=${entityReferencesLabel(claim)} content=${JSON.stringify(claim.content)}`
 	}
 
 	const discardedEntityReferenceWarning = (
@@ -935,26 +943,54 @@ export const sessionIngestion = ({
 			2
 		)}`
 
+	const evidenceRepairPrompt = (chunk: TranscriptChunk, claims: EvidenceBackedClaim[]) =>
+		`${transcriptChunkPrompt(chunk)}\n\n## Claims needing evidence repair\n${JSON.stringify(
+			claims.map(({ candidateId, claim, evidence }) => ({
+				candidateId,
+				content: claim.content,
+				entityReferences: claim.entityReferences,
+				currentEvidence: evidence.map(({ startLine, endLine, excerpt }) => ({
+					startLine,
+					endLine,
+					excerpt
+				}))
+			})),
+			null,
+			2
+		)}`
+
 	const applyClaimValidation = (
 		chunk: TranscriptChunk,
 		backedClaims: EvidenceBackedClaim[],
-		validations: SessionClaimValidation[]
+		validations: SessionClaimValidation[],
+		allowEvidenceRepair = true
 	) => {
 		const validationById = new Map(
 			validations.map((validation) => [validation.candidateId, validation])
 		)
 		const claims: ValidatedClaim[] = []
+		const repairable: EvidenceBackedClaim[] = []
 		const warnings: string[] = []
-		for (const { candidateId, claimIndex, claim, evidence } of backedClaims) {
+		for (const backedClaim of backedClaims) {
+			const { candidateId, claimIndex, claim, evidence } = backedClaim
 			const validation = validationById.get(candidateId)
 			if (!validation?.accepted) {
+				if (allowEvidenceRepair && validation?.reason === 'insufficient-evidence') {
+					repairable.push(backedClaim)
+					continue
+				}
 				warnings.push(
 					discardedClaimWarning(
 						chunk,
 						claimIndex,
 						claim,
-						validation ? 'validator-rejected' : 'validator-missing-decision',
-						evidence
+						validation
+							? allowEvidenceRepair
+								? 'validator-rejected'
+								: 'validator-rejected-after-repair'
+							: 'validator-missing-decision',
+						evidence,
+						validation?.reason
 					)
 				)
 				continue
@@ -994,7 +1030,70 @@ export const sessionIngestion = ({
 				evidence
 			})
 		}
-		return { claims, warnings }
+		return { claims, repairable, warnings }
+	}
+
+	const applyEvidenceRepairs = (
+		transcript: string,
+		chunk: TranscriptChunk,
+		claims: EvidenceBackedClaim[],
+		repairs: SessionClaimEvidenceRepair[]
+	) => {
+		const repairById = new Map(repairs.map((repair) => [repair.candidateId, repair]))
+		const repaired: EvidenceBackedClaim[] = []
+		const warnings: string[] = []
+
+		for (const backedClaim of claims) {
+			const { candidateId, claimIndex, claim, evidence } = backedClaim
+			const repair = repairById.get(candidateId)
+			if (!repair) {
+				warnings.push(
+					discardedClaimWarning(
+						chunk,
+						claimIndex,
+						claim,
+						'evidence-repair-missing',
+						evidence,
+						'insufficient-evidence'
+					)
+				)
+				continue
+			}
+
+			const repairedClaim = { ...claim, evidence: repair.evidence }
+			const materialized = materializeEvidenceRanges(transcript, chunk, repair.evidence)
+			if (!materialized.ok) {
+				warnings.push(
+					discardedClaimWarning(
+						chunk,
+						claimIndex,
+						repairedClaim,
+						`evidence-repair-${materialized.reason}`,
+						evidence,
+						'insufficient-evidence'
+					)
+				)
+				continue
+			}
+
+			if (process.env.NODE_ENV !== 'production') {
+				console.info('[session-ingestion] repaired claim evidence', {
+					chunkId: chunk.chunkId,
+					claim: claimIndex + 1,
+					content: claim.content,
+					previousEvidenceRanges: claim.evidence,
+					repairedEvidenceRanges: repair.evidence
+				})
+			}
+
+			repaired.push({
+				...backedClaim,
+				claim: repairedClaim,
+				evidence: materialized.evidence
+			})
+		}
+
+		return { claims: repaired, warnings }
 	}
 
 	const analyzeChunk = (transcript: string, chunk: TranscriptChunk) =>
@@ -1008,15 +1107,47 @@ export const sessionIngestion = ({
 			if (!backed.claims.length) {
 				return { claims: [] as ValidatedClaim[], warnings: backed.warnings }
 			}
+
 			const validations = yield* ai.validateSessionClaims({
 				model: ai.analysisModel,
 				system: validationSystem,
 				prompt: validationPrompt(chunk, backed.claims)
 			})
 			const applied = applyClaimValidation(chunk, backed.claims, validations)
+			if (!applied.repairable.length) {
+				return {
+					claims: applied.claims,
+					warnings: [...backed.warnings, ...applied.warnings]
+				}
+			}
+
+			const repairs = yield* ai.repairSessionClaimEvidence({
+				model: ai.analysisModel,
+				system: evidenceRepairSystem,
+				prompt: evidenceRepairPrompt(chunk, applied.repairable)
+			})
+			const repaired = applyEvidenceRepairs(transcript, chunk, applied.repairable, repairs)
+			if (!repaired.claims.length) {
+				return {
+					claims: applied.claims,
+					warnings: [...backed.warnings, ...applied.warnings, ...repaired.warnings]
+				}
+			}
+
+			const repairedValidations = yield* ai.validateSessionClaims({
+				model: ai.analysisModel,
+				system: validationSystem,
+				prompt: validationPrompt(chunk, repaired.claims)
+			})
+			const reapplied = applyClaimValidation(chunk, repaired.claims, repairedValidations, false)
 			return {
-				claims: applied.claims,
-				warnings: [...backed.warnings, ...applied.warnings]
+				claims: [...applied.claims, ...reapplied.claims],
+				warnings: [
+					...backed.warnings,
+					...applied.warnings,
+					...repaired.warnings,
+					...reapplied.warnings
+				]
 			}
 		})
 
