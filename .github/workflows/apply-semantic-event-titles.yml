@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: apply semantic event title patch'
+    if: "${{ github.event.head_commit.message == 'chore: fix semantic event title workflow' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,18 +32,15 @@ jobs:
                   raise RuntimeError(f'{path}: expected one match, found {count} for {old[:80]!r}')
               file.write_text(text.replace(old, new, 1))
 
-          # Carry a concise event label alongside development claims. It is optional
-          # internally so mock/test providers and older serialized data remain compatible.
           replace_once(
               'src/lib/server/ingestion/types.ts',
               "export type ExtractedSessionClaim = {\n\tkind: SessionClaimKind\n\tcertainty: 'explicit' | 'inferred'",
               "export type ExtractedSessionClaim = {\n\tkind: SessionClaimKind\n\teventTitle?: string | null\n\tcertainty: 'explicit' | 'inferred'"
           )
 
-          # Ask the extraction model for the event label in the same structured call.
           replace_once(
               'src/lib/server/ai/providers/openai.ts',
-              "\t\t\tz.object({\n\t\t\tkind: z.enum(['stable-fact', 'development', 'mention']),\n\t\t\tcertainty: z.enum(['explicit', 'inferred']),",
+              "\t\tz.object({\n\t\t\tkind: z.enum(['stable-fact', 'development', 'mention']),\n\t\t\tcertainty: z.enum(['explicit', 'inferred']),",
               "\t\tz.object({\n\t\t\tkind: z.enum(['stable-fact', 'development', 'mention']),\n\t\t\teventTitle: z.string().trim().min(1).nullable(),\n\t\t\tcertainty: z.enum(['explicit', 'inferred']),"
           )
           replace_once(
@@ -62,8 +59,6 @@ jobs:
               "'Record atomic campaign claims with supporting transcript line ranges, semantic entity references, and concise factual titles for developments.'"
           )
 
-          # Prefer the model-produced semantic label, with the old behavior retained as
-          # a compatibility fallback for mocks/old data.
           replace_once(
               'src/lib/server/ingestion/index.ts',
               "const eventTitle = (content: string) => {\n\tconst firstLine = content.trim().split(/\\r?\\n/, 1)[0] ?? 'Session event'\n\tconst withoutPunctuation = firstLine.replace(/[.!?]+$/u, '').trim()\n\treturn withoutPunctuation.slice(0, 90) || 'Session event'\n}",
@@ -85,8 +80,6 @@ jobs:
               "\t\t\tclaims.push({\n\t\t\t\tkind: claim.kind,\n\t\t\t\teventTitle: claim.eventTitle,\n\t\t\t\tcontent: claim.content,"
           )
 
-          # Regression: a development's semantic title is used while the full claim stays
-          # in the body.
           replace_once(
               'src/lib/server/ingestion/index.spec.ts',
               "\t\t\t\tclaim('Mara hired the party to recover the lockbox.', {\n\t\t\t\t\tkind: 'development',\n\t\t\t\t\tentityReferences: [{ label: 'Mara', type: 'npc' }]",
