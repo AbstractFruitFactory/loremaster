@@ -258,12 +258,6 @@ const referencesFor = (entities: EntityResolution[]) =>
 		})
 	)
 
-const unresolvedCandidatesFor = (entities: EntityResolution[]) =>
-	entities.filter(
-		(entity): entity is Extract<EntityResolution, { kind: 'unresolved' }> =>
-			entity.kind === 'unresolved'
-	)
-
 const mentionProposal = (
 	claim: ResolvedClaim,
 	references: SessionProposal['references']
@@ -312,8 +306,7 @@ const developmentProposal = (
 const updateEntityProposal = (
 	claim: ResolvedClaim,
 	entity: Extract<EntityResolution, { kind: 'existing' }>,
-	references: SessionProposal['references'],
-	hasUnresolved: boolean
+	references: SessionProposal['references']
 ): SessionProposal => ({
 	proposalId: randomUUID(),
 	claimIds: [claim.claimId],
@@ -321,7 +314,7 @@ const updateEntityProposal = (
 	documentType: entity.document.type,
 	title: entity.document.title,
 	certainty: claim.certainty,
-	selected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,
+	selected: claim.certainty === 'explicit' && entity.method === 'deterministic',
 	evidence: claim.evidence,
 	match: matchForExisting(entity.document),
 	references,
@@ -338,8 +331,7 @@ const updateEntityProposal = (
 const createSessionEntityProposal = (
 	claim: ResolvedClaim,
 	entity: Extract<EntityResolution, { kind: 'session' }>,
-	references: SessionProposal['references'],
-	hasUnresolved: boolean
+	references: SessionProposal['references']
 ): SessionProposal => ({
 	proposalId: randomUUID(),
 	claimIds: [claim.claimId],
@@ -347,7 +339,7 @@ const createSessionEntityProposal = (
 	documentType: entity.candidate.type,
 	title: entity.candidate.title,
 	certainty: claim.certainty,
-	selected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,
+	selected: claim.certainty === 'explicit' && entity.method === 'deterministic',
 	evidence: claim.evidence,
 	match: { kind: 'unresolved', candidates: [] },
 	references,
@@ -402,13 +394,12 @@ const stableFactProposals = (
 	claim: ResolvedClaim,
 	references: SessionProposal['references']
 ): SessionProposal[] => {
-	const hasUnresolved = unresolvedCandidatesFor(claim.entities).length > 0
 	const proposals = claim.entities.flatMap((entity) => {
 		if (entity.kind === 'existing') {
-			return [updateEntityProposal(claim, entity, references, hasUnresolved)]
+			return [updateEntityProposal(claim, entity, references)]
 		}
 		if (entity.kind === 'session') {
-			return [createSessionEntityProposal(claim, entity, references, hasUnresolved)]
+			return [createSessionEntityProposal(claim, entity, references)]
 		}
 		const proposal = unresolvedEntityProposal(claim, entity, references)
 		return proposal ? [proposal] : []
