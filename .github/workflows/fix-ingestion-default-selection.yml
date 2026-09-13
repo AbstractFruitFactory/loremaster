@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: test ingestion selection fix'
+    if: github.event.head_commit.message == 'chore: rerun ingestion selection fix'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,82 +33,56 @@ jobs:
               file.write_text(text.replace(old, new, 1))
 
           index = 'src/lib/server/ingestion/index.ts'
-
-          replace_once(
-              index,
-              "const unresolvedCandidatesFor = (entities: EntityResolution[]) =>\n\tentities.filter(\n\t\t(entity): entity is Extract<EntityResolution, { kind: 'unresolved' }> =>\n\t\t\tentity.kind === 'unresolved'\n\t)\n\n",
-              ""
-          )
-
-          replace_once(
-              index,
-              "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({",
-              "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({"
-          )
-          replace_once(
-              index,
-              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,",
-              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',"
-          )
-
-          replace_once(
-              index,
-              "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({",
-              "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({"
-          )
-          replace_once(
-              index,
-              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,",
-              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',"
-          )
-
-          replace_once(
-              index,
-              "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst hasUnresolved = unresolvedCandidatesFor(claim.entities).length > 0\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}",
-              "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references)]\n\t\t}"
-          )
+          replace_once(index, "const unresolvedCandidatesFor = (entities: EntityResolution[]) =>\n\tentities.filter(\n\t\t(entity): entity is Extract<EntityResolution, { kind: 'unresolved' }> =>\n\t\t\tentity.kind === 'unresolved'\n\t)\n\n", "")
+          replace_once(index, "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({", "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({")
+          replace_once(index, "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,", "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',")
+          replace_once(index, "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({", "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({")
+          replace_once(index, "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,", "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',")
+          replace_once(index, "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst hasUnresolved = unresolvedCandidatesFor(claim.entities).length > 0\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}", "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references)]\n\t\t}")
 
           spec = Path('src/lib/server/ingestion/index.spec.ts')
           text = spec.read_text()
           marker = "\n\tit('uses a batched contextual resolver for relational references', async () => {"
-          test = r'''
-
-	it('does not skip safe entity changes because a secondary reference is unresolved', async () => {
-		const harness = setup(
-			[
-				claim("Nym produces a smuggler's map.", {
-					entityReferences: [
-						{ label: 'Nym', type: 'npc' },
-						{ label: "Nym's map", type: 'item' }
-					]
-				}),
-				claim("Varek carries Varek's key.", {
-					entityReferences: [
-						{ label: 'Varek', type: 'npc' },
-						{ label: "Varek's key", type: 'item' }
-					]
-				})
-			],
-			[varek]
-		)
-		const draft = await runPromise(
-			analyze(harness.operations, "Nym produces a smuggler's map.\nVarek carries Varek's key.")
-		)
-
-		expect(draft.proposals.find(({ title }) => title === 'Nym')).toMatchObject({
-			operation: 'create-entity',
-			selected: true,
-			resolutionMethod: 'deterministic'
-		})
-		expect(draft.proposals.find(({ title }) => title === 'Varek')).toMatchObject({
-			operation: 'update-canon',
-			selected: true,
-			resolutionMethod: 'deterministic'
-		})
-		expect(draft.proposals.some(({ title }) => title === "Nym's map")).toBe(false)
-		expect(draft.proposals.some(({ title }) => title === "Varek's key")).toBe(false)
-	})
-'''
+          test_lines = [
+              '',
+              '',
+              "\tit('does not skip safe entity changes because a secondary reference is unresolved', async () => {",
+              '\t\tconst harness = setup(',
+              '\t\t\t[',
+              '\t\t\t\tclaim("Nym produces a smuggler\'s map.", {',
+              '\t\t\t\t\tentityReferences: [',
+              "\t\t\t\t\t\t{ label: 'Nym', type: 'npc' },",
+              '\t\t\t\t\t\t{ label: "Nym\'s map", type: \'item\' }',
+              '\t\t\t\t\t]',
+              '\t\t\t\t}),',
+              '\t\t\t\tclaim("Varek carries Varek\'s key.", {',
+              '\t\t\t\t\tentityReferences: [',
+              "\t\t\t\t\t\t{ label: 'Varek', type: 'npc' },",
+              '\t\t\t\t\t\t{ label: "Varek\'s key", type: \'item\' }',
+              '\t\t\t\t\t]',
+              '\t\t\t\t})',
+              '\t\t\t],',
+              '\t\t\t[varek]',
+              '\t\t)',
+              '\t\tconst draft = await runPromise(',
+              '\t\t\tanalyze(harness.operations, "Nym produces a smuggler\'s map.\\nVarek carries Varek\'s key.")',
+              '\t\t)',
+              '',
+              "\t\texpect(draft.proposals.find(({ title }) => title === 'Nym')).toMatchObject({",
+              "\t\t\toperation: 'create-entity',",
+              '\t\t\tselected: true,',
+              "\t\t\tresolutionMethod: 'deterministic'",
+              '\t\t})',
+              "\t\texpect(draft.proposals.find(({ title }) => title === 'Varek')).toMatchObject({",
+              "\t\t\toperation: 'update-canon',",
+              '\t\t\tselected: true,',
+              "\t\t\tresolutionMethod: 'deterministic'",
+              '\t\t})',
+              '\t\texpect(draft.proposals.some(({ title }) => title === "Nym\'s map")).toBe(false)',
+              '\t\texpect(draft.proposals.some(({ title }) => title === "Varek\'s key")).toBe(false)',
+              '\t})'
+          ]
+          test = '\n'.join(test_lines)
           if marker not in text:
               raise RuntimeError('test insertion marker not found')
           spec.write_text(text.replace(marker, test + marker, 1))
