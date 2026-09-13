@@ -6,16 +6,17 @@ import type { AiProvider } from '../ai/provider'
 import type { Failure } from '../failure'
 import type { VaultDocument } from '../vault/types'
 import { chunkTranscript } from './chunking'
-import { locateEvidence } from './evidence'
+import { materializeEvidenceRanges } from './evidence'
 import { contextualCandidates, matchDocument } from './matching'
 import type { IngestionStorage } from './storage'
 import type {
-	EntityMention,
+	EntityReference,
 	Evidence,
 	ExtractedSessionClaim,
 	IngestionDocumentType,
 	ProposalCandidate,
 	ProposalMatch,
+	SessionClaimValidation,
 	SessionIngestionDraft,
 	SessionEntityResolution,
 	SessionIngestionResult,
@@ -42,7 +43,6 @@ const toSlug = (title: string) =>
 		.replace(/^-|-$/g, '') || 'document'
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase()
-const normalizedText = (value: string) => normalize(value).replace(/\s+/g, ' ')
 const wordTokens = (value: string) => normalize(value).match(/[\p{L}\p{N}]+/gu) ?? []
 
 const uniqueStrings = (values: string[]) => [
@@ -55,11 +55,14 @@ const uniqueEvidence = (evidence: Evidence[]) => [
 	).values()
 ]
 
-const uniqueEntityMentions = (mentions: EntityMention[]) => [
+const uniqueEntityReferences = (references: EntityReference[]) => [
 	...new Map(
-		mentions.map((mention) => [`${mention.type}:${normalize(mention.mention)}`, mention])
+		references.map((reference) => [`${reference.type}:${normalize(reference.label)}`, reference])
 	).values()
 ]
+
+const entityReferenceId = (candidateId: string, index: number) =>
+	`${candidateId}:reference-${index + 1}`
 
 const uniqueReferences = (references: SessionProposal['references']) => [
 	...new Map(
@@ -73,15 +76,16 @@ const uniqueReferences = (references: SessionProposal['references']) => [
 const combineContent = (contents: string[]) =>
 	uniqueStrings(contents.map((content) => content.trim()).filter(Boolean)).join('\n\n')
 
-type ValidatedClaim = ExtractedSessionClaim & {
+type ValidatedClaim = Omit<ExtractedSessionClaim, 'evidence'> & {
 	claimId: string
 	evidence: Evidence[]
 }
 
 type EvidenceBackedClaim = {
+	candidateId: string
 	claimIndex: number
 	claim: ExtractedSessionClaim
-	evidence: Evidence
+	evidence: Evidence[]
 }
 
 type SessionEntityCandidate = {
@@ -94,19 +98,19 @@ type SessionEntityCandidate = {
 type EntityResolution =
 	| {
 			kind: 'existing'
-			mention: EntityMention
+			reference: EntityReference
 			document: VaultDocument & { currentRevisionId: string }
 			method: 'deterministic' | 'model'
 	  }
 	| {
 			kind: 'session'
-			mention: EntityMention
+			reference: EntityReference
 			candidate: SessionEntityCandidate
 			method: 'deterministic' | 'model'
 	  }
 	| {
 			kind: 'unresolved'
-			mention: EntityMention
+			reference: EntityReference
 			match: { kind: 'unresolved'; candidates: ProposalCandidate[] }
 			canCreate: boolean
 	  }
@@ -115,10 +119,10 @@ type ResolvedClaim = ValidatedClaim & {
 	entities: EntityResolution[]
 }
 
-type MentionOccurrence = {
+type EntityReferenceOccurrence = {
 	referenceId: string
 	claim: ValidatedClaim
-	mention: EntityMention
+	reference: EntityReference
 	match: ProposalMatch
 }
 
@@ -131,7 +135,7 @@ type ResolutionCandidate = {
 }
 
 type ModelResolutionRequest = {
-	occurrence: MentionOccurrence
+	occurrence: EntityReferenceOccurrence
 	context: string
 	candidates: ResolutionCandidate[]
 }
@@ -159,30 +163,12 @@ type MutationPlan = {
 	sessionDocumentId: string
 }
 
-const normalizedClaimKey = (claim: ExtractedSessionClaim) =>
+const normalizedClaimKey = (claim: ValidatedClaim) =>
 	JSON.stringify([
 		claim.kind,
 		normalize(claim.content),
-		claim.entityMentions.map(({ mention, type }) => [type, normalize(mention)])
+		claim.entityReferences.map(({ label, type }) => [type, normalize(label)])
 	])
-
-const validationClaimKey = (claim: ExtractedSessionClaim) =>
-	JSON.stringify([
-		claim.excerpt,
-		claim.kind,
-		claim.content,
-		claim.entityMentions.map(({ mention, type }) => [mention, type])
-	])
-
-const validationCertainties = (claims: ExtractedSessionClaim[]) => {
-	const certainties = new Map<string, ExtractedSessionClaim['certainty']>()
-	for (const claim of claims) {
-		const key = validationClaimKey(claim)
-		const current = certainties.get(key)
-		if (!current || claim.certainty === 'inferred') certainties.set(key, claim.certainty)
-	}
-	return certainties
-}
 
 const mergeClaims = (claims: ValidatedClaim[]) => {
 	const merged = new Map<string, ValidatedClaim>()
@@ -191,9 +177,9 @@ const mergeClaims = (claims: ValidatedClaim[]) => {
 		const existing = merged.get(key)
 		if (existing) {
 			existing.evidence = uniqueEvidence([...existing.evidence, ...claim.evidence])
-			existing.entityMentions = uniqueEntityMentions([
-				...existing.entityMentions,
-				...claim.entityMentions
+			existing.entityReferences = uniqueEntityReferences([
+				...existing.entityReferences,
+				...claim.entityReferences
 			])
 			if (claim.certainty === 'inferred') existing.certainty = 'inferred'
 		} else merged.set(key, { ...claim, evidence: [...claim.evidence] })
@@ -201,12 +187,9 @@ const mergeClaims = (claims: ValidatedClaim[]) => {
 	return [...merged.values()]
 }
 
-const mentionIsInExcerpt = (mention: string, excerpt: string) =>
-	normalizedText(excerpt).includes(normalizedText(mention))
-
-const canCreateEntityFromMention = (mention: EntityMention) => {
-	if (mention.type === 'event' || mention.type === 'lore') return false
-	const value = mention.mention.trim()
+const canCreateEntityFromReference = (reference: EntityReference) => {
+	if (reference.type === 'event' || reference.type === 'lore') return false
+	const value = reference.label.trim()
 	if (!value || value.length > 80) return false
 	if (/['’]s\b/iu.test(value)) return false
 	if (/^(?:his|her|their|its|my|your|our|someone|somebody|something)\b/iu.test(value)) return false
@@ -221,20 +204,22 @@ const tokenSubset = (left: string, right: string) => {
 }
 
 const sessionCandidateTitle = (
-	occurrence: MentionOccurrence,
-	provisional: MentionOccurrence[]
+	occurrence: EntityReferenceOccurrence,
+	provisional: EntityReferenceOccurrence[]
 ): string | undefined => {
 	const compatible = provisional.filter(
 		(candidate) =>
-			candidate.mention.type === occurrence.mention.type &&
-			tokenSubset(occurrence.mention.mention, candidate.mention.mention)
+			candidate.reference.type === occurrence.reference.type &&
+			tokenSubset(occurrence.reference.label, candidate.reference.label)
 	)
 	if (!compatible.length) return undefined
-	const maxTokens = Math.max(...compatible.map(({ mention }) => wordTokens(mention.mention).length))
+	const maxTokens = Math.max(
+		...compatible.map(({ reference }) => wordTokens(reference.label).length)
+	)
 	const strongest = uniqueStrings(
 		compatible
-			.filter(({ mention }) => wordTokens(mention.mention).length === maxTokens)
-			.map(({ mention }) => mention.mention)
+			.filter(({ reference }) => wordTokens(reference.label).length === maxTokens)
+			.map(({ reference }) => reference.label)
 	)
 	return strongest.length === 1 ? strongest[0] : undefined
 }
@@ -264,12 +249,12 @@ const referencesFor = (entities: EntityResolution[]) =>
 	uniqueReferences(
 		entities.map((entity) => {
 			if (entity.kind === 'existing') {
-				return { label: entity.mention.mention, documentId: entity.document.id }
+				return { label: entity.reference.label, documentId: entity.document.id }
 			}
 			if (entity.kind === 'session') {
 				return { label: entity.candidate.title }
 			}
-			return { label: entity.mention.mention }
+			return { label: entity.reference.label }
 		})
 	)
 
@@ -294,8 +279,8 @@ const mentionProposal = (
 		proposalId: randomUUID(),
 		claimIds: [claim.claimId],
 		operation: 'mention-only',
-		documentType: first?.mention.type ?? 'lore',
-		title: first?.mention.mention ?? recordTitle(claim.content),
+		documentType: first?.reference.type ?? 'lore',
+		title: first?.reference.label ?? recordTitle(claim.content),
 		certainty: claim.certainty,
 		selected: false,
 		evidence: claim.evidence,
@@ -382,8 +367,8 @@ const unresolvedEntityProposal = (
 				proposalId: randomUUID(),
 				claimIds: [claim.claimId],
 				operation: 'create-entity',
-				documentType: entity.mention.type,
-				title: entity.mention.mention,
+				documentType: entity.reference.type,
+				title: entity.reference.label,
 				certainty: claim.certainty,
 				selected: false,
 				evidence: claim.evidence,
@@ -516,7 +501,10 @@ export const sessionIngestionOperations = ({
 	storage,
 	vault
 }: {
-	ai: Pick<AiProvider, 'analyzeSessionChunk' | 'resolveSessionEntities'> & {
+	ai: Pick<
+		AiProvider,
+		'analyzeSessionChunk' | 'validateSessionClaims' | 'resolveSessionEntities'
+	> & {
 		analysisModel: string
 	}
 	storage: IngestionStorage
@@ -559,21 +547,21 @@ export const sessionIngestionOperations = ({
 		) => Effect<VaultDocument, Failure>
 	}
 }) => {
-	const createMentionOccurrences = (
+	const createEntityReferenceOccurrences = (
 		claims: ValidatedClaim[],
 		documents: VaultDocument[]
-	): MentionOccurrence[] =>
+	): EntityReferenceOccurrence[] =>
 		claims.flatMap((claim) =>
-			claim.entityMentions.map((mention) => ({
+			claim.entityReferences.map((reference) => ({
 				referenceId: randomUUID(),
 				claim,
-				mention,
-				match: matchDocument(mention.mention, documents, mention.type)
+				reference,
+				match: matchDocument(reference.label, documents, reference.type)
 			}))
 		)
 
 	const resolveExactOccurrences = (
-		occurrences: MentionOccurrence[],
+		occurrences: EntityReferenceOccurrence[],
 		documents: VaultDocument[]
 	) => {
 		const resolutions = new Map<string, EntityResolution>()
@@ -584,7 +572,7 @@ export const sessionIngestionOperations = ({
 			if (!document?.currentRevisionId) continue
 			resolutions.set(occurrence.referenceId, {
 				kind: 'existing',
-				mention: occurrence.mention,
+				reference: occurrence.reference,
 				document: document as VaultDocument & { currentRevisionId: string },
 				method: 'deterministic'
 			})
@@ -593,29 +581,29 @@ export const sessionIngestionOperations = ({
 	}
 
 	const unresolvedOccurrences = (
-		occurrences: MentionOccurrence[],
+		occurrences: EntityReferenceOccurrence[],
 		resolutions: Map<string, EntityResolution>
 	) => occurrences.filter(({ referenceId }) => !resolutions.has(referenceId))
 
-	const provisionalSessionOccurrences = (occurrences: MentionOccurrence[]) =>
+	const provisionalSessionOccurrences = (occurrences: EntityReferenceOccurrence[]) =>
 		occurrences.filter(
 			(occurrence) =>
 				occurrence.match.kind === 'unresolved' &&
 				occurrence.match.candidates.length === 0 &&
-				canCreateEntityFromMention(occurrence.mention)
+				canCreateEntityFromReference(occurrence.reference)
 		)
 
-	const buildSessionCandidates = (provisional: MentionOccurrence[]) => {
+	const buildSessionCandidates = (provisional: EntityReferenceOccurrence[]) => {
 		const candidates = new Map<string, SessionEntityCandidate>()
 		const byReference = new Map<string, SessionEntityCandidate>()
 		for (const occurrence of provisional) {
 			const title = sessionCandidateTitle(occurrence, provisional)
 			if (!title) continue
-			const key = `${occurrence.mention.type}:${normalize(title)}`
+			const key = `${occurrence.reference.type}:${normalize(title)}`
 			const candidate = candidates.get(key) ?? {
 				targetId: `session:${key}`,
 				title,
-				type: occurrence.mention.type,
+				type: occurrence.reference.type,
 				contexts: []
 			}
 			candidate.contexts = uniqueStrings([
@@ -632,7 +620,7 @@ export const sessionIngestionOperations = ({
 	}
 
 	const applySessionCandidateResolutions = (
-		provisional: MentionOccurrence[],
+		provisional: EntityReferenceOccurrence[],
 		byReference: Map<string, SessionEntityCandidate>,
 		resolutions: Map<string, EntityResolution>
 	) => {
@@ -641,7 +629,7 @@ export const sessionIngestionOperations = ({
 			if (!candidate) continue
 			resolutions.set(occurrence.referenceId, {
 				kind: 'session',
-				mention: occurrence.mention,
+				reference: occurrence.reference,
 				candidate,
 				method: 'deterministic'
 			})
@@ -649,15 +637,15 @@ export const sessionIngestionOperations = ({
 	}
 
 	const existingResolutionCandidates = (
-		occurrence: MentionOccurrence,
+		occurrence: EntityReferenceOccurrence,
 		context: string,
 		documents: VaultDocument[]
 	): ResolutionCandidate[] =>
 		contextualCandidates(
-			occurrence.mention.mention,
+			occurrence.reference.label,
 			context,
 			documents,
-			occurrence.mention.type
+			occurrence.reference.type
 		).flatMap((candidate) => {
 			const document = documents.find(({ id }) => id === candidate.documentId)
 			return document
@@ -665,7 +653,7 @@ export const sessionIngestionOperations = ({
 						{
 							targetId: `document:${candidate.documentId}`,
 							title: candidate.title,
-							type: occurrence.mention.type,
+							type: occurrence.reference.type,
 							context: candidateContext(document),
 							candidate
 						}
@@ -674,11 +662,11 @@ export const sessionIngestionOperations = ({
 		})
 
 	const sessionResolutionCandidates = (
-		occurrence: MentionOccurrence,
+		occurrence: EntityReferenceOccurrence,
 		sessionCandidates: Map<string, SessionEntityCandidate>
 	): ResolutionCandidate[] =>
 		[...sessionCandidates.values()]
-			.filter(({ type }) => type === occurrence.mention.type)
+			.filter(({ type }) => type === occurrence.reference.type)
 			.map((candidate) => ({
 				targetId: candidate.targetId,
 				title: candidate.title,
@@ -688,7 +676,7 @@ export const sessionIngestionOperations = ({
 			}))
 
 	const buildModelResolutionRequests = (
-		occurrences: MentionOccurrence[],
+		occurrences: EntityReferenceOccurrence[],
 		resolutions: Map<string, EntityResolution>,
 		documents: VaultDocument[],
 		sessionCandidates: Map<string, SessionEntityCandidate>
@@ -713,8 +701,8 @@ export const sessionIngestionOperations = ({
 			{
 				references: requests.map(({ occurrence, context, candidates }) => ({
 					referenceId: occurrence.referenceId,
-					mention: occurrence.mention.mention,
-					type: occurrence.mention.type,
+					reference: occurrence.reference.label,
+					type: occurrence.reference.type,
 					evidence: context,
 					candidates: candidates.map(({ targetId, title, type, context: candidateText }) => ({
 						targetId,
@@ -748,7 +736,7 @@ export const sessionIngestionOperations = ({
 				if (!document?.currentRevisionId) continue
 				resolutions.set(request.occurrence.referenceId, {
 					kind: 'existing',
-					mention: request.occurrence.mention,
+					reference: request.occurrence.reference,
 					document: document as VaultDocument & { currentRevisionId: string },
 					method: 'model'
 				})
@@ -756,7 +744,7 @@ export const sessionIngestionOperations = ({
 			}
 			resolutions.set(request.occurrence.referenceId, {
 				kind: 'session',
-				mention: request.occurrence.mention,
+				reference: request.occurrence.reference,
 				candidate,
 				method: 'model'
 			})
@@ -774,16 +762,16 @@ export const sessionIngestionOperations = ({
 			)
 			resolutions.set(request.occurrence.referenceId, {
 				kind: 'unresolved',
-				mention: request.occurrence.mention,
+				reference: request.occurrence.reference,
 				match: { kind: 'unresolved', candidates },
-				canCreate: canCreateEntityFromMention(request.occurrence.mention)
+				canCreate: canCreateEntityFromReference(request.occurrence.reference)
 			})
 		}
 	}
 
 	const attachResolutionsToClaims = (
 		claims: ValidatedClaim[],
-		occurrences: MentionOccurrence[],
+		occurrences: EntityReferenceOccurrence[],
 		resolutions: Map<string, EntityResolution>
 	): ResolvedClaim[] =>
 		claims.map((claim) => ({
@@ -795,7 +783,7 @@ export const sessionIngestionOperations = ({
 		}))
 
 	const resolveClaims = (claims: ValidatedClaim[], documents: VaultDocument[]) => {
-		const occurrences = createMentionOccurrences(claims, documents)
+		const occurrences = createEntityReferenceOccurrences(claims, documents)
 		const resolutions = resolveExactOccurrences(occurrences, documents)
 		const provisional = provisionalSessionOccurrences(
 			unresolvedOccurrences(occurrences, resolutions)
@@ -829,12 +817,79 @@ export const sessionIngestionOperations = ({
 	}
 
 	const extractionSystem =
-		'Extract atomic campaign claims from the transcript. Claims describe evidence, not how Lore should be stored: do not invent document titles or choose destination documents. Every claim must quote an exact excerpt and its content must be directly supported by that excerpt. Mark interpretation as inferred and mere names as mentions. For entityMentions, include each distinct campaign entity referred to by the claim. The mention must be copied from the excerpt, use the shortest identifying name or phrase, and describe the entity type rather than the claim. Prefer an explicit name or alias when one appears. Relational phrases such as "Elias\' father" are allowed when that is how the source identifies the entity. Never turn a property or topic into an entity: for "Mara\'s age", mention "Mara", not "Mara\'s age". Do not invent, paraphrase, or combine evidence.'
+		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how Lore should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
 	const validationSystem =
-		'Independently verify candidate campaign claims against the transcript. Return only candidates whose content is strictly supported by the quoted evidence in context. Copy every accepted candidate exactly, including entityMentions; the only field you may change is certainty, and only from explicit to inferred. Never add or rewrite claims or entity mentions. Reject candidates that add unsupported motive, causality, chronology, identity, relationships, current state, or other details; that turn a character claim into objective truth; that remove material uncertainty or attribution; or whose evidence supports only a weaker or different statement.'
+		'Independently verify candidate campaign claims against their cited transcript evidence. Judge claim content separately from semantic entity-reference metadata. For each candidateId, accepted refers only to whether the cited evidence collectively supports the exact claim content. Reject the claim when its content itself adds unsupported motive, causality, chronology, identity, relationships, current state, attribution, or other details; turns a character claim into objective truth; or removes material uncertainty. In particular, if the claim content names a person or object where the cited evidence only contains an unresolved pronoun or abbreviation, reject the claim unless the cited ranges establish that identity. Separately return one decision for every supplied referenceId. Accept an entity reference only when the cited evidence establishes that the claim concerns that entity. An unsupported extra entity reference must not cause an otherwise supported claim to be rejected unless that same unsupported identity or detail is asserted in the claim content. Do not rewrite claims or entity references. For an accepted claim, keep certainty unchanged or downgrade explicit to inferred; never upgrade inferred to explicit. The surrounding numbered chunk may help interpret structure, but substantive support and identity grounding must come from the cited evidence.'
+
+	const numberedChunkContent = (chunk: TranscriptChunk) =>
+		chunk.content
+			.split(/\r?\n/)
+			.slice(0, chunk.endLine - chunk.startLine + 1)
+			.map((line, index) => `${chunk.startLine + index} | ${line}`)
+			.join('\n')
 
 	const transcriptChunkPrompt = (chunk: TranscriptChunk) =>
-		`## Transcript chunk ${chunk.chunkId}\nLines ${chunk.startLine}-${chunk.endLine}\n\n${chunk.content}`
+		`## Transcript chunk ${chunk.chunkId}\nLines ${chunk.startLine}-${chunk.endLine}\n\n${numberedChunkContent(chunk)}`
+
+	const evidenceRangesLabel = (claim: ExtractedSessionClaim) =>
+		claim.evidence.map(({ startLine, endLine }) => `${startLine}-${endLine}`).join(', ') || 'none'
+
+	const entityReferencesLabel = (claim: ExtractedSessionClaim) =>
+		claim.entityReferences.map(({ label }) => label).join(', ') || 'none'
+
+	const discardedClaimWarning = (
+		chunk: TranscriptChunk,
+		claimIndex: number,
+		claim: ExtractedSessionClaim,
+		reason: string,
+		evidence: Evidence[] = []
+	) => {
+		const details = {
+			chunkId: chunk.chunkId,
+			claim: claimIndex + 1,
+			reason,
+			content: claim.content,
+			evidenceRanges: claim.evidence,
+			evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
+				startLine,
+				endLine,
+				excerpt
+			})),
+			entityReferences: claim.entityReferences
+		}
+		if (process.env.NODE_ENV !== 'production') {
+			console.warn('[session-ingestion] discarded claim', details)
+		}
+		return `${chunk.chunkId} claim ${claimIndex + 1} discarded [${reason}] evidence=${evidenceRangesLabel(claim)} entities=${entityReferencesLabel(claim)} content=${JSON.stringify(claim.content)}`
+	}
+
+	const discardedEntityReferenceWarning = (
+		chunk: TranscriptChunk,
+		claimIndex: number,
+		claim: ExtractedSessionClaim,
+		reference: EntityReference,
+		referenceIndex: number,
+		reason: string,
+		evidence: Evidence[]
+	) => {
+		const details = {
+			chunkId: chunk.chunkId,
+			claim: claimIndex + 1,
+			reference: referenceIndex + 1,
+			reason,
+			content: claim.content,
+			entityReference: reference,
+			evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
+				startLine,
+				endLine,
+				excerpt
+			}))
+		}
+		if (process.env.NODE_ENV !== 'production') {
+			console.warn('[session-ingestion] discarded entity reference', details)
+		}
+		return `${chunk.chunkId} claim ${claimIndex + 1} entity reference ${referenceIndex + 1} discarded [${reason}] entity=${JSON.stringify(reference.label)} evidence=${evidenceRangesLabel(claim)} content=${JSON.stringify(claim.content)}`
+	}
 
 	const evidenceBackedClaims = (
 		transcript: string,
@@ -843,27 +898,17 @@ export const sessionIngestionOperations = ({
 	) => {
 		const backed: EvidenceBackedClaim[] = []
 		const warnings: string[] = []
-		for (const [claimIndex, originalClaim] of claims.entries()) {
-			const evidence = locateEvidence(transcript, chunk, originalClaim.excerpt)
-			if (!evidence) {
-				warnings.push(
-					`${chunk.chunkId} claim ${claimIndex + 1} was discarded because its evidence was absent or ambiguous.`
-				)
+		for (const [claimIndex, claim] of claims.entries()) {
+			const materialized = materializeEvidenceRanges(transcript, chunk, claim.evidence)
+			if (!materialized.ok) {
+				warnings.push(discardedClaimWarning(chunk, claimIndex, claim, materialized.reason))
 				continue
 			}
-			const validMentions = originalClaim.entityMentions.filter(({ mention }) =>
-				mentionIsInExcerpt(mention, evidence.excerpt)
-			)
-			const omittedCount = originalClaim.entityMentions.length - validMentions.length
-			if (omittedCount) {
-				warnings.push(
-					`${chunk.chunkId} claim ${claimIndex + 1} omitted ${omittedCount} entity mention${omittedCount === 1 ? '' : 's'} that ${omittedCount === 1 ? 'was' : 'were'} not present in its evidence.`
-				)
-			}
 			backed.push({
+				candidateId: `${chunk.chunkId}:claim-${claimIndex + 1}`,
 				claimIndex,
-				claim: { ...originalClaim, entityMentions: uniqueEntityMentions(validMentions) },
-				evidence
+				claim: { ...claim, entityReferences: uniqueEntityReferences(claim.entityReferences) },
+				evidence: materialized.evidence
 			})
 		}
 		return { claims: backed, warnings }
@@ -871,7 +916,21 @@ export const sessionIngestionOperations = ({
 
 	const validationPrompt = (chunk: TranscriptChunk, claims: EvidenceBackedClaim[]) =>
 		`${transcriptChunkPrompt(chunk)}\n\n## Candidate claims\n${JSON.stringify(
-			claims.map(({ claim }) => claim),
+			claims.map(({ candidateId, claim, evidence }) => ({
+				candidateId,
+				kind: claim.kind,
+				certainty: claim.certainty,
+				content: claim.content,
+				entityReferences: claim.entityReferences.map((reference, referenceIndex) => ({
+					referenceId: entityReferenceId(candidateId, referenceIndex),
+					...reference
+				})),
+				evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
+					startLine,
+					endLine,
+					excerpt
+				}))
+			})),
 			null,
 			2
 		)}`
@@ -879,27 +938,60 @@ export const sessionIngestionOperations = ({
 	const applyClaimValidation = (
 		chunk: TranscriptChunk,
 		backedClaims: EvidenceBackedClaim[],
-		validatedClaims: ExtractedSessionClaim[]
+		validations: SessionClaimValidation[]
 	) => {
-		const validatedCertaintyByKey = validationCertainties(validatedClaims)
+		const validationById = new Map(
+			validations.map((validation) => [validation.candidateId, validation])
+		)
 		const claims: ValidatedClaim[] = []
 		const warnings: string[] = []
-		for (const { claimIndex, claim, evidence } of backedClaims) {
-			const validationCertainty = validatedCertaintyByKey.get(validationClaimKey(claim))
-			if (!validationCertainty) {
+		for (const { candidateId, claimIndex, claim, evidence } of backedClaims) {
+			const validation = validationById.get(candidateId)
+			if (!validation?.accepted) {
 				warnings.push(
-					`${chunk.chunkId} claim ${claimIndex + 1} was discarded because model validation did not confirm it.`
+					discardedClaimWarning(
+						chunk,
+						claimIndex,
+						claim,
+						validation ? 'validator-rejected' : 'validator-missing-decision',
+						evidence
+					)
 				)
 				continue
 			}
+
+			const referenceValidationById = new Map(
+				validation.referenceValidations.map((decision) => [decision.referenceId, decision.accepted])
+			)
+			const entityReferences = claim.entityReferences.filter((reference, referenceIndex) => {
+				const accepted = referenceValidationById.get(entityReferenceId(candidateId, referenceIndex))
+				if (accepted) return true
+				warnings.push(
+					discardedEntityReferenceWarning(
+						chunk,
+						claimIndex,
+						claim,
+						reference,
+						referenceIndex,
+						accepted === false
+							? 'validator-rejected-reference'
+							: 'validator-missing-reference-decision',
+						evidence
+					)
+				)
+				return false
+			})
+
 			claims.push({
-				...claim,
+				kind: claim.kind,
+				content: claim.content,
+				entityReferences,
 				certainty:
-					claim.certainty === 'inferred' || validationCertainty === 'inferred'
+					claim.certainty === 'inferred' || validation.certainty === 'inferred'
 						? 'inferred'
 						: 'explicit',
 				claimId: randomUUID(),
-				evidence: [evidence]
+				evidence
 			})
 		}
 		return { claims, warnings }
@@ -913,14 +1005,15 @@ export const sessionIngestionOperations = ({
 				prompt: transcriptChunkPrompt(chunk)
 			})
 			const backed = evidenceBackedClaims(transcript, chunk, extracted)
-			if (!backed.claims.length)
+			if (!backed.claims.length) {
 				return { claims: [] as ValidatedClaim[], warnings: backed.warnings }
-			const validated = yield* ai.analyzeSessionChunk({
+			}
+			const validations = yield* ai.validateSessionClaims({
 				model: ai.analysisModel,
 				system: validationSystem,
 				prompt: validationPrompt(chunk, backed.claims)
 			})
-			const applied = applyClaimValidation(chunk, backed.claims, validated)
+			const applied = applyClaimValidation(chunk, backed.claims, validations)
 			return {
 				claims: applied.claims,
 				warnings: [...backed.warnings, ...applied.warnings]

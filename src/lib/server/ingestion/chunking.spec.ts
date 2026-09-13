@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { chunkTranscript } from './chunking'
-import { locateEvidence } from './evidence'
+import { materializeEvidenceRanges } from './evidence'
 
 describe('session transcript chunking and evidence', () => {
 	it('chunks on line boundaries with overlap and stable global positions', () => {
@@ -15,16 +15,47 @@ describe('session transcript chunking and evidence', () => {
 		)
 	})
 
-	it('accepts one exact quotation and rejects absent or repeated evidence', () => {
-		const transcript = 'GM: The bell rings.\nPlayer: I listen.\nGM: The bell rings.'
+	it('materializes exact source text from line ranges even when text repeats', () => {
+		const transcript = 'DM: Four.\nPlayer: What?\nDM: Four.'
 		const [chunk] = chunkTranscript(transcript)
-		const evidence = locateEvidence(transcript, chunk, 'Player: I listen.')
+		const result = materializeEvidenceRanges(transcript, chunk, [{ startLine: 3, endLine: 3 }])
 
-		expect(evidence).toMatchObject({ startLine: 2, endLine: 2 })
-		expect(transcript.slice(evidence!.startStringIndex, evidence!.endStringIndex)).toBe(
-			'Player: I listen.'
-		)
-		expect(locateEvidence(transcript, chunk, 'GM: The bell rings.')).toBeUndefined()
-		expect(locateEvidence(transcript, chunk, 'invented')).toBeUndefined()
+		expect(result).toEqual({
+			ok: true,
+			evidence: [expect.objectContaining({ excerpt: 'DM: Four.', startLine: 3, endLine: 3 })]
+		})
+	})
+
+	it('supports multiple evidence spans and rejects ranges outside the extraction window', () => {
+		const transcript =
+			'GM: Seraphine Vey.\nPlayer: Elias daughter?\nGM: Yes.\nGM: She died 29 years ago.'
+		const [chunk] = chunkTranscript(transcript)
+		const result = materializeEvidenceRanges(transcript, chunk, [
+			{ startLine: 1, endLine: 1 },
+			{ startLine: 2, endLine: 4 }
+		])
+
+		expect(result).toMatchObject({
+			ok: true,
+			evidence: [
+				{ excerpt: 'GM: Seraphine Vey.', startLine: 1, endLine: 1 },
+				{
+					excerpt: 'Player: Elias daughter?\nGM: Yes.\nGM: She died 29 years ago.',
+					startLine: 2,
+					endLine: 4
+				}
+			]
+		})
+		expect(materializeEvidenceRanges(transcript, chunk, [{ startLine: 0, endLine: 1 }])).toEqual({
+			ok: false,
+			reason: 'invalid-evidence-range'
+		})
+		expect(
+			materializeEvidenceRanges(
+				transcript,
+				chunk,
+				Array.from({ length: 9 }, () => ({ startLine: 1, endLine: 1 }))
+			)
+		).toEqual({ ok: false, reason: 'too-many-evidence-ranges' })
 	})
 })

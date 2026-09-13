@@ -11,9 +11,10 @@ import type {
 	GenerateText,
 	InferDocumentType,
 	ResolveSessionEntities,
+	ValidateSessionClaims,
 	StreamAssistant
 } from '../provider'
-import type { ExtractedSessionClaim } from '../../ingestion/types'
+import type { ExtractedSessionClaim, SessionClaimValidation } from '../../ingestion/types'
 
 export const mockAiModels = {
 	assistant: 'mock-assistant-v1',
@@ -160,29 +161,43 @@ const inferDocumentType: InferDocumentType = ({ path, title, content }) => {
 }
 
 const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
-	const candidateMarker = '\n\n## Candidate claims\n'
-	if (prompt.includes(candidateMarker)) {
-		return succeed(
-			JSON.parse(prompt.split(candidateMarker).at(-1) ?? '[]') as ExtractedSessionClaim[]
-		)
-	}
-
-	const content = prompt.split(/^## Transcript chunk.*\nLines .*\n\n/m).at(-1) ?? ''
-	const excerpt = content
+	const numberedLine = prompt
 		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.find(Boolean)
-	if (!excerpt) return succeed([])
+		.map((line) => line.match(/^(\d+) \| (.*)$/))
+		.find((match): match is RegExpMatchArray => Boolean(match?.[2]?.trim()))
+	if (!numberedLine) return succeed([])
 
+	const line = Number(numberedLine[1])
+	const content = numberedLine[2]!.trim()
 	return succeed([
 		{
-			excerpt,
 			kind: 'development',
 			certainty: 'explicit',
-			content: excerpt,
-			entityMentions: []
+			content,
+			evidence: [{ startLine: line, endLine: line }],
+			entityReferences: []
 		}
 	])
+}
+
+const validateSessionClaims: ValidateSessionClaims = ({ prompt }) => {
+	const marker = '\n\n## Candidate claims\n'
+	const candidates = JSON.parse(prompt.split(marker).at(-1) ?? '[]') as {
+		candidateId: string
+		certainty: SessionClaimValidation['certainty']
+		entityReferences: { referenceId: string }[]
+	}[]
+	return succeed(
+		candidates.map(({ candidateId, certainty, entityReferences }) => ({
+			candidateId,
+			accepted: true,
+			certainty,
+			referenceValidations: entityReferences.map(({ referenceId }) => ({
+				referenceId,
+				accepted: true
+			}))
+		}))
+	)
 }
 
 const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
@@ -201,6 +216,7 @@ const generateRelationshipLinks: GenerateRelationshipLinks = () => succeed([])
 
 export const mockAiProvider: AiProvider = {
 	analyzeSessionChunk,
+	validateSessionClaims,
 	resolveSessionEntities,
 	generateRelationshipLinks,
 	models: mockAiModels,

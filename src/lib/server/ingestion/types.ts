@@ -13,17 +13,34 @@ export type IngestionDocumentType = (typeof ingestionDocumentTypes)[number]
 
 export type SessionClaimKind = 'stable-fact' | 'development' | 'mention'
 
-export type EntityMention = {
-	mention: string
+export type EvidenceRange = {
+	startLine: number
+	endLine: number
+}
+
+export type EntityReference = {
+	label: string
 	type: IngestionDocumentType
 }
 
 export type ExtractedSessionClaim = {
-	excerpt: string
 	kind: SessionClaimKind
 	certainty: 'explicit' | 'inferred'
 	content: string
-	entityMentions: EntityMention[]
+	evidence: EvidenceRange[]
+	entityReferences: EntityReference[]
+}
+
+export type SessionEntityReferenceValidation = {
+	referenceId: string
+	accepted: boolean
+}
+
+export type SessionClaimValidation = {
+	candidateId: string
+	accepted: boolean
+	certainty: 'explicit' | 'inferred'
+	referenceValidations: SessionEntityReferenceValidation[]
 }
 
 export type SessionEntityResolution = {

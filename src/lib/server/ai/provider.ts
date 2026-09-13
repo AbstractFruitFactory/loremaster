@@ -2,7 +2,11 @@ import type { Effect } from 'effect/Effect'
 import type { DocumentType } from '../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant/types'
 import type { Failure } from '../failure'
-import type { ExtractedSessionClaim, SessionEntityResolution } from '../ingestion/types'
+import type {
+	ExtractedSessionClaim,
+	SessionClaimValidation,
+	SessionEntityResolution
+} from '../ingestion/types'
 import type { RelationshipLink } from '../vault/types'
 
 export const EMBEDDING_DIMENSIONS = 1536
@@ -40,6 +44,10 @@ export type AnalyzeSessionChunk = (
 	input: AiPrompt & { model: string }
 ) => Effect<ExtractedSessionClaim[], Failure<'ai', 'analyzeSessionChunk'>>
 
+export type ValidateSessionClaims = (
+	input: AiPrompt & { model: string }
+) => Effect<SessionClaimValidation[], Failure<'ai', 'validateSessionClaims'>>
+
 export type ResolveSessionEntities = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
@@ -66,6 +74,7 @@ export type AiProvider = {
 	embedTexts: EmbedTexts
 	inferDocumentType: InferDocumentType
 	analyzeSessionChunk: AnalyzeSessionChunk
+	validateSessionClaims: ValidateSessionClaims
 	resolveSessionEntities: ResolveSessionEntities
 	generateRelationshipLinks: GenerateRelationshipLinks
 }
