@@ -46,6 +46,7 @@ const sessionClaimsSchema = z.object({
 	claims: z.array(
 		z.object({
 			kind: z.enum(['stable-fact', 'development', 'mention']),
+			eventTitle: z.string().trim().min(1).nullable(),
 			certainty: z.enum(['explicit', 'inferred']),
 			content: z.string().trim().min(1),
 			evidence: z.array(evidenceRangeSchema).min(1).max(MAX_EVIDENCE_RANGES),
@@ -78,7 +79,7 @@ const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
 	description:
-		'Record atomic campaign claims with supporting transcript line ranges and semantic entity references.',
+		'Record atomic campaign claims with supporting transcript line ranges, semantic entity references, and concise factual titles for developments.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -89,6 +90,7 @@ const sessionClaimsTool = {
 					type: 'object',
 					properties: {
 						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
+						eventTitle: { type: ['string', 'null'] },
 						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
 						content: { type: 'string' },
 						evidence: {
@@ -99,7 +101,7 @@ const sessionClaimsTool = {
 						},
 						entityReferences: { type: 'array', items: entityReferenceJsonSchema }
 					},
-					required: ['kind', 'certainty', 'content', 'evidence', 'entityReferences'],
+					required: ['kind', 'eventTitle', 'certainty', 'content', 'evidence', 'entityReferences'],
 					additionalProperties: false
 				}
 			}

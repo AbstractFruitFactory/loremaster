@@ -389,6 +389,7 @@ describe('session ingestion operations', () => {
 			[
 				claim('Mara hired the party to recover the lockbox.', {
 					kind: 'development',
+					eventTitle: 'Mara hires party for lockbox',
 					entityReferences: [{ label: 'Mara', type: 'npc' }]
 				})
 			],
@@ -402,7 +403,8 @@ describe('session ingestion operations', () => {
 		expect(event).toMatchObject({
 			operation: 'create-event',
 			documentType: 'event',
-			title: 'Mara hired the party to recover the lockbox',
+			title: 'Mara hires party for lockbox',
+			content: 'Mara hired the party to recover the lockbox.',
 			selected: true
 		})
 	})

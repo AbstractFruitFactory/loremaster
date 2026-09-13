@@ -228,10 +228,16 @@ const sessionCandidateTitle = (
 const candidateContext = (document: VaultDocument) =>
 	[document.summary, document.content].filter(Boolean).join('\n').slice(0, 1_600)
 
-const eventTitle = (content: string) => {
+const fallbackEventTitle = (content: string) => {
 	const firstLine = content.trim().split(/\r?\n/, 1)[0] ?? 'Session event'
-	const withoutPunctuation = firstLine.replace(/[.!?]+$/u, '').trim()
-	return withoutPunctuation.slice(0, 90) || 'Session event'
+	const value = firstLine.replace(/[.!?]+$/u, '').trim()
+	return value.length > 60 ? `${value.slice(0, 57).trimEnd()}…` : value || 'Session event'
+}
+
+const eventTitle = (claim: Pick<ExtractedSessionClaim, 'content' | 'eventTitle'>) => {
+	const proposed = claim.eventTitle?.trim().replace(/\s+/gu, ' ')
+	if (!proposed) return fallbackEventTitle(claim.content)
+	return proposed.length > 60 ? `${proposed.slice(0, 57).trimEnd()}…` : proposed
 }
 
 const recordTitle = (content: string) => {
@@ -300,7 +306,7 @@ const developmentProposal = (
 	claimIds: [claim.claimId],
 	operation: 'create-event',
 	documentType: 'event',
-	title: eventTitle(claim.content),
+	title: eventTitle(claim),
 	certainty: claim.certainty,
 	selected: claim.certainty === 'explicit',
 	evidence: claim.evidence,
@@ -821,7 +827,7 @@ export const sessionIngestion = ({
 	}
 
 	const extractionSystem =
-		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how Lore should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
+		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how Lore should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. For every development claim, set eventTitle to a concise factual label suitable for a timeline or list: usually 3-8 words and under 60 characters. The title must summarize only the claim content and must not introduce new identity, motive, causality, chronology, or interpretation. Prefer plain labels such as "Empty Bell cracks", "Talven\'s body discovered", or "Saltwater draft in Weaver\'s Cut" rather than full sentences or dramatic prose. For stable-fact and mention claims, set eventTitle to null. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
 	const validationSystem =
 		'Independently verify candidate campaign claims against their cited transcript evidence. Judge claim content separately from semantic entity-reference metadata. For each candidateId, accepted refers only to whether the cited evidence collectively supports the exact claim content. Always return a reason. Use supported only when accepted is true. When rejected, use insufficient-evidence only when the exact existing claim appears supportable from other lines in the supplied transcript chunk and could be grounded by replacing or expanding the cited ranges without rewriting the claim. Use contradicted-by-evidence when the source contradicts the claim, unsupported-inference when the chunk does not establish the asserted identity, motive, causality, chronology, relationship, or other detail, and lost-attribution when the claim turns testimony, belief, rumor, a written statement, or uncertainty into objective truth. Reject the claim when its content itself adds unsupported motive, causality, chronology, identity, relationships, current state, attribution, or other details; turns a character claim into objective truth; or removes material uncertainty. In particular, if the claim content names a person or object where the cited evidence only contains an unresolved pronoun or abbreviation, classify it as insufficient-evidence only if other lines in this supplied chunk establish that identity; otherwise classify it as unsupported-inference. Separately return one decision for every supplied referenceId. Accept an entity reference only when the cited evidence establishes that the claim concerns that entity. An unsupported extra entity reference must not cause an otherwise supported claim to be rejected unless that same unsupported identity or detail is asserted in the claim content. Do not rewrite claims or entity references. For an accepted claim, keep certainty unchanged or downgrade explicit to inferred; never upgrade inferred to explicit. The surrounding numbered chunk may be used to decide whether missing context exists and therefore whether insufficient-evidence is the right rejection reason, but substantive support for an accepted claim must come from the cited evidence.'
 	const evidenceRepairSystem =
@@ -1020,6 +1026,7 @@ export const sessionIngestion = ({
 
 			claims.push({
 				kind: claim.kind,
+				eventTitle: claim.eventTitle,
 				content: claim.content,
 				entityReferences,
 				certainty:

@@ -25,6 +25,7 @@ export type EntityReference = {
 
 export type ExtractedSessionClaim = {
 	kind: SessionClaimKind
+	eventTitle?: string | null
 	certainty: 'explicit' | 'inferred'
 	content: string
 	evidence: EvidenceRange[]
