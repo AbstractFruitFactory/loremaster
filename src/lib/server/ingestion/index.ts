@@ -228,16 +228,9 @@ const sessionCandidateTitle = (
 const candidateContext = (document: VaultDocument) =>
 	[document.summary, document.content].filter(Boolean).join('\n').slice(0, 1_600)
 
-const fallbackEventTitle = (content: string) => {
-	const firstLine = content.trim().split(/\r?\n/, 1)[0] ?? 'Session event'
-	const value = firstLine.replace(/[.!?]+$/u, '').trim()
-	return value.length > 60 ? `${value.slice(0, 57).trimEnd()}…` : value || 'Session event'
-}
-
-const eventTitle = (claim: Pick<ExtractedSessionClaim, 'content' | 'eventTitle'>) => {
-	const proposed = claim.eventTitle?.trim().replace(/\s+/gu, ' ')
-	if (!proposed) return fallbackEventTitle(claim.content)
-	return proposed.length > 60 ? `${proposed.slice(0, 57).trimEnd()}…` : proposed
+const eventTitle = ({ eventTitle }: Pick<ExtractedSessionClaim, 'eventTitle'>) => {
+	if (!eventTitle) throw new Error('Development claim is missing an event title')
+	return eventTitle
 }
 
 const recordTitle = (content: string) => {

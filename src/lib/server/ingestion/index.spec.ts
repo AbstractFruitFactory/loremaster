@@ -67,6 +67,7 @@ const claim = (
 	overrides: Partial<ExtractedSessionClaim> = {}
 ): ExtractedSessionClaim => ({
 	kind: 'stable-fact',
+	eventTitle: null,
 	certainty: 'explicit',
 	content,
 	evidence: [{ startLine: 1, endLine: 1 }],

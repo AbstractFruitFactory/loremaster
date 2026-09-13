@@ -11,6 +11,7 @@ import type { ExtractedSessionClaim, SessionIngestionDraft } from './types'
 
 const extractedClaim: ExtractedSessionClaim = {
 	kind: 'stable-fact',
+	eventTitle: null,
 	certainty: 'explicit',
 	content: 'Mara opened the gate.',
 	evidence: [{ startLine: 1, endLine: 1 }],
@@ -90,6 +91,7 @@ describe('session claim validation', () => {
 	it('repairs insufficient evidence once and revalidates the unchanged claim', async () => {
 		const claim: ExtractedSessionClaim = {
 			kind: 'stable-fact',
+			eventTitle: null,
 			certainty: 'explicit',
 			content: 'Ilyra Vey says the black key opens the Lower Gate.',
 			evidence: [{ startLine: 2, endLine: 2 }],
@@ -245,6 +247,7 @@ describe('session claim validation', () => {
 		}
 		const claim: ExtractedSessionClaim = {
 			kind: 'stable-fact',
+			eventTitle: null,
 			certainty: 'explicit',
 			content: 'Ilyra says the black key opens the Lower Gate.',
 			evidence: [{ startLine: 1, endLine: 2 }],
@@ -266,6 +269,7 @@ describe('session claim validation', () => {
 	it('keeps a supported claim while discarding an unsupported semantic entity reference', async () => {
 		const claim: ExtractedSessionClaim = {
 			kind: 'stable-fact',
+			eventTitle: null,
 			certainty: 'explicit',
 			content: 'The ledger says E. Vey retained the bell mechanism.',
 			evidence: [{ startLine: 1, endLine: 1 }],

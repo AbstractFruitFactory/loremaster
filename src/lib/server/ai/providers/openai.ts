@@ -46,7 +46,7 @@ const sessionClaimsSchema = z.object({
 	claims: z.array(
 		z.object({
 			kind: z.enum(['stable-fact', 'development', 'mention']),
-			eventTitle: z.string().trim().min(1).nullable(),
+			eventTitle: z.string().trim().min(1).max(60).nullable(),
 			certainty: z.enum(['explicit', 'inferred']),
 			content: z.string().trim().min(1),
 			evidence: z.array(evidenceRangeSchema).min(1).max(MAX_EVIDENCE_RANGES),
@@ -90,7 +90,7 @@ const sessionClaimsTool = {
 					type: 'object',
 					properties: {
 						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
-						eventTitle: { type: ['string', 'null'] },
+						eventTitle: { type: ['string', 'null'], minLength: 1, maxLength: 60 },
 						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
 						content: { type: 'string' },
 						evidence: {

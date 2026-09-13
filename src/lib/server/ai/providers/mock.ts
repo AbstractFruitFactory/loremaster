@@ -173,6 +173,7 @@ const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {
 	return succeed([
 		{
 			kind: 'development',
+			eventTitle: 'Mock session development',
 			certainty: 'explicit',
 			content,
 			evidence: [{ startLine: line, endLine: line }],
