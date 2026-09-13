@@ -1,0 +1,35 @@
+name: Embercourt ad hoc stress test
+
+on:
+  push:
+    branches:
+      - ad-hoc-stress-test
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ad-hoc-stress-test
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm exec tsc --noEmit --pretty false
+      - name: Run ad hoc test
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -o pipefail
+          pnpm exec vite-node --config scripts/vite.config.ts scripts/run-embercourt-ad-hoc.ts | tee embercourt-ad-hoc.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: embercourt-ad-hoc-result
+          path: embercourt-ad-hoc.log
