@@ -1,7 +1,7 @@
 import { map } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import type { DocumentType } from '../../document'
-import type { vaultOperations } from '../vault/operations'
+import type { vault as createVault } from '../vault'
 import type { VaultDocument, VaultDocumentSummary } from '../vault/types'
 import type { LoreEntry, LoreSummary } from './types'
 
@@ -36,9 +36,9 @@ const toLoreEntry = (document: VaultDocument): LoreEntry => ({
 	links: document.links
 })
 
-export const loreOperations = ({ vault }: {
+export const lore = ({ vault }: {
 	vault: Pick<
-		ReturnType<typeof vaultOperations>,
+		ReturnType<typeof createVault>,
 		'createDocument' | 'getDocument' | 'listDocuments'
 	>
 }) => {

@@ -1,8 +1,8 @@
 import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import type { vaultOperations } from '../vault/operations'
+import type { vault as createVault } from '../vault'
 import type { VaultDocument } from '../vault/types'
-import { loreOperations } from './operations'
+import { lore as createLore } from '.'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
 const document: VaultDocument = {
@@ -17,7 +17,7 @@ const document: VaultDocument = {
 }
 
 type LoreVault = Pick<
-	ReturnType<typeof vaultOperations>,
+	ReturnType<typeof createVault>,
 	'createDocument' | 'getDocument' | 'listDocuments'
 >
 
@@ -29,7 +29,7 @@ describe('lore operations', () => {
 			getDocument: () => succeed(document),
 			listDocuments: () => succeed([])
 		}
-		const lore = loreOperations({ vault })
+		const lore = createLore({ vault })
 
 		const created = await runPromise(
 			lore.createLore(campaignId, {

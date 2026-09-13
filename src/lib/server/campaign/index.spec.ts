@@ -2,7 +2,7 @@ import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { GenerateText } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
-import { campaignOperations } from './operations'
+import { campaign as createCampaign } from '.'
 import type { Campaign } from './types'
 
 const campaign: Campaign = {
@@ -21,7 +21,7 @@ describe('campaign operations', () => {
 			getById: vi.fn(() => succeed(campaign)),
 			list: vi.fn()
 		} as typeof CampaignDb
-		const operations = campaignOperations({
+		const operations = createCampaign({
 			ai: { generateText, model: summaryModel },
 			db
 		})

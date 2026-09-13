@@ -496,7 +496,7 @@ const mergeProposals = (proposals: SessionProposal[]) => {
 	return [...grouped.values()]
 }
 
-export const sessionIngestionOperations = ({
+export const sessionIngestion = ({
 	ai,
 	storage,
 	vault

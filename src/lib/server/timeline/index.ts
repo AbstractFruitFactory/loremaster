@@ -55,7 +55,7 @@ const resolveTimelineEdges = (
 	return succeed(edges)
 }
 
-export const timelineOperations = ({
+export const timeline = ({
 	db
 }: {
 	db: {

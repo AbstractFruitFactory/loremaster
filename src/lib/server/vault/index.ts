@@ -5,14 +5,14 @@ import type { AiProvider } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
 import { fail, type Failure } from '../failure'
-import type { timelineOperations } from '../timeline/operations'
+import type { timeline as createTimeline } from '../timeline'
 import {
 	parseVaultDocument,
 	serializeVaultDocument,
 	updateDocumentFrontmatter,
 	updateVaultDocumentSource
 } from './markdown'
-import type { vaultRevisionOperations } from './revisions/operations'
+import type { vaultRevision } from './revisions'
 import type { RevisionSource } from './revisions/types'
 import {
 	canHaveRelationshipLinks,
@@ -71,7 +71,7 @@ const checkDuplicateIds = (campaignId: string, documents: VaultDocument[]) => {
 		: succeed(documents)
 }
 
-export const vaultOperations = ({
+export const vault = ({
 	ai,
 	db,
 	contextIndex,
@@ -100,9 +100,9 @@ export const vaultOperations = ({
 		indexDocument: (campaignId: string, document: VaultDocument) => Effect<void, Failure>
 		reindexCampaign: (campaignId: string, documents: VaultDocument[]) => Effect<void, Failure>
 	}
-	revisions: ReturnType<typeof vaultRevisionOperations>
+	revisions: ReturnType<typeof vaultRevision>
 	storage: VaultStorage
-	timeline: Pick<ReturnType<typeof timelineOperations>, 'validateDocuments'>
+	timeline: Pick<ReturnType<typeof createTimeline>, 'validateDocuments'>
 }) => {
 	type RevisionContext = {
 		source?: RevisionSource

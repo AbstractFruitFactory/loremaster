@@ -10,7 +10,7 @@ type CampaignDependencies = {
 	db: typeof CampaignDb
 }
 
-export const campaignOperations = ({ ai, db }: CampaignDependencies) => {
+export const campaign = ({ ai, db }: CampaignDependencies) => {
 	const getCampaign = (id: string) =>
 		pipe(
 			db.getById(id),

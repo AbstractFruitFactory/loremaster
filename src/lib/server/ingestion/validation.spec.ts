@@ -2,7 +2,7 @@ import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { AnalyzeSessionChunk, ValidateSessionClaims } from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
-import { sessionIngestionOperations } from './operations'
+import { sessionIngestion } from '.'
 import type { ExtractedSessionClaim, SessionIngestionDraft } from './types'
 
 const extractedClaim: ExtractedSessionClaim = {
@@ -36,8 +36,8 @@ const operationsWith = (
 	analyzeSessionChunk: AnalyzeSessionChunk,
 	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
 	documents: VaultDocument[] = []
-): ReturnType<typeof sessionIngestionOperations> =>
-	sessionIngestionOperations({
+): ReturnType<typeof sessionIngestion> =>
+	sessionIngestion({
 		ai: {
 			analysisModel: 'analysis-model',
 			analyzeSessionChunk,
@@ -56,7 +56,7 @@ const operationsWith = (
 		}
 	})
 
-const analyze = (operations: ReturnType<typeof sessionIngestionOperations>, transcript: string) =>
+const analyze = (operations: ReturnType<typeof sessionIngestion>, transcript: string) =>
 	runPromise(operations.analyze({ campaignId: 'campaign', title: 'Session 1', transcript }))
 
 describe('session claim validation', () => {

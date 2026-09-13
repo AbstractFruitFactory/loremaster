@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LexicalFragmentMatch } from '../db/context'
 import type { LinkedDocument, RelationshipLinkedDocument } from '../db/vault'
 import type { TimelineContext } from '../timeline/types'
-import { contextOperations } from './operations'
+import { context } from '.'
 import type { ContextSource, SemanticSearchResult } from './types'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
@@ -79,7 +79,7 @@ const createContext = ({
 		getContext: vi.fn(() => succeed(timelineContext))
 	}
 
-	return { ai, context: contextOperations({ ai, db, timeline }), db, timeline }
+	return { ai, context: context({ ai, db, timeline }), db, timeline }
 }
 
 describe('context operations', () => {

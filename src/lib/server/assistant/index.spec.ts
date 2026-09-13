@@ -2,7 +2,7 @@ import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { GenerateAssistant, StreamAssistant } from '../ai/provider'
 import type { ContextItem } from '../context/types'
-import { assistantOperations } from './operations'
+import { assistant as createAssistant } from '.'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
 const assistantModel = 'mock-assistant-v1'
@@ -33,7 +33,7 @@ describe('assistant operations', () => {
 		const generateAssistant = vi.fn(() =>
 			succeed({ message: 'Varek watches the western gate.' })
 		) as GenerateAssistant
-		const assistant = assistantOperations({
+		const assistant = createAssistant({
 			ai: {
 				generateAssistant,
 				streamAssistant: unusedStreamAssistant,
@@ -81,7 +81,7 @@ describe('assistant operations', () => {
 				}
 			})
 		) as GenerateAssistant
-		const assistant = assistantOperations({
+		const assistant = createAssistant({
 			ai: {
 				generateAssistant,
 				streamAssistant: unusedStreamAssistant,
@@ -121,7 +121,7 @@ describe('assistant operations', () => {
 			})
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Event B came first.' }))
-		const assistant = assistantOperations({
+		const assistant = createAssistant({
 			ai: {
 				generateAssistant,
 				streamAssistant: unusedStreamAssistant,
@@ -154,7 +154,7 @@ describe('assistant operations', () => {
 				})()
 			)
 		) as StreamAssistant
-		const assistant = assistantOperations({
+		const assistant = createAssistant({
 			ai: { generateAssistant, streamAssistant, model: assistantModel },
 			context: { buildAssistantContext }
 		})
@@ -183,7 +183,7 @@ describe('assistant operations', () => {
 			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
-		const assistant = assistantOperations({
+		const assistant = createAssistant({
 			ai: {
 				generateAssistant,
 				streamAssistant: unusedStreamAssistant,

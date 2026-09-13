@@ -6,7 +6,7 @@ import type { CachedEmbedding } from '../../db/context'
 import type { VaultDocument } from '../../vault/types'
 import { parseVaultDocument, serializeVaultDocument } from '../../vault/markdown'
 import type { ContextSource, SemanticVectorRecord } from '../types'
-import { contextIndexOperations } from './operations'
+import { contextIndex } from '.'
 
 const campaignId = '17ea64a7-98e4-40de-ae5f-b8e35688e157'
 const embeddingModel = 'mock-token-hash-v1'
@@ -69,7 +69,7 @@ const createIndex = (embedTexts: EmbedTexts = vi.fn(mockAiProvider.embedTexts)) 
 	return {
 		db,
 		embedTexts,
-		index: contextIndexOperations({
+		index: contextIndex({
 			ai: { embedTexts, model: embeddingModel },
 			db
 		})

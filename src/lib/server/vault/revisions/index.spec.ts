@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { filesystemVaultStorage } from '../storage/filesystem'
-import { sourceHash, vaultRevisionOperations } from './operations'
+import { sourceHash, vaultRevision } from '.'
 import { filesystemRevisionStorage } from './storage'
 import type { RevisionHead, VaultRevision } from './types'
 
@@ -18,7 +18,7 @@ describe('vault revision operations', () => {
 	let indexed: VaultRevision[]
 	let storage: ReturnType<typeof filesystemRevisionStorage>
 	let vault: ReturnType<typeof filesystemVaultStorage>
-	let operations: ReturnType<typeof vaultRevisionOperations>
+	let operations: ReturnType<typeof vaultRevision>
 
 	beforeEach(async () => {
 		root = await mkdtemp(join(tmpdir(), 'loremaster-revisions-'))
@@ -26,7 +26,7 @@ describe('vault revision operations', () => {
 		indexed = []
 		storage = filesystemRevisionStorage(root)
 		vault = filesystemVaultStorage(root)
-		operations = vaultRevisionOperations({
+		operations = vaultRevision({
 			db: {
 				getRevisionHead: (_campaignId, id) => succeed(heads.get(id)),
 				indexRevision: (revision) => {

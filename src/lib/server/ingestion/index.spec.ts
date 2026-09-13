@@ -6,7 +6,7 @@ import type {
 	ValidateSessionClaims
 } from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
-import { sessionIngestionOperations } from './operations'
+import { sessionIngestion } from '.'
 import type {
 	ExtractedSessionClaim,
 	SessionIngestionDraft,
@@ -131,7 +131,7 @@ const setup = (
 			currentRevisionId: `updated-${documentId}`
 		})
 	)
-	const operations = sessionIngestionOperations({
+	const operations = sessionIngestion({
 		ai: {
 			analysisModel: 'analysis-model',
 			analyzeSessionChunk: validatingAnalyzer(claims),

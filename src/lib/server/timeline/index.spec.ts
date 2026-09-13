@@ -1,7 +1,7 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../vault/types'
-import { timelineOperations } from './operations'
+import { timeline } from '.'
 import type { TimelineEdge } from './types'
 
 const event = (id: string, after: string[] = []): VaultDocument => ({
@@ -41,7 +41,7 @@ const createTimeline = () => {
 		)
 	}
 
-	return { db, timeline: timelineOperations({ db }) }
+	return { db, timeline: timeline({ db }) }
 }
 
 describe('timeline operations', () => {

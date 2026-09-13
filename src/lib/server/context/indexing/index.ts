@@ -77,7 +77,7 @@ const createVectorRecords = (
 	return succeed(records)
 }
 
-export const contextIndexOperations = ({ ai, db }: ContextIndexDependencies) => {
+export const contextIndex = ({ ai, db }: ContextIndexDependencies) => {
 	const embedAndCacheContent = (
 		contentToEmbed: ContentRecord[]
 	): Effect<EmbeddingRecord[], Failure> => {

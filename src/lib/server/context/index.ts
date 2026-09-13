@@ -5,7 +5,7 @@ import type * as ContextDb from '../db/context'
 import type * as VaultDb from '../db/vault'
 import type * as VectorDb from '../db/vector'
 import type { Failure } from '../failure'
-import type { timelineOperations } from '../timeline/operations'
+import type { timeline as createTimeline } from '../timeline'
 import type { TimelineContext } from '../timeline/types'
 import { DEFAULT_CONTEXT_TOKEN_BUDGET, selectWithinBudget } from './budget'
 import { mentionCandidates } from './mentions'
@@ -53,7 +53,7 @@ const estimateTimelineTokens = ({ events, edges }: TimelineContext) =>
 			4
 	)
 
-type ContextOperationsDependencies = {
+type ContextDependencies = {
 	ai: AiModel<'embedTexts'>
 	db: {
 		getFragmentsByIds: typeof ContextDb.getFragmentsByIds
@@ -66,7 +66,7 @@ type ContextOperationsDependencies = {
 		searchLexicalFragments: typeof ContextDb.searchLexicalFragments
 		searchVectors: typeof VectorDb.searchVectors
 	}
-	timeline: Pick<ReturnType<typeof timelineOperations>, 'getContext'>
+	timeline: Pick<ReturnType<typeof createTimeline>, 'getContext'>
 	maxTokens?: number
 }
 
@@ -86,12 +86,12 @@ const selectGraphSeedDocumentIds = (
 	])
 ]
 
-export const contextOperations = ({
+export const context = ({
 	ai,
 	db,
 	timeline,
 	maxTokens = DEFAULT_CONTEXT_TOKEN_BUDGET
-}: ContextOperationsDependencies) => {
+}: ContextDependencies) => {
 	const findDirectMentions = (campaignId: string, message: string) =>
 		gen(function* () {
 			const documentIds = yield* db.findDocumentIdsByNames(campaignId, mentionCandidates(message))

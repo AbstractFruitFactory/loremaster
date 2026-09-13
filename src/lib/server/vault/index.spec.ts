@@ -6,17 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockedFunction } 
 import type { GenerateRelationshipLinks, GenerateText, InferDocumentType } from '../ai/provider'
 import { mockAiProvider } from '../ai/providers/mock'
 import type { Campaign } from '../campaign/types'
-import { timelineOperations } from '../timeline/operations'
+import { timeline } from '../timeline'
 import { parseVaultDocument } from './markdown'
-import { vaultOperations } from './operations'
-import { vaultRevisionOperations } from './revisions/operations'
+import { vault } from '.'
+import { vaultRevision } from './revisions'
 import { filesystemRevisionStorage } from './revisions/storage'
 import type { RevisionHead, VaultRevision } from './revisions/types'
 import { filesystemVaultStorage } from './storage/filesystem'
 import type { RelationshipLink, VaultDocumentIndex } from './types'
 
-type VaultDatabase = Parameters<typeof vaultOperations>[0]['db']
-type ContextIndex = Parameters<typeof vaultOperations>[0]['contextIndex']
+type VaultDatabase = Parameters<typeof vault>[0]['db']
+type ContextIndex = Parameters<typeof vault>[0]['contextIndex']
 
 const campaign: Campaign = {
 	id: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
@@ -32,7 +32,7 @@ describe('vault operations', () => {
 	let root: string
 	let backlinks: Map<string, string[]>
 	let indexedDocuments: Map<string, VaultDocumentIndex>
-	let operations: ReturnType<typeof vaultOperations>
+	let operations: ReturnType<typeof vault>
 	let outgoingLinks: Map<string, string[]>
 	let relationshipLinks: Map<string, RelationshipLink[]>
 	let contextIndex: ContextIndex
@@ -94,7 +94,7 @@ describe('vault operations', () => {
 			}
 		}
 
-		const revisions = vaultRevisionOperations({
+		const revisions = vaultRevision({
 			db: {
 				getRevisionHead: (_campaignId, documentId) => succeed(revisionHeads.get(documentId)),
 				indexRevision: (revision) => {
@@ -129,7 +129,7 @@ describe('vault operations', () => {
 			vault: storage
 		})
 
-		operations = vaultOperations({
+		operations = vault({
 			ai: {
 				inferDocumentType,
 				generateText,
@@ -142,7 +142,7 @@ describe('vault operations', () => {
 			contextIndex,
 			revisions,
 			storage,
-			timeline: timelineOperations({
+			timeline: timeline({
 				db: {
 					getTimelineEdges: () => succeed([]),
 					getTimelineEdgesForDocuments: () => succeed([]),

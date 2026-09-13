@@ -104,7 +104,7 @@ const lineDiff = (before: string, after: string): RevisionDiff => {
 	}
 }
 
-export const vaultRevisionOperations = ({
+export const vaultRevision = ({
 	db,
 	revisions,
 	vault
