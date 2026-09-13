@@ -1,6 +1,10 @@
 import { runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import type { AnalyzeSessionChunk, ValidateSessionClaims } from '../ai/provider'
+import type {
+	AnalyzeSessionChunk,
+	RepairSessionClaimEvidence,
+	ValidateSessionClaims
+} from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
 import { sessionIngestion } from '.'
 import type { ExtractedSessionClaim, SessionIngestionDraft } from './types'
@@ -35,13 +39,15 @@ const acceptingValidator: ValidateSessionClaims = ({ prompt }) => {
 const operationsWith = (
 	analyzeSessionChunk: AnalyzeSessionChunk,
 	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
-	documents: VaultDocument[] = []
+	documents: VaultDocument[] = [],
+	repairSessionClaimEvidence: RepairSessionClaimEvidence = () => succeed([])
 ): ReturnType<typeof sessionIngestion> =>
 	sessionIngestion({
 		ai: {
 			analysisModel: 'analysis-model',
 			analyzeSessionChunk,
 			validateSessionClaims,
+			repairSessionClaimEvidence,
 			resolveSessionEntities: () => succeed([])
 		},
 		storage: {
@@ -79,6 +85,104 @@ describe('session claim validation', () => {
 		expect(draft.proposals).toHaveLength(1)
 		expect(draft.warnings[0]).toContain('[validator-rejected]')
 		expect(draft.warnings[0]).toContain('Mara opened the gate.')
+	})
+
+	it('repairs insufficient evidence once and revalidates the unchanged claim', async () => {
+		const claim: ExtractedSessionClaim = {
+			kind: 'stable-fact',
+			certainty: 'explicit',
+			content: 'Ilyra Vey says the black key opens the Lower Gate.',
+			evidence: [{ startLine: 2, endLine: 2 }],
+			entityReferences: [
+				{ label: 'Ilyra Vey', type: 'npc' },
+				{ label: 'black key', type: 'item' },
+				{ label: 'Lower Gate', type: 'location' }
+			]
+		}
+		let validationCall = 0
+		const validator: ValidateSessionClaims = vi.fn(({ prompt }) => {
+			validationCall += 1
+			const [{ candidateId, certainty, entityReferences }] = JSON.parse(
+				prompt.split('\n\n## Candidate claims\n').at(-1) ?? '[]'
+			) as {
+				candidateId: string
+				certainty: 'explicit' | 'inferred'
+				entityReferences: { referenceId: string }[]
+			}[]
+			return succeed([
+				validationCall === 1
+					? {
+							candidateId,
+							accepted: false,
+							certainty,
+							reason: 'insufficient-evidence' as const,
+							referenceValidations: []
+						}
+					: {
+							candidateId,
+							accepted: true,
+							certainty,
+							reason: 'supported' as const,
+							referenceValidations: entityReferences.map(({ referenceId }) => ({
+								referenceId,
+								accepted: true
+							}))
+						}
+			])
+		})
+		const repair: RepairSessionClaimEvidence = vi.fn(({ prompt }) => {
+			const [{ candidateId }] = JSON.parse(
+				prompt.split('\n\n## Claims needing evidence repair\n').at(-1) ?? '[]'
+			) as { candidateId: string }[]
+			return succeed([{ candidateId, evidence: [{ startLine: 1, endLine: 2 }] }])
+		})
+		const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+		const draft = await analyze(
+			operationsWith(() => succeed([claim]), validator, [], repair),
+			'Theo: I show Ilyra the black key.\nDM: She says it opens the Lower Gate.'
+		)
+
+		expect(validator).toHaveBeenCalledTimes(2)
+		expect(repair).toHaveBeenCalledTimes(1)
+		expect(draft.warnings).toEqual([])
+		expect(draft.proposals[1]?.content).toBe(claim.content)
+		expect(
+			draft.proposals[1]?.evidence.map(({ startLine, endLine }) => [startLine, endLine])
+		).toEqual([[1, 2]])
+		expect(info).toHaveBeenCalledWith(
+			'[session-ingestion] repaired claim evidence',
+			expect.objectContaining({
+				previousEvidenceRanges: [{ startLine: 2, endLine: 2 }],
+				repairedEvidenceRanges: [{ startLine: 1, endLine: 2 }]
+			})
+		)
+		info.mockRestore()
+	})
+
+	it('does not attempt evidence repair for a substantively unsupported claim', async () => {
+		const validator: ValidateSessionClaims = ({ prompt }) => {
+			const [{ candidateId }] = JSON.parse(
+				prompt.split('\n\n## Candidate claims\n').at(-1) ?? '[]'
+			) as { candidateId: string }[]
+			return succeed([
+				{
+					candidateId,
+					accepted: false,
+					certainty: 'explicit',
+					reason: 'unsupported-inference',
+					referenceValidations: []
+				}
+			])
+		}
+		const repair = vi.fn<RepairSessionClaimEvidence>(() => succeed([]))
+		const draft = await analyze(
+			operationsWith(() => succeed([extractedClaim]), validator, [], repair),
+			'Mara opened the gate.'
+		)
+
+		expect(repair).not.toHaveBeenCalled()
+		expect(draft.warnings[0]).toContain('[validator-rejected]')
+		expect(draft.warnings[0]).toContain('validationReason=unsupported-inference')
 	})
 
 	it('allows validation to downgrade certainty but never upgrade it', async () => {

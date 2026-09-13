@@ -36,11 +36,27 @@ export type SessionEntityReferenceValidation = {
 	accepted: boolean
 }
 
+export const sessionClaimValidationReasons = [
+	'supported',
+	'insufficient-evidence',
+	'contradicted-by-evidence',
+	'unsupported-inference',
+	'lost-attribution'
+] as const
+
+export type SessionClaimValidationReason = (typeof sessionClaimValidationReasons)[number]
+
 export type SessionClaimValidation = {
 	candidateId: string
 	accepted: boolean
 	certainty: 'explicit' | 'inferred'
+	reason?: SessionClaimValidationReason
 	referenceValidations: SessionEntityReferenceValidation[]
+}
+
+export type SessionClaimEvidenceRepair = {
+	candidateId: string
+	evidence: EvidenceRange[]
 }
 
 export type SessionEntityResolution = {

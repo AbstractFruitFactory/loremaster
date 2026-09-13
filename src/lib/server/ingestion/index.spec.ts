@@ -136,6 +136,7 @@ const setup = (
 			analysisModel: 'analysis-model',
 			analyzeSessionChunk: validatingAnalyzer(claims),
 			validateSessionClaims,
+			repairSessionClaimEvidence: () => succeed([]),
 			resolveSessionEntities
 		},
 		storage: {

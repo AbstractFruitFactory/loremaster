@@ -78,6 +78,7 @@ export const createServices = (ai: AiProvider) => {
 					system: `${input.system}\n\n${sessionAttributionInstruction}`
 				}),
 			validateSessionClaims: ai.validateSessionClaims,
+			repairSessionClaimEvidence: ai.repairSessionClaimEvidence,
 			resolveSessionEntities: ai.resolveSessionEntities,
 			analysisModel: ai.models.sessionAnalysis
 		},

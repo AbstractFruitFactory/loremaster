@@ -10,6 +10,7 @@ import type {
 	GenerateRelationshipLinks,
 	GenerateText,
 	InferDocumentType,
+	RepairSessionClaimEvidence,
 	ResolveSessionEntities,
 	ValidateSessionClaims,
 	StreamAssistant
@@ -191,6 +192,7 @@ const validateSessionClaims: ValidateSessionClaims = ({ prompt }) => {
 		candidates.map(({ candidateId, certainty, entityReferences }) => ({
 			candidateId,
 			accepted: true,
+			reason: 'supported',
 			certainty,
 			referenceValidations: entityReferences.map(({ referenceId }) => ({
 				referenceId,
@@ -199,6 +201,8 @@ const validateSessionClaims: ValidateSessionClaims = ({ prompt }) => {
 		}))
 	)
 }
+
+const repairSessionClaimEvidence: RepairSessionClaimEvidence = () => succeed([])
 
 const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
 	const input = JSON.parse(prompt) as {
@@ -217,6 +221,7 @@ const generateRelationshipLinks: GenerateRelationshipLinks = () => succeed([])
 export const mockAiProvider: AiProvider = {
 	analyzeSessionChunk,
 	validateSessionClaims,
+	repairSessionClaimEvidence,
 	resolveSessionEntities,
 	generateRelationshipLinks,
 	models: mockAiModels,

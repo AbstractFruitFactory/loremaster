@@ -4,6 +4,7 @@ import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant
 import type { Failure } from '../failure'
 import type {
 	ExtractedSessionClaim,
+	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
 	SessionEntityResolution
 } from '../ingestion/types'
@@ -48,6 +49,10 @@ export type ValidateSessionClaims = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionClaimValidation[], Failure<'ai', 'validateSessionClaims'>>
 
+export type RepairSessionClaimEvidence = (
+	input: AiPrompt & { model: string }
+) => Effect<SessionClaimEvidenceRepair[], Failure<'ai', 'repairSessionClaimEvidence'>>
+
 export type ResolveSessionEntities = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
@@ -75,6 +80,7 @@ export type AiProvider = {
 	inferDocumentType: InferDocumentType
 	analyzeSessionChunk: AnalyzeSessionChunk
 	validateSessionClaims: ValidateSessionClaims
+	repairSessionClaimEvidence: RepairSessionClaimEvidence
 	resolveSessionEntities: ResolveSessionEntities
 	generateRelationshipLinks: GenerateRelationshipLinks
 }
