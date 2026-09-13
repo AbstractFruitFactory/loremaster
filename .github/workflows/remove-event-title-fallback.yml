@@ -2,16 +2,16 @@ name: Remove event title fallback
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
-      - '.github/workflows/remove-event-title-fallback.yml'
+      - .github/workflows/remove-event-title-fallback.yml
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: remove event title fallback'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,28 +24,18 @@ jobs:
           python <<'PY'
           from pathlib import Path
 
-          def replace_once(path: str, old: str, new: str):
+          def replace_once(path, old, new):
               file = Path(path)
               text = file.read_text()
-              count = text.count(old)
-              if count != 1:
-                  raise RuntimeError(f'{path}: expected one match, found {count} for {old[:100]!r}')
+              if text.count(old) != 1:
+                  raise RuntimeError(f'unexpected match count in {path}')
               file.write_text(text.replace(old, new, 1))
-
-          def replace_all(path: str, old: str, new: str):
-              file = Path(path)
-              text = file.read_text()
-              count = text.count(old)
-              if count < 1:
-                  raise RuntimeError(f'{path}: expected at least one match for {old[:100]!r}')
-              file.write_text(text.replace(old, new))
 
           replace_once(
               'src/lib/server/ingestion/types.ts',
               "\teventTitle?: string | null\n",
               "\teventTitle: string | null\n"
           )
-
           replace_once(
               'src/lib/server/ai/providers/openai.ts',
               "eventTitle: z.string().trim().min(1).nullable(),",
@@ -56,30 +46,28 @@ jobs:
               "eventTitle: { type: ['string', 'null'] },",
               "eventTitle: { type: ['string', 'null'], minLength: 1, maxLength: 60 },"
           )
-
           replace_once(
               'src/lib/server/ingestion/index.ts',
               "const fallbackEventTitle = (content: string) => {\n\tconst firstLine = content.trim().split(/\\r?\\n/, 1)[0] ?? 'Session event'\n\tconst value = firstLine.replace(/[.!?]+$/u, '').trim()\n\treturn value.length > 60 ? `${value.slice(0, 57).trimEnd()}…` : value || 'Session event'\n}\n\nconst eventTitle = (claim: Pick<ExtractedSessionClaim, 'content' | 'eventTitle'>) => {\n\tconst proposed = claim.eventTitle?.trim().replace(/\\s+/gu, ' ')\n\tif (!proposed) return fallbackEventTitle(claim.content)\n\treturn proposed.length > 60 ? `${proposed.slice(0, 57).trimEnd()}…` : proposed\n}",
               "const eventTitle = ({ eventTitle }: Pick<ExtractedSessionClaim, 'eventTitle'>) => {\n\tif (!eventTitle) throw new Error('Development claim is missing an event title')\n\treturn eventTitle\n}"
           )
-
           replace_once(
               'src/lib/server/ai/providers/mock.ts',
               "\t\t{\n\t\t\tkind: 'development',\n\t\t\tcertainty: 'explicit',",
               "\t\t{\n\t\t\tkind: 'development',\n\t\t\teventTitle: 'Mock session development',\n\t\t\tcertainty: 'explicit',"
           )
-
           replace_once(
               'src/lib/server/ingestion/index.spec.ts',
               "\tkind: 'stable-fact',\n\tcertainty: 'explicit',",
               "\tkind: 'stable-fact',\n\teventTitle: null,\n\tcertainty: 'explicit',"
           )
 
-          replace_all(
-              'src/lib/server/ingestion/validation.spec.ts',
-              "\tkind: 'stable-fact',\n\tcertainty: 'explicit',",
-              "\tkind: 'stable-fact',\n\teventTitle: null,\n\tcertainty: 'explicit',"
-          )
+          validation = Path('src/lib/server/ingestion/validation.spec.ts')
+          text = validation.read_text()
+          old = "\tkind: 'stable-fact',\n\tcertainty: 'explicit',"
+          if old not in text:
+              raise RuntimeError('validation claims not found')
+          validation.write_text(text.replace(old, "\tkind: 'stable-fact',\n\teventTitle: null,\n\tcertainty: 'explicit',"))
           PY
 
       - name: Install dependencies
@@ -100,8 +88,8 @@ jobs:
         shell: bash
         run: |
           rm .github/workflows/remove-event-title-fallback.yml
-          git config user.name 'AbstractFruitFactory'
-          git config user.email 'abstractfruitfactory@pm.me'
+          git config user.name AbstractFruitFactory
+          git config user.email abstractfruitfactory@pm.me
           git add -A
           git commit -m 'refactor: require semantic event titles'
           git push origin HEAD:main
