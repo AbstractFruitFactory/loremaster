@@ -1,0 +1,317 @@
+Test Campaign Session Transcript — Embercourt: The Broken Treaty
+
+DM: You return to Embercourt on the morning after envoy Cael Ardin collapsed during the treaty supper. He is alive, unconscious, and under guard in Rose Hall.
+
+Mira: Poison?
+
+DM: Chancellor Orin Voss says the court physician suspects poison, but he tells you not to spread that yet.
+
+Jon: Who actually knows what happened?
+
+DM: Physician Ysra Pell examined him. Captain Rowan Dace secured the room. Lady Selene Marr was one of the last nobles to speak with Cael before he collapsed.
+
+---
+
+DM: Ysra meets you in the infirmary. She says Cael’s symptoms are consistent with nightshade poisoning, but she has not yet tested the residue from his cup.
+
+Mira: So nightshade is a diagnosis, not confirmed yet.
+
+DM: Correct.
+
+Jon: Any poison in the wine bottle?
+
+DM: She has not tested the bottle either.
+
+---
+
+DM: In Cael’s chamber you find his silver treaty case, the half-empty wine bottle, and the cup he drank from. Rowan says nobody has touched them since last night.
+
+Mira: I want both the cup and bottle tested.
+
+DM: Ysra performs the tests while you wait. The black residue in the cup tests positive for nightshade. The bottle does not.
+
+Jon: So the poison was in the cup, not the bottle.
+
+DM: That is what the tests indicate.
+
+Mira: Can we tell who put it there?
+
+DM: No.
+
+---
+
+DM: Selene Marr arrives furious that she is being watched.
+
+Jon: I ask if she handled Cael’s cup.
+
+DM: Selene says, “No. My page carried a tray near him, but neither of us touched his cup.”
+
+Mira: Does the DM confirm that?
+
+DM: No. That is Selene’s statement.
+
+Jon: Ask what she thinks happened.
+
+DM: Selene says Orin Voss wants the treaty to fail and would happily blame House Marr for the poisoning.
+
+Mira: Again, her claim, not established.
+
+DM: Correct.
+
+---
+
+DM: At the archive you meet Brother Hal Marr, a priest of the Lantern Order who helps maintain the treaty records.
+
+Mira: Wait, Selene Marr’s brother?
+
+DM: No known relation. “Brother” is his religious title, and Marr is a common river surname in Embercourt.
+
+Jon: Good. Please keep us from inventing another family tree.
+
+---
+
+DM: Archivist Mira Leth brings out two treaty copies. The public archive copy says clause seven leaves Black Quay customs under the city council. Cael’s silver treaty case contains an envoy copy where clause seven instead grants Black Quay customs to House Marr.
+
+Jon: Same treaty otherwise?
+
+DM: Yes, apart from that clause.
+
+Mira: Can we tell which was altered?
+
+DM: The envoy copy’s seventh leaf has fresher ink and slightly newer parchment than the surrounding pages. Mira Leth believes that leaf was replaced within the last two days.
+
+Jon: Does that prove House Marr did it?
+
+DM: No.
+
+---
+
+DM: Tovin Rusk, the council scribe, says only he and Chancellor Voss are allowed to use the council seal press.
+
+Mira: Allowed, or physically able?
+
+DM: Allowed. Tovin says maintenance staff can enter the press room when machinery needs repair.
+
+Jon: So access is broader than his first phrasing made it sound.
+
+DM: Yes.
+
+---
+
+DM: Searching the press room, you find a shallow wax impression of the council seal tucked behind a loose panel. It is an impression, not the actual seal press.
+
+Mira: Take it.
+
+DM: You now have the wax impression.
+
+Jon: Anything else?
+
+DM: A scrap of paper with the words “seventh leaf before dawn.” No signature.
+
+---
+
+DM: In the customs office, you find a small expense ledger from this week. One line reads, “R.D. — forty crowns — courier expense.”
+
+Mira: Rowan Dace?
+
+DM: You do not know who R.D. is.
+
+Jon: Does the ledger tie that payment to the treaty page?
+
+DM: No. It does not say what the courier carried.
+
+---
+
+DM: A servant named Nera tells you, “I saw Captain Rowan leaving the archive after midnight.”
+
+Mira: Face clearly visible?
+
+DM: She hesitates. She says the person wore Rowan’s red officer’s cloak and had his height.
+
+Jon: Did she actually see Rowan’s face?
+
+DM: No.
+
+Mira: Then she did not actually see Rowan.
+
+DM: Correct. Let me correct my earlier wording: Nera saw someone she assumed was Rowan because of the red cloak and build. She did not identify his face.
+
+---
+
+DM: Rowan is annoyed when you ask. He says his cloak was hanging in the guardroom after supper and anyone on duty could have taken it.
+
+Jon: Is that verified?
+
+DM: Not yet.
+
+Mira: Where does Rowan say he was at midnight?
+
+DM: He says he was with two gate sergeants at the north gate.
+
+Jon: Are they available?
+
+DM: Later, both sergeants independently confirm Rowan was at the north gate from shortly before midnight until well after.
+
+Mira: So Nera’s assumption was wrong.
+
+DM: Her identification of Rowan was wrong, yes. She still genuinely saw someone in a red officer’s cloak leaving the archive.
+
+---
+
+DM: In the Lantern Market, gossip says a masked courier called the White Fox works for Orin Voss’s nephew, Elian.
+
+Jon: Is Elian actually the White Fox?
+
+DM: Nobody you have spoken to has evidence of that. It is gossip.
+
+Mira: Any description?
+
+DM: White fox mask, gray riding coat, usually works alone.
+
+---
+
+DM: Near dusk you spot someone in a white fox mask leaving a shuttered print shop.
+
+Jon: Chase.
+
+DM: After a short chase you catch the courier. Under the mask is Jessa Quill, a woman you have not met before.
+
+Mira: So Jessa is the masked courier we just chased.
+
+DM: Yes. You directly saw her wearing the white fox mask.
+
+Jon: Does that mean every rumor about “the White Fox” referred to Jessa?
+
+DM: You cannot know that. You only know Jessa was using the identity tonight.
+
+---
+
+DM: Jessa’s satchel contains a silver House Marr signet, an iron council seal stamp, and a folded treaty leaf.
+
+Mira: Three separate objects?
+
+DM: Yes. The silver Marr signet and iron council seal stamp are distinct items, and the treaty leaf is separate from both.
+
+Jon: Is the iron stamp the official council seal?
+
+DM: Mira Leth later compares it to the archive impression. It is a counterfeit stamp that produces a close but imperfect copy of the council seal.
+
+Mira: So not the actual council seal.
+
+DM: Correct.
+
+---
+
+DM: The folded treaty leaf matches the fresh seventh leaf in Cael’s envoy copy in paper stock, ruling pattern, and ink mixture. Its text is the original wording that leaves Black Quay customs under the city council.
+
+Jon: So Jessa had the page that was removed from the envoy copy?
+
+DM: The evidence strongly supports that, yes.
+
+Mira: Does it prove who hired her?
+
+DM: No.
+
+---
+
+DM: Jessa says, “I swapped a page. That is all. I did not poison the envoy.”
+
+Jon: Do we believe her?
+
+DM: That is her claim. You have not established whether it is true.
+
+Mira: Who hired her?
+
+DM: She says only, “Someone on the council.” She refuses to give a name.
+
+Jon: Could she be lying about that too?
+
+DM: Yes.
+
+---
+
+DM: In a hidden pocket of Jessa’s satchel you find a note: “Replace the seventh leaf before dawn. Burn the original. Payment after confirmation. — O.”
+
+Mira: Orin.
+
+DM: The note is signed only with the letter O. You do not know who wrote it.
+
+Jon: Could O be Orin Voss?
+
+DM: It could be, but the note does not establish that.
+
+---
+
+DM: You compare the silver Marr signet from Jessa’s bag to Selene’s signet ring. The designs are similar, but the recovered signet has one reversed river reed in the crest.
+
+Mira: Counterfeit too?
+
+DM: Mira Leth says it is almost certainly a forgery.
+
+Jon: So possession of that signet does not implicate Selene.
+
+DM: Correct. It appears designed to imitate House Marr’s mark.
+
+---
+
+DM: Back at Rose Hall, Cael wakes briefly.
+
+Mira: What does he remember?
+
+DM: He remembers reviewing the treaty after supper. He says a palace page brought him a clean cup because he had dropped his first one. He does not remember the page’s face.
+
+Jon: Did Selene or Rowan hand him the replacement cup?
+
+DM: He says no. He cannot identify who the page was.
+
+---
+
+DM: Ysra checks the first cup, which had been set aside after Cael dropped it. It contains no nightshade. Only the replacement cup does.
+
+Mira: That narrows the poisoning window.
+
+DM: Yes. The poison must have been introduced into the replacement cup or after it was brought to him.
+
+Jon: Still no culprit?
+
+DM: Still no identified culprit.
+
+---
+
+DM: Mira Leth gives you some historical context. The Palace Fire was twelve years ago. Orin Voss became chancellor five years ago. Cael arrived in Embercourt three days ago. His envoy treaty copy was deposited at the archive two nights ago for comparison, then returned to him yesterday afternoon. He was poisoned last night.
+
+Mira: And the fresh seventh leaf was probably replaced within the last two days.
+
+DM: Correct.
+
+---
+
+Jon: I want to be sure about our evidence. What do we actually have now?
+
+DM: You have the wax impression of the council seal, the unsigned “seventh leaf before dawn” scrap from the press room, the customs expense ledger, Jessa’s counterfeit iron council seal stamp, Jessa’s forged silver Marr signet, the original seventh treaty leaf from her satchel, and the note signed only “O.”
+
+Mira: And the poison itself?
+
+DM: The poisoned cup remains secured with Ysra at Rose Hall. You do not possess it.
+
+Jon: Good distinction.
+
+---
+
+Mira: So what is actually established about the conspiracy?
+
+DM: Established: someone replaced the seventh leaf in Cael’s envoy treaty copy; Jessa possessed the original leaf and counterfeit marks for both the council and House Marr; Jessa says she swapped the page for someone on the council; the poisoning used nightshade in Cael’s replacement cup; and no poison culprit has been identified.
+
+Jon: Established that Orin ordered the page swap?
+
+DM: No.
+
+Mira: Established that Selene was involved?
+
+DM: No.
+
+Jon: Established that Rowan was involved?
+
+DM: No. In fact his midnight alibi is corroborated by two sergeants.
+
+DM: And that is where we end.
