@@ -1,0 +1,187 @@
+Test Campaign Session Transcript — Cinderwake: The Blue Key
+
+DM: Three months after the East Sluice collapsed, you are back in Cinderwake looking for Tessa Vale, the cartographer who vanished two years ago.
+
+Mira: We start at the Chapel of Tides. Sister Vale was supposed to know Tessa, right?
+
+DM: Sister Vale knew her from the relief kitchens after the Ashfall fire.
+
+Jon: Is Sister Vale related to Tessa or Corin Vale?
+
+DM: Not that anyone here knows. Vale is a common harbor surname.
+
+Mira: Good, because I was already building a conspiracy board.
+
+---
+
+DM: Sister Vale gives you a sealed note Tessa left with her two years ago. She says Tessa told her to give it to anyone asking about the old survey tunnels.
+
+Jon: I open it.
+
+DM: It reads: “If you find my blue-glass key, do not take it to the Beacon. Alda is wrong. It opens the maintenance lift beneath the Salt Archive.”
+
+Mira: Who is Alda?
+
+DM: Alda Quinn, the harbor engineer. She still oversees the eastern works.
+
+Jon: So Tessa thought Alda was wrong about the key.
+
+DM: Correct.
+
+---
+
+DM: On the way to the Salt Archive, you pass the ferry stairs and Orren Pike waves you down.
+
+Mira: The ferryman?
+
+DM: Yes. He says he heard you were asking about Tessa.
+
+Jon: “Did you see her before she vanished?”
+
+DM: Orren says, “I saw her at the Old Beacon the night before she disappeared. She was arguing with someone in a gray coat.”
+
+Mira: Did he see the other person’s face?
+
+DM: No. Orren says the fog was too thick.
+
+Jon: Is anyone else known to have seen this?
+
+DM: Not that you know of.
+
+---
+
+DM: You reach the Salt Archive. The public reading room is open, but the basement is restricted.
+
+Mira: We ask for Maelin Sorn.
+
+DM: Brother Maelin is the archive keeper. He lets you into Tessa’s old workroom because Sister Vale’s note has her seal.
+
+Jon: Search everything.
+
+DM: In a locked drawer you find a blue-glass key wrapped in oilcloth, a brass customs key, and a small notebook.
+
+Mira: Three separate things?
+
+DM: Yes. Blue-glass key, brass customs key, notebook.
+
+Jon: I want to know what the brass key opens.
+
+DM: Maelin recognizes it as an old customs strongroom key.
+
+Mira: Recognition, not proof.
+
+DM: Fair.
+
+---
+
+DM: The notebook contains survey sketches of the East Sluice, the Old Beacon, and the Salt Archive. One margin note says: “Alda keeps insisting the blue key belongs to the Beacon. It does not.”
+
+Jon: Anything about the sluice collapse?
+
+DM: There is an entry from four months ago: “Retaining bolts on gate three show fresh lateral scoring. If they fail, it will look like corrosion.”
+
+Mira: The collapse was three months ago, right?
+
+DM: Correct.
+
+Jon: So Tessa noticed something a month before it collapsed.
+
+DM: That timing is correct.
+
+---
+
+DM: You find Alda Quinn at the East Sluice works.
+
+Mira: I show her the blue key and ask what it opens.
+
+DM: Alda says, “Old Beacon service door. Tessa knew that.”
+
+Jon: We do not tell her about the note.
+
+Mira: I ask why the sluice collapsed.
+
+DM: Alda says the retaining bolts were forty years old and finally gave out.
+
+Jon: Can we inspect them?
+
+DM: Yes. The failed bolts are still stored in an evidence crate.
+
+Mira: Engineering check, 21.
+
+DM: The metal around the breaks is not pitted like corrosion. Several bolts have parallel tool marks and clean cuts from the inside face. Someone deliberately weakened them before the collapse.
+
+Jon: Can we tell who?
+
+DM: No.
+
+---
+
+DM: At the customs annex, the brass key opens the old records strongroom.
+
+Mira: So that one is confirmed.
+
+DM: Yes. Inside you find tax rolls and a red leather ledger from eleven years ago, the year of the Ashfall fire.
+
+Jon: Anything juicy?
+
+DM: One page lists irregular payments made by House Sorn. The entries use initials. One reads: “C.V. — eighty crowns — ash disposal.”
+
+Mira: Corin Vale?
+
+DM: You do not know who C.V. is.
+
+Jon: Does it say anything about starting the fire?
+
+DM: No. The ledger does not say that.
+
+Mira: Could “ash disposal” just be cleanup?
+
+DM: Could be. The ledger does not explain it.
+
+---
+
+DM: Maelin later tells you the Ashfall fire destroyed the old Ember Market eleven years ago. Corin Vale was dockmaster then and is still dockmaster now.
+
+Jon: Tessa’s father, right?
+
+DM: Yes. Corin Vale is Tessa Vale’s father.
+
+Mira: Does Maelin think C.V. means Corin Vale?
+
+DM: He says, “Maybe. I would not swear to it.”
+
+---
+
+DM: You take the blue-glass key to the Salt Archive basement. Behind a shelving rack is a narrow iron panel with a blue-glass keyway.
+
+Jon: Moment of truth.
+
+DM: The key fits and opens a maintenance lift descending beneath the archive.
+
+Mira: So Tessa’s note was right about where it fits.
+
+DM: Yes.
+
+---
+
+DM: In the lower maintenance level you find old engineering plans for something called the Tide Engine.
+
+Jon: The thing sailors blame for Founder’s Tide?
+
+DM: Maelin says sailors have told that story for decades: the Tide Engine caused Founder’s Tide forty-two years ago.
+
+Mira: Do the plans prove it?
+
+DM: No. A maintenance log says pressure in the engine rose sharply shortly before the flood, but the cause of the flood is listed as undetermined.
+
+Jon: So correlation, not proof.
+
+DM: Correct.
+
+---
+
+DM: The final page of Tessa’s notebook says: “If I disappear, do not assume Alda killed me. She is hiding something about the sluice, but I have no proof she means me harm.”
+
+Mira: Extremely considerate of her to constrain our accusations.
+
+DM: And that is where we end.
