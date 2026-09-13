@@ -19,6 +19,9 @@ import { vaultRevisionOperations } from './vault/revisions/operations'
 import { filesystemRevisionStorage } from './vault/revisions/storage'
 import { filesystemVaultStorage } from './vault/storage/filesystem'
 
+const sessionAttributionInstruction =
+	'Preserve epistemic attribution in every extracted claim. If information is presented as dialogue, testimony, belief, rumor, legend, hearsay, or a written source, keep that source in the normalized claim content. Never rewrite "Ilyra says X" as "X", "Nell believes or reports X" as "X", "a letter states X" as "X", or "a legend says X" as "X". Only state X directly as an objective world fact when the transcript itself establishes X authoritatively. The certainty field describes how directly the full attributed claim is supported by the evidence; explicit does not mean that an embedded proposition is objectively true.'
+
 export const createServices = (ai: AiProvider) => {
 	const campaign = campaignOperations({
 		ai: {
@@ -69,7 +72,12 @@ export const createServices = (ai: AiProvider) => {
 
 	const ingestion = sessionIngestionOperations({
 		ai: {
-			analyzeSessionChunk: ai.analyzeSessionChunk,
+			analyzeSessionChunk: (input) =>
+				ai.analyzeSessionChunk({
+					...input,
+					system: `${input.system}\n\n${sessionAttributionInstruction}`
+				}),
+			validateSessionClaims: ai.validateSessionClaims,
 			resolveSessionEntities: ai.resolveSessionEntities,
 			analysisModel: ai.models.sessionAnalysis
 		},

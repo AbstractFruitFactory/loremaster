@@ -11,8 +11,10 @@ import { failure } from '../../failure'
 import {
 	ingestionDocumentTypes,
 	type ExtractedSessionClaim,
+	type SessionClaimValidation,
 	type SessionEntityResolution
 } from '../../ingestion/types'
+import { MAX_EVIDENCE_RANGES } from '../../ingestion/evidence'
 import type { RelationshipLink } from '../../vault/types'
 import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider'
 
@@ -28,28 +30,53 @@ export const openAiModels = {
 	embeddings: 'text-embedding-3-small'
 } satisfies AiModels
 
-const entityMentionSchema = z.object({
-	mention: z.string().trim().min(1),
+const evidenceRangeSchema = z.object({
+	startLine: z.number().int().positive(),
+	endLine: z.number().int().positive()
+})
+
+const entityReferenceSchema = z.object({
+	label: z.string().trim().min(1),
 	type: z.enum(ingestionDocumentTypes)
 })
 
 const sessionClaimsSchema = z.object({
 	claims: z.array(
 		z.object({
-			excerpt: z.string().min(1),
 			kind: z.enum(['stable-fact', 'development', 'mention']),
 			certainty: z.enum(['explicit', 'inferred']),
 			content: z.string().trim().min(1),
-			entityMentions: z.array(entityMentionSchema)
+			evidence: z.array(evidenceRangeSchema).min(1).max(MAX_EVIDENCE_RANGES),
+			entityReferences: z.array(entityReferenceSchema)
 		})
 	)
 })
+
+const evidenceRangeJsonSchema = {
+	type: 'object' as const,
+	properties: {
+		startLine: { type: 'integer' },
+		endLine: { type: 'integer' }
+	},
+	required: ['startLine', 'endLine'],
+	additionalProperties: false
+}
+
+const entityReferenceJsonSchema = {
+	type: 'object' as const,
+	properties: {
+		label: { type: 'string' },
+		type: { type: 'string', enum: ingestionDocumentTypes }
+	},
+	required: ['label', 'type'],
+	additionalProperties: false
+}
 
 const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
 	description:
-		'Record atomic campaign claims as evidence plus the entity mentions present in that evidence. Claims do not choose Lore documents or document titles.',
+		'Record atomic campaign claims with supporting transcript line ranges and semantic entity references.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -59,24 +86,18 @@ const sessionClaimsTool = {
 				items: {
 					type: 'object',
 					properties: {
-						excerpt: { type: 'string' },
 						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
 						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
 						content: { type: 'string' },
-						entityMentions: {
+						evidence: {
 							type: 'array',
-							items: {
-								type: 'object',
-								properties: {
-									mention: { type: 'string' },
-									type: { type: 'string', enum: ingestionDocumentTypes }
-								},
-								required: ['mention', 'type'],
-								additionalProperties: false
-							}
-						}
+							items: evidenceRangeJsonSchema,
+							minItems: 1,
+							maxItems: MAX_EVIDENCE_RANGES
+						},
+						entityReferences: { type: 'array', items: entityReferenceJsonSchema }
 					},
-					required: ['excerpt', 'kind', 'certainty', 'content', 'entityMentions'],
+					required: ['kind', 'certainty', 'content', 'evidence', 'entityReferences'],
 					additionalProperties: false
 				}
 			}
@@ -95,6 +116,71 @@ const parseSessionClaims = (response: OpenAiResponse): ExtractedSessionClaim[] =
 		: []
 }
 
+const sessionClaimValidationsSchema = z.object({
+	validations: z.array(
+		z.object({
+			candidateId: z.string().trim().min(1),
+			accepted: z.boolean(),
+			certainty: z.enum(['explicit', 'inferred']),
+			referenceValidations: z.array(
+				z.object({
+					referenceId: z.string().trim().min(1),
+					accepted: z.boolean()
+				})
+			)
+		})
+	)
+})
+
+const sessionClaimValidationsTool = {
+	type: 'function' as const,
+	name: 'validate_session_claims',
+	description:
+		'Validate claim content and semantic entity-reference associations independently without rewriting them.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			validations: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						candidateId: { type: 'string' },
+						accepted: { type: 'boolean' },
+						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+						referenceValidations: {
+							type: 'array',
+							items: {
+								type: 'object',
+								properties: {
+									referenceId: { type: 'string' },
+									accepted: { type: 'boolean' }
+								},
+								required: ['referenceId', 'accepted'],
+								additionalProperties: false
+							}
+						}
+					},
+					required: ['candidateId', 'accepted', 'certainty', 'referenceValidations'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['validations'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionClaimValidations = (response: OpenAiResponse): SessionClaimValidation[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionClaimValidationsTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionClaimValidationsSchema.parse(JSON.parse(call.arguments)).validations
+		: []
+}
+
 const sessionEntityResolutionsSchema = z.object({
 	resolutions: z.array(
 		z.object({
@@ -108,7 +194,7 @@ const sessionEntityResolutionsTool = {
 	type: 'function' as const,
 	name: 'resolve_session_entities',
 	description:
-		'Resolve ambiguous entity mentions by choosing only from the supplied candidate targets, or leave them unresolved.',
+		'Resolve ambiguous entity references by choosing only from the supplied candidate targets, or leave them unresolved.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -369,6 +455,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'analyzeSessionChunk', cause)
 		}),
 
+	validateSessionClaims: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionClaimValidationsTool],
+					tool_choice: { type: 'function', name: sessionClaimValidationsTool.name }
+				})
+				return parseSessionClaimValidations(response)
+			},
+			catch: (cause) => failure('ai', 'validateSessionClaims', cause)
+		}),
+
 	resolveSessionEntities: ({ model, system, prompt }) =>
 		tryPromise({
 			try: async () => {
@@ -414,6 +514,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		embedTexts: () => missingApiKey('embedTexts'),
 		inferDocumentType: () => missingApiKey('inferDocumentType'),
 		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk'),
+		validateSessionClaims: () => missingApiKey('validateSessionClaims'),
 		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
 		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}

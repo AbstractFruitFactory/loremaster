@@ -1,6 +1,10 @@
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
-import type { AnalyzeSessionChunk, ResolveSessionEntities } from '../ai/provider'
+import type {
+	AnalyzeSessionChunk,
+	ResolveSessionEntities,
+	ValidateSessionClaims
+} from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
 import { sessionIngestionOperations } from './operations'
 import type {
@@ -59,32 +63,46 @@ const document = (
 const varek = document('varek', 'Varek', ['The Gatekeeper'])
 
 const claim = (
-	excerpt: string,
+	content: string,
 	overrides: Partial<ExtractedSessionClaim> = {}
 ): ExtractedSessionClaim => ({
-	excerpt,
 	kind: 'stable-fact',
 	certainty: 'explicit',
-	content: excerpt,
-	entityMentions: [{ mention: 'Varek', type: 'npc' }],
+	content,
+	evidence: [{ startLine: 1, endLine: 1 }],
+	entityReferences: [{ label: 'Varek', type: 'npc' }],
 	...overrides
 })
 
 const validatingAnalyzer =
 	(claims: ExtractedSessionClaim[]): AnalyzeSessionChunk =>
-	({ prompt }) => {
-		const marker = '\n\n## Candidate claims\n'
-		return succeed(
-			prompt.includes(marker)
-				? (JSON.parse(prompt.split(marker).at(-1) ?? '[]') as ExtractedSessionClaim[])
-				: claims
-		)
-	}
+	() =>
+		succeed(claims)
+
+const acceptingValidator: ValidateSessionClaims = ({ prompt }) => {
+	const candidates = JSON.parse(prompt.split('\n\n## Candidate claims\n').at(-1) ?? '[]') as {
+		candidateId: string
+		certainty: 'explicit' | 'inferred'
+		entityReferences: { referenceId: string }[]
+	}[]
+	return succeed(
+		candidates.map(({ candidateId, certainty, entityReferences }) => ({
+			candidateId,
+			accepted: true,
+			certainty,
+			referenceValidations: entityReferences.map(({ referenceId }) => ({
+				referenceId,
+				accepted: true
+			}))
+		}))
+	)
+}
 
 const setup = (
 	claims: ExtractedSessionClaim[],
 	documents: VaultDocument[] = [varek],
-	resolveSessionEntities: ResolveSessionEntities = () => succeed([])
+	resolveSessionEntities: ResolveSessionEntities = () => succeed([]),
+	validateSessionClaims: ValidateSessionClaims = acceptingValidator
 ) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
@@ -117,6 +135,7 @@ const setup = (
 		ai: {
 			analysisModel: 'analysis-model',
 			analyzeSessionChunk: validatingAnalyzer(claims),
+			validateSessionClaims,
 			resolveSessionEntities
 		},
 		storage: {
@@ -148,7 +167,8 @@ describe('session ingestion operations', () => {
 		const harness = setup([
 			claim('The Gatekeeper opened the gate.', {
 				content: 'Varek opened the western gate.',
-				entityMentions: [{ mention: 'The Gatekeeper', type: 'npc' }]
+				evidence: [{ startLine: 2, endLine: 2 }],
+				entityReferences: [{ label: 'The Gatekeeper', type: 'npc' }]
 			})
 		])
 		const transcript = 'GM: The party waits.\nThe Gatekeeper opened the gate.'
@@ -204,7 +224,7 @@ describe('session ingestion operations', () => {
 			[
 				claim('Mara is about forty.', {
 					content: 'Mara is about forty years old.',
-					entityMentions: [{ mention: 'Mara', type: 'npc' }]
+					entityReferences: [{ label: 'Mara', type: 'npc' }]
 				})
 			],
 			[mara]
@@ -225,7 +245,7 @@ describe('session ingestion operations', () => {
 			[
 				claim("Mara's age is about forty.", {
 					content: 'Mara is about forty years old.',
-					entityMentions: [{ mention: "Mara's age", type: 'npc' }]
+					entityReferences: [{ label: "Mara's age", type: 'npc' }]
 				})
 			],
 			[mara]
@@ -250,11 +270,11 @@ describe('session ingestion operations', () => {
 			[
 				claim('Mara Vale knows the old road.', {
 					content: 'Mara Vale knows the old road.',
-					entityMentions: [{ mention: 'Mara Vale', type: 'npc' }]
+					entityReferences: [{ label: 'Mara Vale', type: 'npc' }]
 				}),
 				claim('Mara Vale carries a blue lantern.', {
 					content: 'Mara Vale carries a blue lantern.',
-					entityMentions: [{ mention: 'Mara Vale', type: 'npc' }]
+					entityReferences: [{ label: 'Mara Vale', type: 'npc' }]
 				})
 			],
 			[]
@@ -313,7 +333,7 @@ describe('session ingestion operations', () => {
 		const harness = setup(
 			[
 				claim("Elias' father warned him about the gate.", {
-					entityMentions: [{ mention: "Elias' father", type: 'npc' }]
+					entityReferences: [{ label: "Elias' father", type: 'npc' }]
 				})
 			],
 			[elias, roger],
@@ -339,7 +359,7 @@ describe('session ingestion operations', () => {
 			[
 				claim('Four bells have now been found.', {
 					content: 'Four bells have now been found.',
-					entityMentions: []
+					entityReferences: []
 				})
 			],
 			[]
@@ -368,7 +388,7 @@ describe('session ingestion operations', () => {
 			[
 				claim('Mara hired the party to recover the lockbox.', {
 					kind: 'development',
-					entityMentions: [{ mention: 'Mara', type: 'npc' }]
+					entityReferences: [{ label: 'Mara', type: 'npc' }]
 				})
 			],
 			[]
@@ -392,7 +412,7 @@ describe('session ingestion operations', () => {
 		const harness = setup(
 			[
 				claim('Vale carried the letter.', {
-					entityMentions: [{ mention: 'Vale', type: 'npc' }]
+					entityReferences: [{ label: 'Vale', type: 'npc' }]
 				})
 			],
 			[mara, edric]
@@ -446,7 +466,7 @@ describe('session ingestion operations', () => {
 			claim('Someone mentioned Mara.', {
 				kind: 'mention',
 				content: 'Mara was mentioned.',
-				entityMentions: [{ mention: 'Mara', type: 'npc' }]
+				entityReferences: [{ label: 'Mara', type: 'npc' }]
 			})
 		])
 		const draft = await runPromise(analyze(harness.operations, 'Someone mentioned Mara.'))

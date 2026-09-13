@@ -1,7 +1,7 @@
 import type { TranscriptChunk } from './types'
 
 export const DEFAULT_TRANSCRIPT_CHUNK_SIZE = 6_000
-export const DEFAULT_TRANSCRIPT_OVERLAP_LINES = 2
+export const DEFAULT_TRANSCRIPT_OVERLAP_LINES = 12
 
 type TranscriptLine = {
 	content: string
