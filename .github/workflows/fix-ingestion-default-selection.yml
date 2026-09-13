@@ -1,0 +1,139 @@
+name: Fix ingestion default selection
+
+on:
+  push:
+    branches: [tmp-fix-ingestion-selection]
+    paths:
+      - '.github/workflows/fix-ingestion-default-selection.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: test ingestion selection fix'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply fix
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise RuntimeError(f'{path}: expected one match, found {count}')
+              file.write_text(text.replace(old, new, 1))
+
+          index = 'src/lib/server/ingestion/index.ts'
+
+          replace_once(
+              index,
+              "const unresolvedCandidatesFor = (entities: EntityResolution[]) =>\n\tentities.filter(\n\t\t(entity): entity is Extract<EntityResolution, { kind: 'unresolved' }> =>\n\t\t\tentity.kind === 'unresolved'\n\t)\n\n",
+              ""
+          )
+
+          replace_once(
+              index,
+              "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({",
+              "const updateEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'existing' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({"
+          )
+          replace_once(
+              index,
+              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,",
+              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',"
+          )
+
+          replace_once(
+              index,
+              "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references'],\n\thasUnresolved: boolean\n): SessionProposal => ({",
+              "const createSessionEntityProposal = (\n\tclaim: ResolvedClaim,\n\tentity: Extract<EntityResolution, { kind: 'session' }>,\n\treferences: SessionProposal['references']\n): SessionProposal => ({"
+          )
+          replace_once(
+              index,
+              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic' && !hasUnresolved,",
+              "\tselected: claim.certainty === 'explicit' && entity.method === 'deterministic',"
+          )
+
+          replace_once(
+              index,
+              "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst hasUnresolved = unresolvedCandidatesFor(claim.entities).length > 0\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references, hasUnresolved)]\n\t\t}",
+              "const stableFactProposals = (\n\tclaim: ResolvedClaim,\n\treferences: SessionProposal['references']\n): SessionProposal[] => {\n\tconst proposals = claim.entities.flatMap((entity) => {\n\t\tif (entity.kind === 'existing') {\n\t\t\treturn [updateEntityProposal(claim, entity, references)]\n\t\t}\n\t\tif (entity.kind === 'session') {\n\t\t\treturn [createSessionEntityProposal(claim, entity, references)]\n\t\t}"
+          )
+
+          spec = Path('src/lib/server/ingestion/index.spec.ts')
+          text = spec.read_text()
+          marker = "\n\tit('uses a batched contextual resolver for relational references', async () => {"
+          test = r'''
+
+	it('does not skip safe entity changes because a secondary reference is unresolved', async () => {
+		const harness = setup(
+			[
+				claim("Nym produces a smuggler's map.", {
+					entityReferences: [
+						{ label: 'Nym', type: 'npc' },
+						{ label: "Nym's map", type: 'item' }
+					]
+				}),
+				claim("Varek carries Varek's key.", {
+					entityReferences: [
+						{ label: 'Varek', type: 'npc' },
+						{ label: "Varek's key", type: 'item' }
+					]
+				})
+			],
+			[varek]
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, "Nym produces a smuggler's map.\nVarek carries Varek's key.")
+		)
+
+		expect(draft.proposals.find(({ title }) => title === 'Nym')).toMatchObject({
+			operation: 'create-entity',
+			selected: true,
+			resolutionMethod: 'deterministic'
+		})
+		expect(draft.proposals.find(({ title }) => title === 'Varek')).toMatchObject({
+			operation: 'update-canon',
+			selected: true,
+			resolutionMethod: 'deterministic'
+		})
+		expect(draft.proposals.some(({ title }) => title === "Nym's map")).toBe(false)
+		expect(draft.proposals.some(({ title }) => title === "Varek's key")).toBe(false)
+	})
+'''
+          if marker not in text:
+              raise RuntimeError('test insertion marker not found')
+          spec.write_text(text.replace(marker, test + marker, 1))
+          PY
+
+      - name: Install dependencies
+        run: |
+          npm install --global pnpm@10
+          pnpm install --frozen-lockfile
+
+      - name: Check
+        run: pnpm check
+
+      - name: Install browser
+        run: pnpm exec playwright install chromium
+
+      - name: Test
+        run: pnpm test
+
+      - name: Commit fix
+        shell: bash
+        run: |
+          rm .github/workflows/fix-ingestion-default-selection.yml
+          git config user.name 'AbstractFruitFactory'
+          git config user.email 'abstractfruitfactory@pm.me'
+          git add -A
+          git commit -m 'fix: keep safe ingestion proposals selected'
+          git push origin HEAD:tmp-fix-ingestion-selection
