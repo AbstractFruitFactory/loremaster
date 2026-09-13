@@ -64,10 +64,18 @@ jobs:
 
           validation = Path('src/lib/server/ingestion/validation.spec.ts')
           text = validation.read_text()
-          old = "\tkind: 'stable-fact',\n\tcertainty: 'explicit',"
-          if old not in text:
+          replacements = [
+              ("\tkind: 'stable-fact',\n\tcertainty: 'explicit',", "\tkind: 'stable-fact',\n\teventTitle: null,\n\tcertainty: 'explicit',"),
+              ("\t\t\tkind: 'stable-fact',\n\t\t\tcertainty: 'explicit',", "\t\t\tkind: 'stable-fact',\n\t\t\teventTitle: null,\n\t\t\tcertainty: 'explicit',")
+          ]
+          changed = False
+          for old, new in replacements:
+              if old in text:
+                  text = text.replace(old, new)
+                  changed = True
+          if not changed:
               raise RuntimeError('validation claims not found')
-          validation.write_text(text.replace(old, "\tkind: 'stable-fact',\n\teventTitle: null,\n\tcertainty: 'explicit',"))
+          validation.write_text(text)
           PY
 
       - name: Install dependencies
