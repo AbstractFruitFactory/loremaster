@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - fix-duplicate-ingestion-paths
+    paths:
+      - .github/scripts/apply-unique-ingestion-paths.py
+      - .github/workflows/unique-ingestion-paths.yml
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'fix: allocate unique ingestion document paths'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
