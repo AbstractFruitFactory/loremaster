@@ -36,7 +36,7 @@ index_path.write_text(source)
 
 spec_path = Path('src/lib/server/ingestion/validation.spec.ts')
 spec = spec_path.read_text()
-test = r'''
+test = '''
 
 \tit('treats persistent entity identity as part of reference validation', async () => {
 \t\tconst claim: ExtractedSessionClaim = {
