@@ -1,0 +1,19 @@
+name: Session review dashboard CI
+
+on:
+  push:
+    branches: [session-review-dashboard]
+    paths:
+      - 'src/routes/campaigns/[campaignId]/session/ingest/[ingestionId]/+page.svelte'
+      - '.github/workflows/session-review-dashboard-ci.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install --global pnpm@10
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm exec playwright install chromium
+      - run: pnpm test
