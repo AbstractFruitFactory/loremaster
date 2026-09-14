@@ -13,12 +13,11 @@
 	const draft = $derived(
 		getSessionIngestion({ campaignId: params.campaignId, ingestionId: params.ingestionId })
 	)
-	let selections = $state<Record<string, boolean>>({})
-	let resolutions = $state<Record<string, string>>({})
-	let committing = $state(false)
-	let commitError = $state('')
 
 	type ReviewDocumentType = Exclude<DocumentType, 'session'>
+	type ReviewView = 'summary' | 'attention' | ReviewDocumentType
+	type ReviewDecision = 'approved' | 'rejected'
+	type ReviewStatus = ReviewDecision | 'pending'
 
 	const reviewTypes: ReviewDocumentType[] = ['npc', 'player', 'location', 'item', 'event', 'lore']
 	const singularTypeLabel: Record<ReviewDocumentType, string> = {
@@ -29,6 +28,12 @@
 		lore: 'Lore',
 		event: 'Event'
 	}
+
+	let activeView = $state<ReviewView>('summary')
+	let decisions = $state<Record<string, ReviewDecision>>({})
+	let resolutions = $state<Record<string, string>>({})
+	let committing = $state(false)
+	let commitError = $state('')
 
 	const normalizeComparable = (value: string) =>
 		value
@@ -41,30 +46,6 @@
 	const hasPossibleMatches = (proposal: SessionProposal) =>
 		proposal.match.kind === 'unresolved' && proposal.match.candidates.length > 0
 
-	const selected = (proposal: SessionProposal) => {
-		if (proposal.documentType === 'session') return true
-		if (proposal.operation === 'mention-only') return false
-		if (hasPossibleMatches(proposal) && !resolutions[proposal.proposalId]) return false
-		return selections[proposal.proposalId] ?? proposal.selected
-	}
-
-	const toggle = (proposal: SessionProposal) => {
-		selections[proposal.proposalId] = !selected(proposal)
-	}
-
-	const chooseResolution = (proposal: SessionProposal, value: string) => {
-		resolutions[proposal.proposalId] = value
-		selections[proposal.proposalId] = Boolean(value)
-	}
-
-	const resolutionFor = (proposal: SessionProposal): SessionProposalResolution | undefined => {
-		const value = resolutions[proposal.proposalId]
-		if (!value) return undefined
-		return value === 'create'
-			? { proposalId: proposal.proposalId, kind: 'create' }
-			: { proposalId: proposal.proposalId, kind: 'existing', documentId: value }
-	}
-
 	const isOtherDetail = (proposal: SessionProposal) =>
 		proposal.operation === 'mention-only' || proposal.operation === 'record-only'
 
@@ -75,10 +56,46 @@
 			proposal.certainty === 'inferred' ||
 			proposal.resolutionMethod === 'model')
 
-	const pendingAttention = (proposal: SessionProposal) =>
-		(hasPossibleMatches(proposal) && !resolutions[proposal.proposalId]) ||
-		((proposal.certainty === 'inferred' || proposal.resolutionMethod === 'model') &&
-			!selected(proposal))
+	const reviewStatus = (proposal: SessionProposal): ReviewStatus => {
+		const decision = decisions[proposal.proposalId]
+		if (decision) return decision
+		if (proposal.documentType === 'session') return 'approved'
+		if (proposal.operation === 'mention-only') return 'rejected'
+		if (needsAttention(proposal)) return 'pending'
+		return proposal.selected ? 'approved' : 'rejected'
+	}
+
+	const selected = (proposal: SessionProposal) => {
+		if (proposal.documentType === 'session') return true
+		if (proposal.operation === 'mention-only') return false
+		if (hasPossibleMatches(proposal) && !resolutions[proposal.proposalId]) return false
+		return reviewStatus(proposal) === 'approved'
+	}
+
+	const canApprove = (proposal: SessionProposal) =>
+		!hasPossibleMatches(proposal) || Boolean(resolutions[proposal.proposalId])
+
+	const approveProposal = (proposal: SessionProposal) => {
+		if (!canApprove(proposal)) return
+		decisions[proposal.proposalId] = 'approved'
+	}
+
+	const rejectProposal = (proposal: SessionProposal) => {
+		decisions[proposal.proposalId] = 'rejected'
+	}
+
+	const chooseResolution = (proposal: SessionProposal, value: string) => {
+		resolutions[proposal.proposalId] = value
+		delete decisions[proposal.proposalId]
+	}
+
+	const resolutionFor = (proposal: SessionProposal): SessionProposalResolution | undefined => {
+		const value = resolutions[proposal.proposalId]
+		if (!value) return undefined
+		return value === 'create'
+			? { proposalId: proposal.proposalId, kind: 'create' }
+			: { proposalId: proposal.proposalId, kind: 'existing', documentId: value }
+	}
 
 	const loreProposals = () =>
 		draft.current?.proposals.filter(
@@ -86,18 +103,21 @@
 		) ?? []
 
 	const attentionProposals = () => loreProposals().filter(needsAttention)
-	const groupedProposals = (type: ReviewDocumentType) =>
-		loreProposals().filter((proposal) => proposal.documentType === type && !needsAttention(proposal))
+	const typeProposals = (type: ReviewDocumentType) =>
+		loreProposals().filter((proposal) => proposal.documentType === type)
 	const otherDetails = () => draft.current?.proposals.filter(isOtherDetail) ?? []
-	const typeCount = (type: ReviewDocumentType) =>
-		loreProposals().filter((proposal) => proposal.documentType === type).length
-	const selectedLoreCount = () => loreProposals().filter(selected).length
-	const pendingAttentionCount = () => attentionProposals().filter(pendingAttention).length
 
-	const setGroupSelected = (proposals: SessionProposal[], value: boolean) => {
+	const statusCount = (proposals: SessionProposal[], status: ReviewStatus) =>
+		proposals.filter((proposal) => reviewStatus(proposal) === status).length
+
+	const approvedLoreCount = () => statusCount(loreProposals(), 'approved')
+	const rejectedLoreCount = () => statusCount(loreProposals(), 'rejected')
+	const pendingAttentionCount = () => statusCount(attentionProposals(), 'pending')
+
+	const setGroupDecision = (proposals: SessionProposal[], decision: ReviewDecision) => {
 		for (const proposal of proposals) {
-			if (hasPossibleMatches(proposal) && !resolutions[proposal.proposalId]) continue
-			selections[proposal.proposalId] = value
+			if (decision === 'approved' && !canApprove(proposal)) continue
+			decisions[proposal.proposalId] = decision
 		}
 	}
 
@@ -132,6 +152,23 @@
 		return 'Mention only'
 	}
 
+	const activeTitle = () => {
+		if (activeView === 'summary') return 'Session summary'
+		if (activeView === 'attention') return 'Needs your attention'
+		return documentTypeMetadata[activeView].label
+	}
+
+	const activeProposals = () => {
+		if (activeView === 'attention') return attentionProposals()
+		if (activeView === 'summary') return []
+		return typeProposals(activeView)
+	}
+
+	const previewTitles = (type: ReviewDocumentType) =>
+		typeProposals(type)
+			.slice(0, 2)
+			.map(({ title }) => title)
+
 	const approve = async () => {
 		if (!draft.current || committing) return
 		committing = true
@@ -148,7 +185,7 @@
 			})
 			await goto(`/campaigns/${params.campaignId}/session/${result.sessionDocumentId}`)
 		} catch {
-			commitError = 'The selection could not be saved. Refresh the analysis and try again.'
+			commitError = 'The session could not be saved. Refresh the analysis and try again.'
 		} finally {
 			committing = false
 		}
@@ -176,18 +213,45 @@
 	{/if}
 {/snippet}
 
+{#snippet decisionButtons(proposal: SessionProposal)}
+	{@const status = reviewStatus(proposal)}
+	<div class="decision-actions">
+		<button
+			type="button"
+			class="reject-action"
+			class:active={status === 'rejected'}
+			aria-pressed={status === 'rejected'}
+			onclick={() => rejectProposal(proposal)}
+		>
+			<Icon icon="lucide:x" aria-hidden="true" />
+			{status === 'rejected' ? 'Rejected' : 'Reject'}
+		</button>
+		<button
+			type="button"
+			class="approve-action"
+			class:active={status === 'approved'}
+			aria-pressed={status === 'approved'}
+			disabled={!canApprove(proposal)}
+			title={!canApprove(proposal) ? 'Choose which Lore entry this refers to first.' : undefined}
+			onclick={() => approveProposal(proposal)}
+		>
+			<Icon icon="lucide:check" aria-hidden="true" />
+			{status === 'approved' ? 'Approved' : 'Approve'}
+		</button>
+	</div>
+{/snippet}
+
 {#snippet proposalCard(proposal: SessionProposal)}
 	{@const parts = contentParts(proposal)}
-	{@const canToggle = !hasPossibleMatches(proposal) || Boolean(resolutions[proposal.proposalId])}
-	<article class="proposal-card" class:unselected={!selected(proposal)}>
+	{@const status = reviewStatus(proposal)}
+	<article
+		class="proposal-card"
+		class:approved={status === 'approved'}
+		class:rejected={status === 'rejected'}
+		class:pending={status === 'pending'}
+	>
 		<div class="proposal-heading">
-			<label class="selection-control">
-				<input
-					type="checkbox"
-					checked={selected(proposal)}
-					disabled={!canToggle}
-					onchange={() => toggle(proposal)}
-				/>
+			<div class="proposal-identity">
 				<span class="type-icon" aria-hidden="true">
 					<Icon icon={documentTypeMetadata[proposal.documentType].icon} />
 				</span>
@@ -195,10 +259,10 @@
 					<span class="action-label">{actionLabel(proposal)}</span>
 					<strong>{proposal.title}</strong>
 				</span>
-			</label>
+			</div>
 
 			<div class="badges">
-				{#if !selected(proposal) && canToggle}<span class="badge muted">Skipped</span>{/if}
+				{#if status === 'pending'}<span class="badge pending-badge">Review</span>{/if}
 				{#if proposal.certainty === 'inferred'}<span class="badge attention">Inferred</span>{/if}
 				{#if proposal.resolutionMethod === 'model'}<span class="badge attention">Suggested match</span>{/if}
 			</div>
@@ -224,7 +288,7 @@
 			<div class="resolution-panel">
 				<div>
 					<strong>Which Lore entry is this?</strong>
-					<p>Choose an existing entry, create a new one, or leave it unresolved to skip it.</p>
+					<p>Choose the destination before approving this change.</p>
 				</div>
 				<label class="resolution">
 					<span>Resolve match</span>
@@ -232,7 +296,7 @@
 						value={resolutions[proposal.proposalId] ?? ''}
 						onchange={(event) => chooseResolution(proposal, event.currentTarget.value)}
 					>
-						<option value="">Skip for now</option>
+						<option value="">Choose an entry…</option>
 						{#each proposal.match.candidates as candidate}
 							<option value={candidate.documentId}>Update “{candidate.title}”</option>
 						{/each}
@@ -247,26 +311,23 @@
 		{#if proposal.certainty === 'inferred'}
 			<p class="guidance">
 				<Icon icon="lucide:sparkles" aria-hidden="true" />
-				This is an inference rather than something stated directly in the session, so it is skipped by default.
+				This is inferred rather than stated directly in the session, so Loremaster is asking you to decide.
 			</p>
 		{/if}
 
-		{@render sourceDetails(proposal)}
+		<div class="proposal-footer">
+			{@render sourceDetails(proposal)}
+			{@render decisionButtons(proposal)}
+		</div>
 	</article>
 {/snippet}
 
 {#snippet otherDetail(proposal: SessionProposal)}
 	{@const parts = contentParts(proposal)}
-	<article class="detail-card" class:unselected={!selected(proposal)}>
+	{@const status = reviewStatus(proposal)}
+	<article class="detail-card" class:rejected={status === 'rejected'}>
 		<div class="detail-heading">
-			{#if proposal.operation === 'record-only'}
-				<label>
-					<input type="checkbox" checked={selected(proposal)} onchange={() => toggle(proposal)} />
-					<span>{actionLabel(proposal)}</span>
-				</label>
-			{:else}
-				<span class="detail-kind">Mention only</span>
-			{/if}
+			<span class="detail-kind">{actionLabel(proposal)}</span>
 			<strong>{proposal.title}</strong>
 		</div>
 		{#if parts.length}
@@ -274,10 +335,15 @@
 		{/if}
 		<p class="detail-help">
 			{proposal.operation === 'record-only'
-				? 'Included in the session recap, but it will not create or update a Lore entry.'
+				? 'This can be included in the saved session without creating or updating a Lore entry.'
 				: 'Kept as source context only. It will not change Lore or the session recap.'}
 		</p>
-		{@render sourceDetails(proposal)}
+		<div class="proposal-footer">
+			{@render sourceDetails(proposal)}
+			{#if proposal.operation === 'record-only'}
+				{@render decisionButtons(proposal)}
+			{/if}
+		</div>
 	</article>
 {/snippet}
 
@@ -286,7 +352,7 @@
 	<header class="page-heading">
 		<p class="eyebrow">Session review</p>
 		<h2 id="review-heading">{draft.current?.title ?? 'Review session'}</h2>
-		<p>Review what Loremaster learned before adding it to your campaign Lore.</p>
+		<p>Review what Loremaster learned before saving the session and updating your campaign Lore.</p>
 	</header>
 
 	{#if draft.error}
@@ -294,135 +360,213 @@
 	{:else if !draft.current}
 		<p class="state" role="status">Loading analysis…</p>
 	{:else}
-		<section class="recap" aria-labelledby="recap-heading">
-			<div class="section-kicker">
-				<Icon icon="lucide:notebook-text" aria-hidden="true" />
-				<span>Session recap</span>
-			</div>
-			<h3 id="recap-heading">What happened</h3>
-			<div class="recap-copy">
-				{#if recapParagraphs().length}
-					{#each recapParagraphs() as paragraph}<p>{paragraph}</p>{/each}
-				{:else}
-					<p class="empty-copy">No recap details are currently selected.</p>
-				{/if}
-			</div>
-			<p class="recap-help">This recap updates as you include or skip details below.</p>
-		</section>
-
-		{#if loreProposals().length}
-			<section class="found-overview" aria-labelledby="found-heading">
-				<div>
-					<p class="eyebrow">Lore changes</p>
-					<h3 id="found-heading">Found in this session</h3>
-				</div>
-				<div class="type-counts">
-					{#each reviewTypes as type}
-						{#if typeCount(type)}
-							<span>
-								<Icon icon={documentTypeMetadata[type].icon} aria-hidden="true" />
-								{documentTypeMetadata[type].label} · {typeCount(type)}
-							</span>
-						{/if}
-					{/each}
-				</div>
-			</section>
-		{/if}
-
-		{#if attentionProposals().length}
-			<section class="attention-section" aria-labelledby="attention-heading">
-				<header class="group-heading attention-heading">
+		<div class="review-shell">
+			<main class="review-content">
+				<header class="content-heading">
 					<div>
-						<div class="section-kicker attention-kicker">
-							<Icon icon="lucide:circle-help" aria-hidden="true" />
-							<span>Needs your attention</span>
-						</div>
-						<h3 id="attention-heading">
-							{pendingAttentionCount()
-								? `${pendingAttentionCount()} ${pendingAttentionCount() === 1 ? 'suggestion' : 'suggestions'} unresolved`
-								: 'All suggestions reviewed'}
-						</h3>
+						<p class="eyebrow">{activeView === 'summary' ? 'Session' : 'Review'}</p>
+						<h3>{activeTitle()}</h3>
 					</div>
-					<p>These matches or inferences need a little more judgment than routine Lore updates.</p>
-				</header>
-				<div class="proposal-list attention-list">
-					{#each attentionProposals() as proposal (proposal.proposalId)}
-						{@render proposalCard(proposal)}
-					{/each}
-				</div>
-			</section>
-		{/if}
 
-		{#each reviewTypes as type}
-			{@const proposals = groupedProposals(type)}
-			{#if proposals.length}
-				<section class="proposal-group" aria-labelledby={`group-${type}`}>
-					<header class="group-heading">
-						<div class="group-title">
-							<span class="group-icon" aria-hidden="true">
-								<Icon icon={documentTypeMetadata[type].icon} />
-							</span>
+					{#if activeView !== 'summary'}
+						{@const proposals = activeProposals()}
+						<div class="content-stats">
+							<span class="approved-text">{statusCount(proposals, 'approved')} approved</span>
+							{#if statusCount(proposals, 'pending')}
+								<span class="pending-text">{statusCount(proposals, 'pending')} pending</span>
+							{/if}
+							{#if statusCount(proposals, 'rejected')}
+								<span class="rejected-text">{statusCount(proposals, 'rejected')} rejected</span>
+							{/if}
+						</div>
+					{/if}
+				</header>
+
+				{#if activeView === 'summary'}
+					<section class="recap" aria-labelledby="recap-heading">
+						<div class="section-kicker">
+							<Icon icon="lucide:notebook-text" aria-hidden="true" />
+							<span>Session recap</span>
+						</div>
+						<h4 id="recap-heading">What happened</h4>
+						<div class="recap-copy">
+							{#if recapParagraphs().length}
+								{#each recapParagraphs() as paragraph}<p>{paragraph}</p>{/each}
+							{:else}
+								<p class="empty-copy">No approved session details yet.</p>
+							{/if}
+						</div>
+						<p class="recap-help">The recap updates as you approve or reject details.</p>
+					</section>
+
+					{#if otherDetails().length}
+						<details class="other-details">
+							<summary>
+								<span>
+									<Icon icon="lucide:list-collapse" aria-hidden="true" />
+									Other detected details
+								</span>
+								<small>{otherDetails().length}</small>
+							</summary>
+							<p class="other-details-intro">
+								These preserve useful session context without becoming normal Lore entries.
+							</p>
+							<div class="detail-list">
+								{#each otherDetails() as proposal (proposal.proposalId)}
+									{@render otherDetail(proposal)}
+								{/each}
+							</div>
+						</details>
+					{/if}
+
+					{#if draft.current.warnings.length}
+						<details class="analysis-notes">
+							<summary>
+								{draft.current.warnings.length} analysis {draft.current.warnings.length === 1
+									? 'note'
+									: 'notes'}
+							</summary>
+							<p>Some source details could not be confidently included. These notes are mainly useful for troubleshooting.</p>
+							<ul>
+								{#each draft.current.warnings as warning}<li>{warning}</li>{/each}
+							</ul>
+						</details>
+					{/if}
+				{:else if activeView === 'attention'}
+					{#if attentionProposals().length}
+						<div class="attention-intro">
+							<Icon icon="lucide:circle-help" aria-hidden="true" />
 							<div>
-								<h3 id={`group-${type}`}>{documentTypeMetadata[type].label}</h3>
-								<p>{proposals.length} {proposals.length === 1 ? 'change' : 'changes'}</p>
+								<strong>Loremaster deferred these decisions to you.</strong>
+								<p>
+									They contain an inference, an ambiguous identity, or a model-suggested match.
+								</p>
 							</div>
 						</div>
-						<div class="group-actions">
-							<button type="button" onclick={() => setGroupSelected(proposals, true)}>Select all</button>
-							<button type="button" onclick={() => setGroupSelected(proposals, false)}>Skip all</button>
+						<div class="proposal-list">
+							{#each attentionProposals() as proposal (proposal.proposalId)}
+								{@render proposalCard(proposal)}
+							{/each}
 						</div>
-					</header>
+					{:else}
+						<div class="empty-view">
+							<Icon icon="lucide:circle-check-big" aria-hidden="true" />
+							<h4>Nothing needs your attention</h4>
+							<p>All proposed Lore changes are routine, explicit updates.</p>
+						</div>
+					{/if}
+				{:else}
+					{@const proposals = typeProposals(activeView)}
+					<div class="group-toolbar">
+						<p>
+							{proposals.length} {proposals.length === 1 ? 'change' : 'changes'} found in this session.
+						</p>
+						<div>
+							<button type="button" onclick={() => setGroupDecision(proposals, 'approved')}>
+								Approve all ready
+							</button>
+							<button type="button" onclick={() => setGroupDecision(proposals, 'rejected')}>
+								Reject all
+							</button>
+						</div>
+					</div>
 					<div class="proposal-list">
 						{#each proposals as proposal (proposal.proposalId)}
 							{@render proposalCard(proposal)}
 						{/each}
 					</div>
-				</section>
-			{/if}
-		{/each}
+				{/if}
+			</main>
 
-		{#if otherDetails().length}
-			<details class="other-details">
-				<summary>
-					<span>
-						<Icon icon="lucide:list-collapse" aria-hidden="true" />
-						Other detected details
+			<aside class="review-sidebar" aria-label="Session review sections">
+				{#if attentionProposals().length}
+					<button
+						type="button"
+						class="nav-card attention-nav"
+						class:active={activeView === 'attention'}
+						onclick={() => (activeView = 'attention')}
+					>
+						<span class="nav-card-heading">
+							<span class="nav-icon"><Icon icon="lucide:circle-help" aria-hidden="true" /></span>
+							<strong>Needs attention</strong>
+							<span class="nav-count">{pendingAttentionCount()}</span>
+						</span>
+						<span class="nav-subline">
+							{pendingAttentionCount()
+								? `${pendingAttentionCount()} ${pendingAttentionCount() === 1 ? 'decision' : 'decisions'} left`
+								: 'Everything reviewed'}
+						</span>
+					</button>
+				{/if}
+
+				<button
+					type="button"
+					class="nav-card summary-nav"
+					class:active={activeView === 'summary'}
+					onclick={() => (activeView = 'summary')}
+				>
+					<span class="nav-card-heading">
+						<span class="nav-icon"><Icon icon="lucide:notebook-text" aria-hidden="true" /></span>
+						<strong>Summary</strong>
 					</span>
-					<small>{otherDetails().length}</small>
-				</summary>
-				<p class="other-details-intro">
-					These details help preserve session context but do not create or update Lore entries.
-				</p>
-				<div class="detail-list">
-					{#each otherDetails() as proposal (proposal.proposalId)}
-						{@render otherDetail(proposal)}
-					{/each}
-				</div>
-			</details>
-		{/if}
+					<span class="nav-subline">Session recap</span>
+				</button>
 
-		{#if draft.current.warnings.length}
-			<details class="analysis-notes">
-				<summary>{draft.current.warnings.length} analysis {draft.current.warnings.length === 1 ? 'note' : 'notes'}</summary>
-				<p>Some source details could not be confidently included. These notes are mainly useful for troubleshooting.</p>
-				<ul>
-					{#each draft.current.warnings as warning}<li>{warning}</li>{/each}
-				</ul>
-			</details>
-		{/if}
+				{#each reviewTypes as type}
+					{@const proposals = typeProposals(type)}
+					{#if proposals.length}
+						<button
+							type="button"
+							class="nav-card"
+							class:active={activeView === type}
+							onclick={() => (activeView = type)}
+						>
+							<span class="nav-card-heading">
+								<span class="nav-icon">
+									<Icon icon={documentTypeMetadata[type].icon} aria-hidden="true" />
+								</span>
+								<strong>{documentTypeMetadata[type].label}</strong>
+								<span class="nav-count">{proposals.length}</span>
+							</span>
+							<span class="nav-statuses">
+								<span class="approved-text">{statusCount(proposals, 'approved')} approved</span>
+								{#if statusCount(proposals, 'pending')}
+									<span class="pending-text">· {statusCount(proposals, 'pending')} review</span>
+								{/if}
+								{#if statusCount(proposals, 'rejected')}
+									<span class="rejected-text">· {statusCount(proposals, 'rejected')} rejected</span>
+								{/if}
+							</span>
+							{#if previewTitles(type).length}
+								<span class="preview-row">
+									{#each previewTitles(type) as title}
+										<span>{title}</span>
+									{/each}
+									{#if proposals.length > 2}<span>+{proposals.length - 2}</span>{/if}
+								</span>
+							{/if}
+						</button>
+					{/if}
+				{/each}
+			</aside>
+		</div>
 
 		<footer class="approval">
 			<div>
-				<strong>{selectedLoreCount()} Lore {selectedLoreCount() === 1 ? 'change' : 'changes'} selected</strong>
+				<strong>
+					{approvedLoreCount()} approved · {rejectedLoreCount()} rejected
+					{#if pendingAttentionCount()} · {pendingAttentionCount()} need attention{/if}
+				</strong>
 				<p>
 					{pendingAttentionCount()
-						? `${pendingAttentionCount()} ${pendingAttentionCount() === 1 ? 'suggestion is' : 'suggestions are'} still unresolved and will be skipped unless you review them.`
-						: 'Everything that needs your judgment has been reviewed.'}
+						? `${pendingAttentionCount()} undecided ${pendingAttentionCount() === 1 ? 'change' : 'changes'} will not be added unless you approve them.`
+						: 'Your review is ready to save.'}
 				</p>
 				{#if commitError}<p class="error" role="alert">{commitError}</p>{/if}
 			</div>
 			<button type="button" disabled={committing} onclick={approve}>
-				{committing ? 'Saving…' : 'Approve Lore changes'}
+				<Icon icon="lucide:save" aria-hidden="true" />
+				{committing ? 'Saving…' : 'Save session & update Lore'}
 			</button>
 		</footer>
 	{/if}
@@ -434,10 +578,15 @@
 		--ink-soft: #6f604e;
 		--gold: #9a7843;
 		--paper: rgb(255 251 241 / 82%);
+		--green: #35744b;
+		--green-soft: rgb(53 116 75 / 10%);
+		--red: #9a4439;
+		--red-soft: rgb(154 68 57 / 9%);
+		--amber: #9b642f;
 		box-sizing: border-box;
-		width: min(72rem, 100%);
+		width: min(82rem, 100%);
 		margin: 0 auto;
-		padding: clamp(2rem, 5vw, 4.5rem) clamp(1.25rem, 6vw, 5rem) 7rem;
+		padding: clamp(2rem, 5vw, 4.5rem) clamp(1.25rem, 5vw, 4rem) 7rem;
 		color: var(--ink);
 	}
 
@@ -456,7 +605,8 @@
 	}
 
 	h2,
-	h3 {
+	h3,
+	h4 {
 		font-family: var(--font-display);
 	}
 
@@ -467,11 +617,15 @@
 
 	h3 {
 		margin: 0;
-		font-size: 1.45rem;
+		font-size: 1.6rem;
+	}
+
+	h4 {
+		margin: 0;
+		font-size: 1.35rem;
 	}
 
 	.page-heading > p:last-child,
-	.group-heading p,
 	.recap-help,
 	.match-note,
 	.guidance,
@@ -488,13 +642,172 @@
 		background: rgb(250 241 222 / 55%);
 	}
 
-	.recap {
-		margin: 1.75rem 0 2rem;
-		padding: clamp(1.2rem, 3vw, 1.75rem);
-		border: 1px solid rgb(154 120 67 / 42%);
+	.review-shell {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 18rem;
+		gap: 1.25rem;
+		align-items: start;
+	}
+
+	.review-content {
+		min-height: 39rem;
+		padding: clamp(1.2rem, 2.5vw, 2rem);
+		border: 1px solid rgb(154 120 67 / 40%);
 		border-radius: var(--border-radius-md);
 		background: var(--paper);
-		box-shadow: 0 8px 28px rgb(70 49 28 / 5%);
+		box-shadow: 0 10px 32px rgb(70 49 28 / 6%);
+	}
+
+	.content-heading {
+		display: flex;
+		gap: 1rem;
+		align-items: end;
+		justify-content: space-between;
+		margin-bottom: 1.25rem;
+		padding-bottom: 1rem;
+		border-bottom: 1px solid rgb(154 120 67 / 24%);
+	}
+
+	.content-heading .eyebrow {
+		margin: 0 0 0.25rem;
+	}
+
+	.content-stats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.55rem;
+		justify-content: flex-end;
+		font-size: 0.72rem;
+		font-weight: 750;
+	}
+
+	.review-sidebar {
+		position: sticky;
+		top: 1rem;
+		display: grid;
+		gap: 0.7rem;
+	}
+
+	.nav-card {
+		display: grid;
+		width: 100%;
+		gap: 0.48rem;
+		padding: 0.9rem;
+		border: 1px solid rgb(154 120 67 / 32%);
+		border-radius: var(--border-radius-md);
+		background: rgb(255 251 241 / 66%);
+		color: var(--ink);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			transform 120ms ease,
+			border-color 120ms ease,
+			background-color 120ms ease,
+			box-shadow 120ms ease;
+	}
+
+	.nav-card:hover {
+		transform: translateY(-1px);
+		border-color: rgb(154 120 67 / 58%);
+		background: rgb(255 251 241 / 88%);
+	}
+
+	.nav-card.active {
+		border-color: rgb(154 120 67 / 72%);
+		background: rgb(255 248 232 / 94%);
+		box-shadow: 0 6px 20px rgb(70 49 28 / 8%);
+	}
+
+	.attention-nav {
+		border-color: rgb(166 112 53 / 48%);
+		background: rgb(249 235 207 / 58%);
+	}
+
+	.attention-nav.active {
+		border-color: rgb(155 100 47 / 78%);
+		background: rgb(249 235 207 / 88%);
+	}
+
+	.nav-card-heading {
+		display: flex;
+		gap: 0.55rem;
+		align-items: center;
+	}
+
+	.nav-icon {
+		display: grid;
+		width: 1.7rem;
+		height: 1.7rem;
+		place-items: center;
+		border: 1px solid rgb(154 120 67 / 28%);
+		border-radius: 50%;
+		color: var(--gold);
+	}
+
+	.nav-icon :global(svg) {
+		width: 0.9rem;
+		height: 0.9rem;
+	}
+
+	.nav-card-heading strong {
+		flex: 1;
+		font-family: var(--font-display);
+		font-size: 1.02rem;
+	}
+
+	.nav-count {
+		display: grid;
+		min-width: 1.55rem;
+		height: 1.55rem;
+		place-items: center;
+		border-radius: 999px;
+		background: rgb(154 120 67 / 10%);
+		color: var(--ink-soft);
+		font-size: 0.7rem;
+		font-weight: 800;
+	}
+
+	.nav-subline,
+	.nav-statuses {
+		color: var(--ink-soft);
+		font-size: 0.7rem;
+		font-weight: 650;
+	}
+
+	.preview-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin-top: 0.1rem;
+	}
+
+	.preview-row span {
+		max-width: 100%;
+		padding: 0.22rem 0.38rem;
+		overflow: hidden;
+		border-radius: 0.3rem;
+		background: rgb(154 120 67 / 8%);
+		color: var(--ink-soft);
+		font-size: 0.64rem;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.approved-text {
+		color: var(--green);
+	}
+
+	.pending-text {
+		color: var(--amber);
+	}
+
+	.rejected-text {
+		color: var(--red);
+	}
+
+	.recap {
+		padding: 0.25rem 0 0;
 	}
 
 	.section-kicker {
@@ -517,11 +830,11 @@
 	.recap-copy {
 		margin-top: 1rem;
 		font-size: 0.98rem;
-		line-height: 1.65;
+		line-height: 1.7;
 	}
 
 	.recap-copy p {
-		margin: 0.65rem 0;
+		margin: 0.75rem 0;
 	}
 
 	.recap-help {
@@ -529,164 +842,95 @@
 		font-size: 0.78rem;
 	}
 
-	.found-overview {
+	.attention-intro {
 		display: flex;
-		gap: 1rem 2rem;
-		align-items: end;
-		justify-content: space-between;
-		margin: 2rem 0 1.35rem;
-		padding-bottom: 1rem;
-		border-bottom: 1px solid rgb(154 120 67 / 30%);
+		gap: 0.75rem;
+		align-items: start;
+		margin-bottom: 1rem;
+		padding: 0.85rem 0.95rem;
+		border: 1px solid rgb(166 112 53 / 34%);
+		border-radius: calc(var(--border-radius-md) * 0.85);
+		background: rgb(249 235 207 / 44%);
 	}
 
-	.found-overview .eyebrow {
-		margin: 0 0 0.2rem;
+	.attention-intro :global(svg) {
+		flex: 0 0 auto;
+		width: 1.2rem;
+		height: 1.2rem;
+		margin-top: 0.1rem;
+		color: var(--amber);
 	}
 
-	.type-counts {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.45rem;
-		justify-content: flex-end;
-	}
-
-	.type-counts span {
-		display: inline-flex;
-		gap: 0.35rem;
-		align-items: center;
-		padding: 0.35rem 0.55rem;
-		border: 1px solid rgb(154 120 67 / 28%);
-		border-radius: 999px;
-		background: rgb(255 251 241 / 55%);
+	.attention-intro p {
+		margin: 0.2rem 0 0;
 		color: var(--ink-soft);
-		font-size: 0.75rem;
-		font-weight: 650;
+		font-size: 0.78rem;
 	}
 
-	.type-counts :global(svg) {
-		width: 0.9rem;
-		height: 0.9rem;
-	}
-
-	.attention-section,
-	.proposal-group {
-		margin-top: 2rem;
-	}
-
-	.attention-section {
-		padding: 1.15rem;
-		border: 1px solid rgb(166 112 53 / 38%);
-		border-radius: var(--border-radius-md);
-		background: rgb(249 235 207 / 34%);
-	}
-
-	.group-heading {
+	.group-toolbar {
 		display: flex;
 		gap: 1rem;
 		align-items: center;
 		justify-content: space-between;
-		margin-bottom: 0.85rem;
+		margin-bottom: 0.9rem;
 	}
 
-	.group-heading p {
-		margin: 0.2rem 0 0;
+	.group-toolbar p {
+		margin: 0;
+		color: var(--ink-soft);
 		font-size: 0.78rem;
 	}
 
-	.attention-heading {
-		align-items: end;
-	}
-
-	.attention-heading > p {
-		max-width: 29rem;
-		text-align: right;
-	}
-
-	.attention-kicker {
-		color: #9b642f;
-	}
-
-	.group-title {
+	.group-toolbar > div {
 		display: flex;
-		gap: 0.7rem;
-		align-items: center;
+		gap: 0.35rem;
 	}
 
-	.group-icon,
-	.type-icon {
-		display: grid;
-		place-items: center;
-		border: 1px solid rgb(154 120 67 / 30%);
-		border-radius: 50%;
-		background: rgb(154 120 67 / 8%);
-		color: var(--gold);
-	}
-
-	.group-icon {
-		width: 2.35rem;
-		height: 2.35rem;
-	}
-
-	.group-icon :global(svg) {
-		width: 1.15rem;
-		height: 1.15rem;
-	}
-
-	.type-icon {
-		flex: 0 0 auto;
-		width: 2rem;
-		height: 2rem;
-	}
-
-	.type-icon :global(svg) {
-		width: 1rem;
-		height: 1rem;
-	}
-
-	.group-actions {
-		display: flex;
-		gap: 0.4rem;
-	}
-
-	.group-actions button {
+	.group-toolbar button {
 		padding: 0.35rem 0.5rem;
 		border: 0;
 		background: transparent;
 		color: var(--ink-soft);
 		font: inherit;
-		font-size: 0.75rem;
-		font-weight: 700;
+		font-size: 0.72rem;
+		font-weight: 750;
 		cursor: pointer;
 	}
 
-	.group-actions button:hover {
+	.group-toolbar button:hover {
 		color: var(--ink);
 		text-decoration: underline;
 	}
 
 	.proposal-list {
 		display: grid;
-		gap: 0.65rem;
+		gap: 0.7rem;
 	}
 
 	.proposal-card {
 		padding: 1rem 1.05rem;
-		border: 1px solid rgb(154 120 67 / 32%);
+		border: 1px solid rgb(154 120 67 / 30%);
 		border-radius: var(--border-radius-md);
-		background: rgb(255 251 241 / 70%);
+		background: rgb(255 251 241 / 68%);
 		transition:
-			opacity 140ms ease,
 			background-color 140ms ease,
-			border-color 140ms ease;
+			border-color 140ms ease,
+			box-shadow 140ms ease;
 	}
 
-	.proposal-card.unselected {
-		border-color: rgb(123 110 92 / 22%);
-		background: rgb(246 242 233 / 45%);
+	.proposal-card.approved {
+		border-color: rgb(53 116 75 / 26%);
+		background: linear-gradient(90deg, var(--green-soft), rgb(255 251 241 / 70%) 22%);
 	}
 
-	.proposal-card.unselected > :not(.proposal-heading) {
-		opacity: 0.7;
+	.proposal-card.rejected {
+		border-color: rgb(154 68 57 / 24%);
+		background: linear-gradient(90deg, var(--red-soft), rgb(246 242 233 / 54%) 22%);
+	}
+
+	.proposal-card.pending {
+		border-color: rgb(155 100 47 / 42%);
+		background: rgb(255 248 232 / 72%);
 	}
 
 	.proposal-heading {
@@ -696,20 +940,28 @@
 		justify-content: space-between;
 	}
 
-	.selection-control {
+	.proposal-identity {
 		display: flex;
 		min-width: 0;
-		gap: 0.65rem;
+		gap: 0.7rem;
 		align-items: center;
-		cursor: pointer;
 	}
 
-	.selection-control input {
+	.type-icon {
+		display: grid;
 		flex: 0 0 auto;
+		width: 2.1rem;
+		height: 2.1rem;
+		place-items: center;
+		border: 1px solid rgb(154 120 67 / 30%);
+		border-radius: 50%;
+		background: rgb(154 120 67 / 8%);
+		color: var(--gold);
 	}
 
-	.selection-control:has(input:disabled) {
-		cursor: default;
+	.type-icon :global(svg) {
+		width: 1rem;
+		height: 1rem;
 	}
 
 	.proposal-title {
@@ -752,24 +1004,19 @@
 		text-transform: uppercase;
 	}
 
-	.badge.attention {
+	.badge.attention,
+	.pending-badge {
 		border-color: rgb(166 112 53 / 40%);
 		background: rgb(206 150 78 / 10%);
 		color: #8d5a26;
-	}
-
-	.badge.muted {
-		border-color: rgb(105 95 83 / 24%);
-		color: #776c5f;
 	}
 
 	.proposal-copy,
 	.additions,
 	.match-note,
 	.guidance,
-	.resolution-panel,
-	.sources {
-		margin-left: 3.55rem;
+	.resolution-panel {
+		margin-left: 2.8rem;
 	}
 
 	.proposal-copy {
@@ -796,6 +1043,7 @@
 		align-items: start;
 		margin-top: 0.75rem;
 		margin-bottom: 0;
+		color: var(--ink-soft);
 		font-size: 0.78rem;
 		line-height: 1.45;
 	}
@@ -844,8 +1092,17 @@
 		font: inherit;
 	}
 
+	.proposal-footer {
+		display: flex;
+		gap: 0.75rem;
+		align-items: end;
+		justify-content: space-between;
+		margin-top: 0.9rem;
+		margin-left: 2.8rem;
+	}
+
 	.sources {
-		margin-top: 0.85rem;
+		min-width: 0;
 	}
 
 	.sources summary {
@@ -887,6 +1144,68 @@
 		font-size: 0.68rem;
 	}
 
+	.decision-actions {
+		display: flex;
+		flex: 0 0 auto;
+		gap: 0.45rem;
+	}
+
+	.decision-actions button {
+		display: inline-flex;
+		gap: 0.3rem;
+		align-items: center;
+		padding: 0.48rem 0.7rem;
+		border-radius: 0.4rem;
+		background: transparent;
+		font: inherit;
+		font-size: 0.75rem;
+		font-weight: 800;
+		cursor: pointer;
+		transition:
+			background-color 120ms ease,
+			color 120ms ease,
+			border-color 120ms ease;
+	}
+
+	.decision-actions button :global(svg) {
+		width: 0.9rem;
+		height: 0.9rem;
+	}
+
+	.reject-action {
+		border: 1px solid rgb(154 68 57 / 55%);
+		color: var(--red);
+	}
+
+	.reject-action:hover,
+	.reject-action.active {
+		border-color: var(--red);
+		background: var(--red);
+		color: #fff;
+	}
+
+	.approve-action {
+		border: 1px solid rgb(53 116 75 / 58%);
+		color: var(--green);
+	}
+
+	.approve-action:hover,
+	.approve-action.active {
+		border-color: var(--green);
+		background: var(--green);
+		color: #fff;
+	}
+
+	.approve-action:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
+	}
+
+	.approve-action:disabled:hover {
+		background: transparent;
+		color: var(--green);
+	}
+
 	.other-details,
 	.analysis-notes {
 		margin-top: 2rem;
@@ -926,26 +1245,19 @@
 	}
 
 	.detail-card {
-		padding: 0.8rem 0.9rem;
+		padding: 0.85rem 0.9rem;
 		border: 1px solid rgb(154 120 67 / 24%);
 		border-radius: calc(var(--border-radius-md) * 0.8);
 		background: rgb(255 251 241 / 44%);
 	}
 
-	.detail-card.unselected {
+	.detail-card.rejected {
 		opacity: 0.68;
 	}
 
 	.detail-heading {
-		display: flex;
-		gap: 0.65rem;
-		align-items: center;
-	}
-
-	.detail-heading label {
-		display: flex;
-		gap: 0.4rem;
-		align-items: center;
+		display: grid;
+		gap: 0.12rem;
 	}
 
 	.detail-heading strong {
@@ -962,7 +1274,7 @@
 		font-style: italic;
 	}
 
-	.detail-card .sources {
+	.detail-card .proposal-footer {
 		margin-left: 0;
 	}
 
@@ -972,6 +1284,29 @@
 
 	.analysis-notes ul {
 		margin-top: 0.5rem;
+	}
+
+	.empty-view {
+		display: grid;
+		place-items: center;
+		min-height: 22rem;
+		color: var(--ink-soft);
+		text-align: center;
+	}
+
+	.empty-view :global(svg) {
+		width: 2.2rem;
+		height: 2.2rem;
+		color: var(--green);
+	}
+
+	.empty-view h4 {
+		margin-top: 0.7rem;
+		color: var(--ink);
+	}
+
+	.empty-view p {
+		margin-top: 0.25rem;
 	}
 
 	.error {
@@ -986,11 +1321,11 @@
 		gap: 1.5rem;
 		align-items: center;
 		justify-content: space-between;
-		margin-top: 2rem;
+		margin-top: 1.25rem;
 		padding: 0.95rem 1rem;
 		border: 1px solid rgb(154 120 67 / 48%);
 		border-radius: var(--border-radius-md);
-		background: rgb(255 251 241 / 94%);
+		background: rgb(255 251 241 / 95%);
 		box-shadow: 0 10px 30px rgb(50 35 20 / 12%);
 		backdrop-filter: blur(10px);
 	}
@@ -1000,44 +1335,62 @@
 		font-size: 0.76rem;
 	}
 
-	.approval button {
+	.approval > button {
+		display: inline-flex;
 		flex: 0 0 auto;
-		padding: 0.7rem 0.95rem;
+		gap: 0.45rem;
+		align-items: center;
+		padding: 0.72rem 1rem;
 		border: 1px solid var(--gold);
 		border-radius: 0.4rem;
 		background: var(--ink);
 		color: #fffaf0;
 		font: inherit;
-		font-weight: 700;
+		font-weight: 750;
 		cursor: pointer;
 	}
 
-	.approval button:disabled {
+	.approval > button :global(svg) {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.approval > button:disabled {
 		opacity: 0.55;
 		cursor: wait;
 	}
 
-	@media (max-width: 720px) {
-		.found-overview,
-		.group-heading,
-		.attention-heading,
+	@media (max-width: 900px) {
+		.review-shell {
+			grid-template-columns: 1fr;
+		}
+
+		.review-sidebar {
+			position: static;
+			grid-row: 1;
+			grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+		}
+
+		.nav-card {
+			min-height: 6.3rem;
+		}
+
+		.review-content {
+			min-height: 30rem;
+		}
+	}
+
+	@media (max-width: 640px) {
+		.content-heading,
+		.group-toolbar,
+		.proposal-footer,
 		.approval {
 			align-items: stretch;
 			flex-direction: column;
 		}
 
-		.type-counts,
-		.group-actions {
+		.content-stats {
 			justify-content: flex-start;
-		}
-
-		.attention-heading > p {
-			max-width: none;
-			text-align: left;
-		}
-
-		.resolution-panel {
-			grid-template-columns: 1fr;
 		}
 
 		.proposal-copy,
@@ -1045,15 +1398,29 @@
 		.match-note,
 		.guidance,
 		.resolution-panel,
-		.sources {
+		.proposal-footer {
 			margin-left: 0;
+		}
+
+		.resolution-panel {
+			grid-template-columns: 1fr;
+		}
+
+		.decision-actions {
+			width: 100%;
+		}
+
+		.decision-actions button {
+			flex: 1;
+			justify-content: center;
 		}
 
 		.approval {
 			bottom: 0.5rem;
 		}
 
-		.approval button {
+		.approval > button {
+			justify-content: center;
 			width: 100%;
 		}
 	}
