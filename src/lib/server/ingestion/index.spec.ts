@@ -465,6 +465,76 @@ describe('session ingestion operations', () => {
 		)
 	})
 
+
+	it('allocates unique paths when selected documents have duplicate generated names', async () => {
+		const duplicateEvent = (content: string): ExtractedSessionClaim =>
+			claim(content, {
+				kind: 'development',
+				eventTitle: 'Ceiling trap disabled',
+				content,
+				entityReferences: []
+			})
+		const harness = setup(
+			[
+				duplicateEvent('The party disabled the ceiling trap in the west hall.'),
+				duplicateEvent('The party disabled another ceiling trap in the east hall.')
+			],
+			[]
+		)
+		const draft = await runPromise(
+			analyze(
+				harness.operations,
+				'The party disabled the ceiling trap in the west hall.\nThe party disabled another ceiling trap in the east hall.'
+			)
+		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft)
+			})
+		)
+
+		const eventPaths = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+			.map(({ path }) => path)
+		expect(eventPaths).toEqual([
+			'Events/ceiling-trap-disabled.md',
+			'Events/ceiling-trap-disabled-2.md'
+		])
+	})
+
+	it('avoids paths already used by existing documents', async () => {
+		const existingEvent = document('old-event', 'Old event', [], 'event', {
+			path: 'Events/ceiling-trap-disabled.md'
+		})
+		const harness = setup(
+			[
+				claim('The party disabled the ceiling trap.', {
+					kind: 'development',
+					eventTitle: 'Ceiling trap disabled',
+					content: 'The party disabled the ceiling trap.',
+					entityReferences: []
+				})
+			],
+			[existingEvent]
+		)
+		const draft = await runPromise(analyze(harness.operations, 'The party disabled the ceiling trap.'))
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft)
+			})
+		)
+
+		const eventCreate = harness.createDocument.mock.calls.find(([, input]) => input.type === 'event')?.[1]
+		expect(eventCreate?.path).toBe('Events/ceiling-trap-disabled-2.md')
+	})
+
 	it('never allows mention-only evidence to be committed as a mutation', async () => {
 		const harness = setup([
 			claim('Someone mentioned Mara.', {
