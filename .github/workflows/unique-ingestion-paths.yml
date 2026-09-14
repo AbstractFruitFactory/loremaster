@@ -1,0 +1,32 @@
+name: Unique ingestion paths
+
+on:
+  push:
+    branches:
+      - fix-duplicate-ingestion-paths
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'fix: allocate unique ingestion document paths'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix-duplicate-ingestion-paths
+          fetch-depth: 0
+      - run: npm install --global pnpm@10
+      - run: pnpm install --frozen-lockfile
+      - run: python .github/scripts/apply-unique-ingestion-paths.py
+      - run: pnpm check
+      - run: pnpm exec playwright install chromium
+      - run: pnpm test
+      - name: Commit implementation
+        run: |
+          git config user.name "AbstractFruitFactory"
+          git config user.email "abstractfruitfactory@pm.me"
+          git add src/lib/server/ingestion/index.ts src/lib/server/ingestion/index.spec.ts
+          git commit -m "fix: allocate unique ingestion document paths"
+          git push
