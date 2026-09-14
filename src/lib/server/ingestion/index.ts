@@ -1389,7 +1389,19 @@ export const sessionIngestion = ({
 		}
 
 		const planned: PlannedMutation[] = []
-		const createPaths = new Set<string>()
+		const createPaths = new Set(documents.map(({ path }) => path))
+		const nextCreatePath = (proposal: SessionProposal) => {
+			const directory = categoryDirectory[proposal.documentType]
+			const slug = toSlug(proposal.title)
+			let suffix = 1
+			let path = `${directory}/${slug}.md`
+			while (createPaths.has(path)) {
+				suffix += 1
+				path = `${directory}/${slug}-${suffix}.md`
+			}
+			createPaths.add(path)
+			return path
+		}
 		for (const proposal of resolvedSelected) {
 			if (proposal.operation === 'record-only') continue
 			const documentId = documentIdByProposal.get(proposal.proposalId)!
@@ -1413,15 +1425,7 @@ export const sessionIngestion = ({
 					cause: { reason: 'unresolvedChronology', proposalId: proposal.proposalId }
 				} satisfies Failure)
 			}
-			const path = `${categoryDirectory[proposal.documentType]}/${toSlug(proposal.title)}.md`
-			if (createPaths.has(path) || documents.some((document) => document.path === path)) {
-				return failEffect({
-					domain: 'ingestion',
-					operation: 'commit',
-					cause: { reason: 'duplicateDocumentPath', path }
-				} satisfies Failure)
-			}
-			createPaths.add(path)
+			const path = nextCreatePath(proposal)
 			planned.push({ proposal, documentId, path, after })
 		}
 
