@@ -356,4 +356,60 @@ describe('session claim validation', () => {
 		)
 		warn.mockRestore()
 	})
+
+	it('treats persistent entity identity as part of reference validation', async () => {
+		const claim: ExtractedSessionClaim = {
+			kind: 'stable-fact',
+			eventTitle: null,
+			certainty: 'explicit',
+			content: 'The wall gives a hollow note when Brakka taps it.',
+			evidence: [{ startLine: 1, endLine: 1 }],
+			entityReferences: [{ label: 'Wall', type: 'location' }]
+		}
+		const analyzer: AnalyzeSessionChunk = vi.fn(({ system }) => {
+			expect(system ?? '').toContain('Only emit entity references for durable campaign entities')
+			expect(system ?? '').toContain('A location reference must denote a distinct, persistent place')
+			expect(system ?? '').toContain('Scene or section headings are editorial structure')
+			return succeed([claim])
+		})
+		const validator: ValidateSessionClaims = vi.fn(({ system, prompt }) => {
+			expect(system ?? '').toContain('Reference validation checks entityhood and type')
+			expect(system ?? '').toContain('A Location must be a distinct, persistent place')
+			expect(system ?? '').toContain('Scene or section headings are editorial context')
+			const [{ candidateId, certainty, entityReferences }] = JSON.parse(
+				prompt.split('\n\n## Candidate claims\n').at(-1) ?? '[]'
+			) as {
+				candidateId: string
+				certainty: 'explicit' | 'inferred'
+				entityReferences: { referenceId: string }[]
+			}[]
+			return succeed([
+				{
+					candidateId,
+					accepted: true,
+					certainty,
+					reason: 'supported' as const,
+					referenceValidations: entityReferences.map(({ referenceId }) => ({
+						referenceId,
+						accepted: false
+					}))
+				}
+			])
+		})
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+		const draft = await analyze(
+			operationsWith(analyzer, validator),
+			'DM: The wall gives a hollow note when Brakka taps it.'
+		)
+
+		expect(draft.proposals.some((proposal) => proposal.documentType === 'location')).toBe(false)
+		expect(draft.proposals[1]).toMatchObject({
+			operation: 'record-only',
+			content: claim.content
+		})
+		expect(draft.warnings[0]).toContain('[validator-rejected-reference]')
+		expect(draft.warnings[0]).toContain('Wall')
+		warn.mockRestore()
+	})
+
 })
