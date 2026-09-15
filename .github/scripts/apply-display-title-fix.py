@@ -37,6 +37,15 @@ new = """\t\tfor (const occurrence of provisional) {
 assert old in text
 text = text.replace(old, new, 1)
 
+old = """\t\t\tif (entity.kind === 'session') {
+\t\t\t\treturn { label: entity.candidate.title }
+\t\t\t}"""
+new = """\t\t\tif (entity.kind === 'session') {
+\t\t\t\treturn { label: entity.reference.label }
+\t\t\t}"""
+assert old in text
+text = text.replace(old, new, 1)
+
 old = "\t\t\t\ttitle: entity.reference.label,\n\t\t\t\tcertainty: claim.certainty,"
 new = "\t\t\t\ttitle: displayTitle(entity.reference.label),\n\t\t\t\tcertainty: claim.certainty,"
 assert old in text
