@@ -101,27 +101,22 @@
 		align-items: center;
 		gap: 0.8rem;
 		padding: 0.85rem;
-		border: 1px solid rgb(194 155 91 / 58%);
-		border-radius: 0.75rem;
-		background:
-			radial-gradient(circle at 100% 0%, rgb(218 179 110 / 14%), transparent 8rem),
-			linear-gradient(145deg, #fff9ed, #f3e6d2);
-		box-shadow:
-			0 0.8rem 1.8rem rgb(9 18 14 / 24%),
-			0 1px 0 rgb(255 255 255 / 72%) inset;
+		border: 1.5px solid #39342c;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 74%);
+		box-shadow: 0.2rem 0.2rem 0 rgb(57 52 44 / 88%);
 		color: inherit;
 		text-decoration: none;
 		transition:
 			background-color 120ms ease,
-			transform 150ms ease,
-			box-shadow 180ms ease;
+			transform 120ms ease,
+			box-shadow 120ms ease;
 	}
 
 	a:hover {
-		transform: translateY(-3px);
-		box-shadow:
-			0 1.1rem 2.3rem rgb(9 18 14 / 31%),
-			0 1px 0 rgb(255 255 255 / 82%) inset;
+		background: #fffaf0;
+		transform: translate(-1px, -1px);
+		box-shadow: 0.28rem 0.28rem 0 #39342c;
 	}
 
 	.icon {
@@ -130,8 +125,7 @@
 		height: 2.6rem;
 		flex: 0 0 2.6rem;
 		place-items: center;
-		border: 1px solid #8d6830;
-		border-radius: 0.45rem;
+		border: 1.5px solid #39342c;
 		background: #e9bf75;
 		color: #39342c;
 	}

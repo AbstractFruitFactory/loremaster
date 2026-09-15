@@ -164,27 +164,22 @@
 		min-height: 11rem;
 		padding: 1.05rem 1.15rem 1.15rem;
 		flex-direction: column;
-		border: 1px solid rgb(194 155 91 / 58%);
-		border-radius: 0.75rem;
-		background:
-			radial-gradient(circle at 100% 0%, rgb(218 179 110 / 14%), transparent 8rem),
-			linear-gradient(145deg, #fff9ed, #f3e6d2);
-		box-shadow:
-			0 0.8rem 1.8rem rgb(9 18 14 / 24%),
-			0 1px 0 rgb(255 255 255 / 72%) inset;
+		border: 1.5px solid #3d382f;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 76%);
+		box-shadow: 0.2rem 0.2rem 0 rgb(61 56 47 / 88%);
 		color: inherit;
 		text-decoration: none;
 		transition:
 			background-color 150ms ease,
-			box-shadow 180ms ease,
+			box-shadow 150ms ease,
 			transform 150ms ease;
 	}
 
 	.document-card:hover {
-		box-shadow:
-			0 1.1rem 2.3rem rgb(9 18 14 / 31%),
-			0 1px 0 rgb(255 255 255 / 82%) inset;
-		transform: translateY(-3px);
+		background: #fffaf0;
+		box-shadow: 0.3rem 0.3rem 0 #3d382f;
+		transform: translate(-1px, -1px);
 	}
 
 	.document-card:focus-visible {
@@ -224,8 +219,7 @@
 		width: 2.25rem;
 		height: 2.25rem;
 		place-items: center;
-		border: 1px solid #8d6830;
-		border-radius: 0.4rem;
+		border: 1.5px solid #3d382f;
 		background: #e8bc71;
 		color: #3d382f;
 	}
