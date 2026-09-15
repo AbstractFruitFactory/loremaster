@@ -41,7 +41,8 @@
 	.sidebar {
 		box-sizing: border-box;
 		width: var(--sidebar-width, 17.5rem);
-		min-height: var(--sidebar-min-height, 100dvh);
+		height: 100%;
+		min-height: var(--sidebar-min-height, 100%);
 		padding: 1.75rem 1.45rem 1.55rem;
 		background-color: #10171c;
 		background-image:

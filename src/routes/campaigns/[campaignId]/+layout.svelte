@@ -55,12 +55,13 @@
 <style>
 	.campaign-shell {
 		--sidebar-width: 100%;
+		--sidebar-min-height: 100%;
 
 		display: grid;
 		grid-template-columns: 17.5rem minmax(0, 1fr);
 		width: 100%;
 		max-width: 100%;
-		height: 100dvh;
+		height: 100%;
 		overflow: hidden;
 	}
 

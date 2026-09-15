@@ -157,7 +157,9 @@
 		--gold: #9a7843;
 		--gold-light: #c8aa75;
 		box-sizing: border-box;
-		min-height: 100dvh;
+		height: 100%;
+		min-height: 100%;
+		overflow-y: auto;
 		padding: clamp(2.75rem, 4vw, 4rem) clamp(2rem, 7vw, 6rem);
 		background-color: var(--paper);
 		background-image: var(--paper-background);
