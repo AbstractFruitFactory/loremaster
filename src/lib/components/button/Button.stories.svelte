@@ -1,5 +1,6 @@
 <script module lang="ts">
 	import { defineMeta } from '@storybook/addon-svelte-csf'
+	import Icon from '@iconify/svelte'
 	import type { ComponentProps } from 'svelte'
 
 	import Button from './Button.svelte'
@@ -34,6 +35,10 @@
 	})
 </script>
 
+{#snippet sparkleIcon()}
+	<Icon icon="lucide:sparkles" width="1.15rem" height="1.15rem" />
+{/snippet}
+
 <Story name="Primary" args={primaryArgs}>Primary button</Story>
 
 <Story name="Secondary" args={secondaryArgs}>Secondary button</Story>
@@ -41,3 +46,5 @@
 <Story name="Danger" args={dangerArgs}>Danger button</Story>
 
 <Story name="Disabled" args={disabledArgs}>Disabled button</Story>
+
+<Story name="Split seal" args={{ ...primaryArgs, icon: sparkleIcon }}>Ask Loremaster</Story>
