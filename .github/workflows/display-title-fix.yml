@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message != 'fix: normalize ingestion document titles'
+    if: github.event.head_commit.message != 'normalize ingestion document titles'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,5 +28,5 @@ jobs:
           git config user.name "AbstractFruitFactory"
           git config user.email "abstractfruitfactory@pm.me"
           git add src/lib/server/ingestion/index.ts src/lib/server/ingestion/index.spec.ts src/lib/server/ingestion/validation.spec.ts
-          git commit -m "fix: normalize ingestion document titles"
+          git commit -m "normalize ingestion document titles"
           git push
