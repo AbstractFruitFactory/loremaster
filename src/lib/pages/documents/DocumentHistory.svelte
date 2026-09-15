@@ -296,7 +296,7 @@
 	.back-link {
 		display: inline-block;
 		margin-bottom: 1.25rem;
-		color: var(--gold);
+		color: #d7b46e;
 		font-size: 0.78rem;
 		font-weight: 700;
 		letter-spacing: 0.08em;
@@ -317,6 +317,7 @@
 		margin-bottom: 1.25rem;
 		padding-bottom: 1rem;
 		border-bottom: 1px solid rgb(154 120 67 / 38%);
+		color: #f5ead6;
 	}
 
 	h2,
@@ -354,6 +355,7 @@
 		padding: 0.65rem 0.8rem;
 		border: 1px solid rgb(154 120 67 / 30%);
 		background: rgb(250 241 222 / 55%);
+		color: var(--ink);
 	}
 
 	.current-base div {
