@@ -94,6 +94,7 @@
 		margin-bottom: 1.15rem;
 		padding-bottom: 0.7rem;
 		border-bottom: 1px solid rgb(154 120 67 / 38%);
+		color: #f5ead6;
 	}
 
 	.ingest-link {
@@ -235,8 +236,9 @@
 		display: grid;
 		gap: 0.3rem;
 		padding: 1.6rem;
-		border: 1px dashed rgb(154 120 67 / 48%);
-		background: rgb(250 240 219 / 42%);
+		border: 1.5px solid #3d382f;
+		background: rgb(255 250 239 / 86%);
+		box-shadow: 0.2rem 0.2rem 0 #3d382f;
 		color: var(--ink-soft);
 		text-align: center;
 	}

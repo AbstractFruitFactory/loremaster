@@ -13,8 +13,8 @@
 		parameters: {
 			layout: 'fullscreen',
 			backgrounds: {
-				default: 'neutral',
-				values: [{ name: 'neutral', value: '#e7e1d5' }]
+				default: 'forest',
+				values: [{ name: 'forest', value: '#2b3732' }]
 			}
 		}
 	})

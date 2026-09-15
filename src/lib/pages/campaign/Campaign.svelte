@@ -55,6 +55,7 @@
 	.intro {
 		max-width: 42rem;
 		margin-bottom: 1.5rem;
+		color: #f5ead6;
 	}
 
 	.eyebrow {
@@ -81,7 +82,7 @@
 
 	.intro > p:last-child {
 		margin-bottom: 0;
-		color: #6c6253;
+		color: #c9beaa;
 		line-height: 1.55;
 	}
 

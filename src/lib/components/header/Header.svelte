@@ -23,13 +23,9 @@
 		box-sizing: border-box;
 		display: flex;
 		min-width: 0;
-		padding: 0.65rem 0.75rem 0.7rem;
+		padding: 0.15rem 0.2rem 0.45rem;
 		flex-direction: column;
 		gap: 0.55rem;
-		border: 2px solid #101816;
-		border-radius: 2px;
-		background: linear-gradient(135deg, #17211f, #101719);
-		box-shadow: 0.3rem 0.3rem 0 #101816;
 		color: #f3e8d2;
 		font-family: var(--font-sans);
 	}
@@ -67,7 +63,7 @@
 
 	@media (max-width: 40rem) {
 		.header {
-			padding: 0.55rem 0.6rem 0.6rem;
+			padding: 0.1rem 0.1rem 0.35rem;
 		}
 	}
 </style>

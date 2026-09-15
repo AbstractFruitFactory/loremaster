@@ -609,7 +609,7 @@
 
 	.back-link,
 	.eyebrow {
-		color: var(--gold);
+		color: #d7b46e;
 		font-size: 0.76rem;
 		font-weight: 700;
 		letter-spacing: 0.08em;
@@ -619,6 +619,7 @@
 
 	.page-heading {
 		margin: 1.25rem 0 1.5rem;
+		color: #f5ead6;
 	}
 
 	h2,
@@ -651,6 +652,10 @@
 	.approval p,
 	.empty-copy {
 		color: var(--ink-soft);
+	}
+
+	.page-heading > p:last-child {
+		color: #c9beaa;
 	}
 
 	.state {

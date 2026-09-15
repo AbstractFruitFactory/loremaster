@@ -3,7 +3,6 @@
 	import Icon from '@iconify/svelte'
 	import { streamAssistant } from '#lib/assistant-stream.js'
 	import logo from '#lib/assets/logo-eye.png'
-	import paperBackground from '#lib/assets/page-background.webp'
 	import ChatDock from '#lib/components/chat-dock/ChatDock.svelte'
 	import type { AddLoreInput, AskLoremasterInput } from '#lib/components/chat-dock/ChatDock.svelte'
 	import Header from '#lib/components/header/Header.svelte'
@@ -83,7 +82,7 @@
 {/snippet}
 
 <div class:chat-open={isChatOpen} class="campaign-shell">
-	<div class="campaign-workspace" style:--paper-background={`url("${paperBackground}")`}>
+	<div class="campaign-workspace">
 		<Header {brand} {navigation} actions={headerActions}>
 			{@render campaignHeading()}
 		</Header>
@@ -136,17 +135,6 @@
 		min-height: 0;
 		flex-direction: column;
 		overflow: hidden;
-		border: 2px solid #101816;
-		border-radius: 2px;
-		background-color: #e9dfcb;
-		background-image:
-			linear-gradient(rgb(249 241 224 / 72%), rgb(232 219 193 / 70%)), var(--paper-background);
-		background-repeat: no-repeat, no-repeat;
-		background-position: center;
-		background-size:
-			cover,
-			100% 100%;
-		box-shadow: 0.35rem 0.35rem 0 #101816;
 		transition: margin-right 180ms ease;
 	}
 
@@ -234,11 +222,13 @@
 	}
 
 	.campaign-error {
+		align-self: center;
 		flex: none;
-		margin: 0;
+		margin: 0.65rem;
 		padding: 0.85rem clamp(1rem, 4vw, 2rem);
-		border-bottom: 1px solid #b77b65;
+		border: 1.5px solid #7e2d20;
 		background: #f5dfd6;
+		box-shadow: 0.18rem 0.18rem 0 #7e2d20;
 		color: #7e2d20;
 		font-family: var(--font-sans);
 		font-weight: 650;
