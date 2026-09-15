@@ -141,8 +141,8 @@
 
 	a.nav-item.tab.active {
 		border-color: #c8a969;
-		background: #f0e5ce;
-		box-shadow: 0.16rem 0.16rem 0 #c8a969;
+		background: linear-gradient(145deg, #fff5df, #ead8b7);
+		box-shadow: 0 0.45rem 1rem rgb(10 18 14 / 24%);
 		color: #2a312d;
 	}
 

@@ -261,12 +261,12 @@
 	}
 
 	.chat-launcher {
-		width: min(25rem, calc(100% - (2 * var(--workspace-gap, 1rem))));
+		width: min(22.5rem, calc(100% - (2 * var(--workspace-gap, 1rem))));
 		padding: 0.55rem;
-		border: 2px solid #17201c;
-		border-radius: 2px;
-		background: #f5eddd;
-		box-shadow: 0.3rem 0.3rem 0 #17201c;
+		border: 1px solid rgb(194 155 91 / 72%);
+		border-radius: 0.75rem;
+		background: linear-gradient(145deg, #fff9ed, #f3e6d2);
+		box-shadow: 0 1rem 2.5rem rgb(9 18 14 / 34%);
 	}
 
 	.launcher-heading {

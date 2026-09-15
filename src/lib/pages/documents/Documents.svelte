@@ -78,7 +78,7 @@
 		--gold: #9a7843;
 		--gold-light: #c8aa75;
 		box-sizing: border-box;
-		width: min(72rem, 100%);
+		width: min(66rem, 100%);
 		margin: 0 auto;
 		padding: clamp(1.5rem, 3vw, 2.75rem);
 		color: var(--ink);
@@ -91,9 +91,7 @@
 		gap: 1rem;
 		align-items: end;
 		justify-content: space-between;
-		margin-bottom: 1.15rem;
-		padding-bottom: 0.7rem;
-		border-bottom: 1px solid rgb(154 120 67 / 38%);
+		margin-bottom: 1.5rem;
 		color: #f5ead6;
 	}
 
@@ -147,8 +145,8 @@
 
 	.document-list {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
-		gap: 0.9rem;
+		grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
+		gap: 1.15rem;
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -163,25 +161,30 @@
 
 	.document-card {
 		display: flex;
-		min-height: 9rem;
-		padding: 1rem 1.15rem;
+		min-height: 11rem;
+		padding: 1.05rem 1.15rem 1.15rem;
 		flex-direction: column;
-		border: 1.5px solid #3d382f;
-		border-radius: 2px;
-		background: rgb(255 250 239 / 76%);
-		box-shadow: 0.2rem 0.2rem 0 rgb(61 56 47 / 88%);
+		border: 1px solid rgb(194 155 91 / 58%);
+		border-radius: 0.75rem;
+		background:
+			radial-gradient(circle at 100% 0%, rgb(218 179 110 / 14%), transparent 8rem),
+			linear-gradient(145deg, #fff9ed, #f3e6d2);
+		box-shadow:
+			0 0.8rem 1.8rem rgb(9 18 14 / 24%),
+			0 1px 0 rgb(255 255 255 / 72%) inset;
 		color: inherit;
 		text-decoration: none;
 		transition:
 			background-color 150ms ease,
-			box-shadow 150ms ease,
+			box-shadow 180ms ease,
 			transform 150ms ease;
 	}
 
 	.document-card:hover {
-		background: #fffaf0;
-		box-shadow: 0.3rem 0.3rem 0 #3d382f;
-		transform: translate(-1px, -1px);
+		box-shadow:
+			0 1.1rem 2.3rem rgb(9 18 14 / 31%),
+			0 1px 0 rgb(255 255 255 / 82%) inset;
+		transform: translateY(-3px);
 	}
 
 	.document-card:focus-visible {
@@ -198,10 +201,15 @@
 	}
 
 	.document-list p {
+		display: -webkit-box;
 		margin-top: 0.3rem;
 		overflow-wrap: anywhere;
+		overflow: hidden;
 		color: var(--ink-soft);
 		font-size: 0.85rem;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 4;
+		line-clamp: 4;
 	}
 
 	.card-heading {
@@ -216,7 +224,8 @@
 		width: 2.25rem;
 		height: 2.25rem;
 		place-items: center;
-		border: 1.5px solid #3d382f;
+		border: 1px solid #8d6830;
+		border-radius: 0.4rem;
 		background: #e8bc71;
 		color: #3d382f;
 	}
@@ -236,9 +245,10 @@
 		display: grid;
 		gap: 0.3rem;
 		padding: 1.6rem;
-		border: 1.5px solid #3d382f;
-		background: rgb(255 250 239 / 86%);
-		box-shadow: 0.2rem 0.2rem 0 #3d382f;
+		border: 1px solid rgb(194 155 91 / 58%);
+		border-radius: 0.75rem;
+		background: linear-gradient(145deg, #fff9ed, #f3e6d2);
+		box-shadow: 0 0.8rem 1.8rem rgb(9 18 14 / 24%);
 		color: var(--ink-soft);
 		text-align: center;
 	}
