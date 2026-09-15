@@ -314,6 +314,46 @@ describe('session ingestion operations', () => {
 		})
 	})
 
+	it('normalizes malformed new entity labels into display-ready document titles', async () => {
+		const harness = setup(
+			[
+				claim('The service tunnels below Cathedral Square are old.', {
+					content: 'The service tunnels below Cathedral Square are old.',
+					entityReferences: [
+						{ label: 'service tunnels below Cathedral Square', type: 'location' }
+					]
+				})
+			],
+			[]
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, 'The service tunnels below Cathedral Square are old.')
+		)
+		const location = draft.proposals.find(({ documentType }) => documentType === 'location')!
+
+		expect(location).toMatchObject({
+			operation: 'create-entity',
+			title: 'Service tunnels below Cathedral Square',
+			selected: true
+		})
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft)
+			})
+		)
+		const locationCreate = harness.createDocument.mock.calls.find(
+			([, input]) => input.type === 'location'
+		)?.[1]
+		expect(locationCreate).toMatchObject({
+			path: 'Locations/service-tunnels-below-cathedral-square.md',
+			content:
+				'# Service tunnels below Cathedral Square\n\nThe service tunnels below Cathedral Square are old.'
+		})
+	})
+
 	it('uses a batched contextual resolver for relational references', async () => {
 		const elias = document('elias', 'Elias Vey', [], 'npc', {
 			content: '# Elias Vey\n\nHis father was [[Roger]].',
