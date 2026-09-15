@@ -80,6 +80,7 @@ export const createServices = (ai: AiProvider) => {
 			validateSessionClaims: ai.validateSessionClaims,
 			repairSessionClaimEvidence: ai.repairSessionClaimEvidence,
 			resolveSessionEntities: ai.resolveSessionEntities,
+			inferSessionChronology: ai.inferSessionChronology,
 			analysisModel: ai.models.sessionAnalysis
 		},
 		storage: filesystemIngestionStorage(vaultRoot),

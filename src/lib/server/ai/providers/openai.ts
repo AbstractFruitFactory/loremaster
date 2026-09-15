@@ -12,6 +12,7 @@ import {
 	ingestionDocumentTypes,
 	sessionClaimValidationReasons,
 	type ExtractedSessionClaim,
+	type InferredSessionChronology,
 	type SessionClaimEvidenceRepair,
 	type SessionClaimValidation,
 	type SessionEntityResolution
@@ -280,6 +281,58 @@ const parseSessionEntityResolutions = (response: OpenAiResponse): SessionEntityR
 	)
 	return call?.type === 'function_call'
 		? sessionEntityResolutionsSchema.parse(JSON.parse(call.arguments)).resolutions
+		: []
+}
+
+const sessionChronologySchema = z.object({
+	relations: z
+		.array(
+			z.object({
+				beforeProposalId: z.string().trim().min(1),
+				afterProposalId: z.string().trim().min(1),
+				certainty: z.enum(['explicit', 'inferred']),
+				reason: z.string().trim().min(1).max(240)
+			})
+		)
+		.max(500)
+})
+
+const sessionChronologyTool = {
+	type: 'function' as const,
+	name: 'record_session_chronology',
+	description:
+		'Record supported direct chronological relationships between supplied session event proposals.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			relations: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						beforeProposalId: { type: 'string' },
+						afterProposalId: { type: 'string' },
+						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+						reason: { type: 'string', minLength: 1, maxLength: 240 }
+					},
+					required: ['beforeProposalId', 'afterProposalId', 'certainty', 'reason'],
+					additionalProperties: false
+				},
+				maxItems: 500
+			}
+		},
+		required: ['relations'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionChronology = (response: OpenAiResponse): InferredSessionChronology[] => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionChronologyTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionChronologySchema.parse(JSON.parse(call.arguments)).relations
 		: []
 }
 
@@ -554,6 +607,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'resolveSessionEntities', cause)
 		}),
 
+	inferSessionChronology: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionChronologyTool],
+					tool_choice: { type: 'function', name: sessionChronologyTool.name }
+				})
+				return parseSessionChronology(response)
+			},
+			catch: (cause) => failure('ai', 'inferSessionChronology', cause)
+		}),
+
 	generateRelationshipLinks: ({ model, system, prompt }) =>
 		tryPromise({
 			try: async () => {
@@ -588,6 +655,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		validateSessionClaims: () => missingApiKey('validateSessionClaims'),
 		repairSessionClaimEvidence: () => missingApiKey('repairSessionClaimEvidence'),
 		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
+		inferSessionChronology: () => missingApiKey('inferSessionChronology'),
 		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}
 }

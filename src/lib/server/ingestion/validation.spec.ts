@@ -49,7 +49,8 @@ const operationsWith = (
 			analyzeSessionChunk,
 			validateSessionClaims,
 			repairSessionClaimEvidence,
-			resolveSessionEntities: () => succeed([])
+			resolveSessionEntities: () => succeed([]),
+			inferSessionChronology: () => succeed([])
 		},
 		storage: {
 			write: () => succeed(undefined),
@@ -368,7 +369,9 @@ describe('session claim validation', () => {
 		}
 		const analyzer: AnalyzeSessionChunk = vi.fn(({ system }) => {
 			expect(system ?? '').toContain('Only emit entity references for durable campaign entities')
-			expect(system ?? '').toContain('A location reference must denote a distinct, persistent place')
+			expect(system ?? '').toContain(
+				'A location reference must denote a distinct, persistent place'
+			)
 			expect(system ?? '').toContain('Scene or section headings are editorial structure')
 			expect(system ?? '').toContain('display-ready canonical names')
 			expect(system ?? '').toContain('Service Tunnels Below Cathedral Square')
@@ -413,5 +416,4 @@ describe('session claim validation', () => {
 		expect(draft.warnings[0]).toContain('Wall')
 		warn.mockRestore()
 	})
-
 })
