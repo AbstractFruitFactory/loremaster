@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state'
+	import Icon from '@iconify/svelte'
+	import { streamAssistant } from '#lib/assistant-stream.js'
+	import logo from '#lib/assets/logo-eye.png'
 	import paperBackground from '#lib/assets/page-background.webp'
+	import ChatDock from '#lib/components/chat-dock/ChatDock.svelte'
+	import type { AddLoreInput, AskLoremasterInput } from '#lib/components/chat-dock/ChatDock.svelte'
 	import Header from '#lib/components/header/Header.svelte'
-	import Sidebar from '#lib/components/sidebar/Sidebar.svelte'
+	import NavItem from '#lib/components/sidebar/NavItem.svelte'
 	import { documentTypes } from '#lib/document.js'
 	import { documentTypeMetadata } from '#lib/document-metadata.js'
+	import { getConversationHistory } from './conversation.remote'
+	import { createLore } from './data.remote'
 	import { getCampaign } from '../../data.remote'
 	import type { LayoutProps } from './$types'
 
@@ -12,17 +19,23 @@
 
 	const campaignId = $derived(params.campaignId)
 	const campaign = $derived(getCampaign(campaignId))
-	const sidebarItems = $derived([
-		{
-			label: 'Chat',
-			icon: 'lucide:messages-square',
-			href: `/campaigns/${campaignId}`
-		},
-		...documentTypes.map((type) => ({
+	const conversation = $derived(getConversationHistory(campaignId))
+	const navigationItems = $derived(
+		documentTypes.map((type) => ({
 			...documentTypeMetadata[type],
 			href: `/campaigns/${campaignId}/${type}`
 		}))
-	])
+	)
+
+	let isChatOpen = $state(false)
+
+	$effect(() => {
+		if (page.url.pathname === `/campaigns/${campaignId}`) isChatOpen = true
+	})
+
+	const handleAsk = (input: AskLoremasterInput, signal: AbortSignal) =>
+		streamAssistant(campaignId, input, { signal })
+	const handleAddLore = (draft: AddLoreInput) => createLore({ campaignId, ...draft })
 </script>
 
 <svelte:head>
@@ -30,15 +43,50 @@
 	<meta name="description" content="Explore campaign lore and collaborate with Loremaster." />
 </svelte:head>
 
-{#snippet campaignHeading()}
-	<h1 class="campaign-title">{campaign.current?.name ?? 'Campaign'}</h1>
+{#snippet brand()}
+	<a class="brand" href="/" aria-label="Loremaster campaigns">
+		<img src={logo} alt="" />
+		<span>Loremaster</span>
+	</a>
 {/snippet}
 
-<div class="campaign-shell">
-	<Sidebar items={sidebarItems} activePath={page.url.pathname} />
+{#snippet campaignHeading()}
+	<a class="campaign-title" href={`/campaigns/${campaignId}`}>
+		{campaign.current?.name ?? 'Campaign'}
+	</a>
+{/snippet}
 
+{#snippet navigation()}
+	<nav aria-label="Campaign sections">
+		<ul>
+			{#each navigationItems as item (item.label)}
+				<li>
+					<NavItem {...item} variant="tab" active={page.url.pathname.startsWith(item.href)} />
+				</li>
+			{/each}
+		</ul>
+	</nav>
+{/snippet}
+
+{#snippet headerActions()}
+	<button
+		class:active={isChatOpen}
+		class="chat-toggle"
+		type="button"
+		aria-label={isChatOpen ? 'Collapse Ask Loremaster' : 'Open Ask Loremaster'}
+		aria-expanded={isChatOpen}
+		onclick={() => (isChatOpen = !isChatOpen)}
+	>
+		<Icon icon="lucide:message-circle" aria-hidden="true" />
+		<span>Chat</span>
+	</button>
+{/snippet}
+
+<div class:chat-open={isChatOpen} class="campaign-shell">
 	<div class="campaign-workspace" style:--paper-background={`url("${paperBackground}")`}>
-		<Header>{@render campaignHeading()}</Header>
+		<Header {brand} {navigation} actions={headerActions}>
+			{@render campaignHeading()}
+		</Header>
 
 		<div class="campaign-content">
 			{#if campaign.error}
@@ -50,19 +98,30 @@
 			</div>
 		</div>
 	</div>
+
+	{#if conversation.current !== undefined}
+		{#key campaignId}
+			<ChatDock
+				bind:open={isChatOpen}
+				conversationHistory={conversation.current}
+				onask={handleAsk}
+				onaddlore={handleAddLore}
+			/>
+		{/key}
+	{/if}
 </div>
 
 <style>
 	.campaign-shell {
-		--sidebar-width: 100%;
-		--sidebar-min-height: 100%;
+		--workspace-gap: clamp(0.65rem, 1.5vw, 1rem);
+		--chat-panel-width: clamp(25rem, 31vw, 29rem);
 
-		display: grid;
-		grid-template-columns: 17.5rem minmax(0, 1fr);
+		position: relative;
 		width: 100%;
-		max-width: 100%;
 		height: 100%;
+		padding: var(--workspace-gap);
 		overflow: hidden;
+		background: radial-gradient(circle at 18% 0%, rgb(81 104 91 / 55%), transparent 28rem), #2b3732;
 	}
 
 	.campaign-workspace,
@@ -77,20 +136,92 @@
 		min-height: 0;
 		flex-direction: column;
 		overflow: hidden;
-		background-color: #eee0c6;
-		background-image: var(--paper-background);
-		background-repeat: no-repeat;
+		border: 2px solid #101816;
+		border-radius: 2px;
+		background-color: #e9dfcb;
+		background-image:
+			linear-gradient(rgb(249 241 224 / 72%), rgb(232 219 193 / 70%)), var(--paper-background);
+		background-repeat: no-repeat, no-repeat;
 		background-position: center;
-		background-size: 100% 100%;
+		background-size:
+			cover,
+			100% 100%;
+		box-shadow: 0.35rem 0.35rem 0 #101816;
+		transition: margin-right 180ms ease;
+	}
+
+	.campaign-shell.chat-open .campaign-workspace {
+		margin-right: calc(var(--chat-panel-width) + var(--workspace-gap));
 	}
 
 	.campaign-title {
+		display: block;
 		margin: 0;
 		overflow-wrap: anywhere;
-		color: #3b2d1f;
-		font-size: clamp(1.35rem, 3vw, 1.8rem);
+		color: #f3e8d2;
+		font-family: var(--font-display);
+		font-size: clamp(1.15rem, 2.3vw, 1.45rem);
+		font-weight: 600;
 		letter-spacing: 0.025em;
 		line-height: 1.15;
+		text-decoration: none;
+	}
+
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.45rem;
+		color: #d7b46e;
+		font-family: var(--font-display);
+		font-size: 1rem;
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-decoration: none;
+		text-transform: uppercase;
+	}
+
+	.brand img {
+		width: 2.15rem;
+		height: 2.15rem;
+		object-fit: contain;
+	}
+
+	nav,
+	ul {
+		margin: 0;
+		padding: 0;
+	}
+
+	ul {
+		display: flex;
+		gap: 0.42rem;
+		list-style: none;
+	}
+
+	.chat-toggle {
+		display: inline-flex;
+		min-height: 2.2rem;
+		align-items: center;
+		gap: 0.4rem;
+		padding: 0.4rem 0.65rem;
+		border: 1px solid rgb(215 180 110 / 42%);
+		border-radius: 0.35rem;
+		background: rgb(255 246 225 / 7%);
+		color: #e8dcc4;
+		font-size: 0.78rem;
+		font-weight: 600;
+		cursor: pointer;
+	}
+
+	.chat-toggle:hover,
+	.chat-toggle.active {
+		border-color: #d7b46e;
+		background: rgb(215 180 110 / 18%);
+	}
+
+	.chat-toggle :global(svg) {
+		width: 1rem;
+		height: 1rem;
 	}
 
 	.campaign-content {
@@ -119,22 +250,26 @@
 		min-height: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
+		scrollbar-gutter: stable;
+		padding-bottom: 7rem;
 	}
 
-	@media (max-width: 52rem) {
-		.campaign-shell {
-			--sidebar-min-height: auto;
+	@media (max-width: 72rem) {
+		.campaign-shell.chat-open .campaign-workspace {
+			margin-right: 0;
+		}
+	}
 
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: auto minmax(0, 1fr);
+	@media (max-width: 42rem) {
+		.brand span,
+		.chat-toggle span {
+			display: none;
 		}
 
-		.campaign-workspace {
-			min-height: 0;
-		}
-
-		.campaign-content {
-			min-height: 0;
+		.chat-toggle {
+			width: 2.2rem;
+			justify-content: center;
+			padding-inline: 0;
 		}
 	}
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from '@iconify/svelte'
 	import type { DocumentType } from '#lib/document.js'
 	import { documentTypeMetadata } from '#lib/document-metadata.js'
 	import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
@@ -46,6 +47,14 @@
 						class="document-card"
 						href={`/campaigns/${campaignId}/${document.type}/${document.id}`}
 					>
+						<div class="card-heading">
+							<span class="card-icon" aria-hidden="true">
+								<Icon icon={documentTypeMetadata[selectedType].icon} />
+							</span>
+							<span class="card-arrow" aria-hidden="true">
+								<Icon icon="lucide:arrow-up-right" />
+							</span>
+						</div>
 						<h3>{document.title}</h3>
 						{#if document.summary}
 							<p>{document.summary}</p>
@@ -69,9 +78,9 @@
 		--gold: #9a7843;
 		--gold-light: #c8aa75;
 		box-sizing: border-box;
-		width: min(64rem, 100%);
+		width: min(72rem, 100%);
 		margin: 0 auto;
-		padding: clamp(2rem, 5vw, 4.5rem) clamp(1.25rem, 6vw, 5rem);
+		padding: clamp(1.5rem, 3vw, 2.75rem);
 		color: var(--ink);
 		font-family: var(--font-sans);
 	}
@@ -82,15 +91,17 @@
 		gap: 1rem;
 		align-items: end;
 		justify-content: space-between;
-		margin-bottom: 1.25rem;
-		padding-bottom: 0.8rem;
+		margin-bottom: 1.15rem;
+		padding-bottom: 0.7rem;
 		border-bottom: 1px solid rgb(154 120 67 / 38%);
 	}
 
 	.ingest-link {
-		padding: 0.65rem 0.9rem;
-		border: 1px solid var(--gold);
-		background: rgb(244 230 199 / 72%);
+		padding: 0.55rem 0.75rem;
+		border: 1.5px solid #353129;
+		border-radius: 2px;
+		background: #f1c278;
+		box-shadow: 0.16rem 0.16rem 0 #353129;
 		color: var(--ink);
 		font-size: 0.78rem;
 		font-weight: 700;
@@ -106,18 +117,6 @@
 	.ingest-link:focus-visible {
 		outline: 2px solid var(--gold-light);
 		outline-offset: 3px;
-	}
-
-	.page-heading::after {
-		position: absolute;
-		bottom: -3px;
-		left: 2.5rem;
-		width: 5px;
-		height: 5px;
-		border: 1px solid var(--gold);
-		background: #eee0c6;
-		content: '';
-		transform: rotate(45deg);
 	}
 
 	.eyebrow {
@@ -147,7 +146,8 @@
 
 	.document-list {
 		display: grid;
-		gap: 0.75rem;
+		grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+		gap: 0.9rem;
 		margin: 0;
 		padding: 0;
 		list-style: none;
@@ -161,23 +161,26 @@
 	}
 
 	.document-card {
-		display: block;
+		display: flex;
+		min-height: 9rem;
 		padding: 1rem 1.15rem;
-		border: 1px solid rgb(154 120 67 / 35%);
-		background: rgb(250 241 222 / 55%);
-		box-shadow: inset 0 0 0 3px rgb(154 120 67 / 4%);
+		flex-direction: column;
+		border: 1.5px solid #3d382f;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 76%);
+		box-shadow: 0.2rem 0.2rem 0 rgb(61 56 47 / 88%);
 		color: inherit;
 		text-decoration: none;
 		transition:
-			border-color 150ms ease,
 			background-color 150ms ease,
+			box-shadow 150ms ease,
 			transform 150ms ease;
 	}
 
 	.document-card:hover {
-		border-color: rgb(154 120 67 / 58%);
-		background: rgb(250 241 222 / 82%);
-		transform: translateY(-1px);
+		background: #fffaf0;
+		box-shadow: 0.3rem 0.3rem 0 #3d382f;
+		transform: translate(-1px, -1px);
 	}
 
 	.document-card:focus-visible {
@@ -187,6 +190,7 @@
 	}
 
 	.document-list h3 {
+		margin-top: auto;
 		overflow-wrap: anywhere;
 		font-size: 1.25rem;
 		line-height: 1.2;
@@ -197,6 +201,34 @@
 		overflow-wrap: anywhere;
 		color: var(--ink-soft);
 		font-size: 0.85rem;
+	}
+
+	.card-heading {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		margin-bottom: 1rem;
+	}
+
+	.card-icon {
+		display: grid;
+		width: 2.25rem;
+		height: 2.25rem;
+		place-items: center;
+		border: 1.5px solid #3d382f;
+		background: #e8bc71;
+		color: #3d382f;
+	}
+
+	.card-icon :global(svg),
+	.card-arrow :global(svg) {
+		width: 1rem;
+		height: 1rem;
+	}
+
+	.card-arrow {
+		display: inline-flex;
+		color: #8b6b37;
 	}
 
 	.state-panel {

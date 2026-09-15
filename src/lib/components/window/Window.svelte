@@ -5,6 +5,7 @@
 	type WindowProps = Omit<HTMLAttributes<HTMLElement>, 'children' | 'class' | 'title'> & {
 		title: string
 		eyebrow?: string
+		size?: 'default' | 'compact' | 'fill'
 		icon?: Snippet
 		actions?: Snippet
 		footer?: Snippet
@@ -15,6 +16,7 @@
 	let {
 		title,
 		eyebrow,
+		size = 'default',
 		icon,
 		actions,
 		footer,
@@ -24,7 +26,7 @@
 	}: WindowProps = $props()
 </script>
 
-<section {...rest} class={['window', className]} aria-label={title}>
+<section {...rest} class={['window', size, className]} aria-label={title}>
 	<header class="header">
 		{#if icon}
 			<div class="icon" aria-hidden="true">
@@ -68,6 +70,19 @@
 		background: var(--window-paper);
 		box-shadow: var(--window-shadow-offset) var(--window-shadow-offset) 0 var(--window-ink);
 		color: var(--window-ink);
+	}
+
+	.window.compact {
+		width: min(100%, 24rem);
+	}
+
+	.window.fill {
+		display: flex;
+		width: 100%;
+		max-width: none;
+		height: 100%;
+		min-height: 0;
+		flex-direction: column;
 	}
 
 	.header {
@@ -167,6 +182,14 @@
 
 	.content {
 		padding: 1rem;
+	}
+
+	.fill .content {
+		display: flex;
+		flex: 1;
+		min-height: 0;
+		flex-direction: column;
+		overflow: hidden;
 	}
 
 	.footer {

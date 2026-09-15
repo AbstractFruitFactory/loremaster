@@ -32,7 +32,7 @@
 	h2 {
 		margin: 0;
 		overflow-wrap: anywhere;
-		color: #3b2d1f;
+		color: #f3e8d2;
 		font-family: var(--font-display);
 		font-size: clamp(1.35rem, 3vw, 1.8rem);
 		font-weight: 600;

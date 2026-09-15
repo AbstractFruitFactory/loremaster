@@ -1,234 +1,69 @@
-<script module lang="ts">
-	import type { LoreProposalDraft } from '#lib/components/lore-proposal/LoreProposal.svelte'
-
-	export type AskLoremasterInput = {
-		message: string
-	}
-
-	export type AddLoreInput = LoreProposalDraft
-</script>
-
 <script lang="ts">
-	import ChatInput from '#lib/components/chat-input/ChatInput.svelte'
-	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
-	import type { ConversationMessage } from '#lib/components/conversation-feed/ConversationFeed.svelte'
-	import type { DocumentType } from '#lib/document.js'
-	import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
-	import { onDestroy } from 'svelte'
+	import Icon from '@iconify/svelte'
+	import { documentTypes } from '#lib/document.js'
+	import { documentTypeMetadata } from '#lib/document-metadata.js'
 
-	type Props = {
-		conversationHistory: ConversationMessage[]
-		onask: (input: AskLoremasterInput, signal: AbortSignal) => AsyncIterable<AssistantStreamEvent>
-		onaddlore: (draft: AddLoreInput) => Promise<{ title: string }>
-	}
-
-	type ActiveProposal = {
-		messageId: string
-		draft: AddLoreInput
-	}
-
-	const proposalCategories: Array<{ value: DocumentType; label: string }> = [
-		{ value: 'player', label: 'Players' },
-		{ value: 'npc', label: 'NPCs' },
-		{ value: 'location', label: 'Locations' },
-		{ value: 'session', label: 'Sessions' },
-		{ value: 'item', label: 'Items' },
-		{ value: 'worldbuilding', label: 'Worldbuilding' },
-		{ value: 'event', label: 'Events' }
-	]
-
-	let { conversationHistory, onask, onaddlore }: Props = $props()
-
-	let messages = $state.raw<ConversationMessage[]>(conversationHistory)
-	let proposal = $state<ActiveProposal | null>(null)
-	let message = $state('')
-	let isResponding = $state(false)
-	let isAddingLore = $state(false)
-	let statusMessage = $state('')
-	let actionError = $state('')
-	let proposalError = $state('')
-	let activeRequest: AbortController | null = null
-
-	onDestroy(() => activeRequest?.abort())
-
-	const getErrorMessage = (error: unknown, fallback: string) =>
-		error instanceof Error ? error.message : fallback
-
-	const createMessageId = () => crypto.randomUUID()
-
-	const updateAssistantMessage = (
-		messageId: string,
-		update: (message: ConversationMessage) => ConversationMessage
-	) => {
-		messages = messages.map((conversationMessage) =>
-			conversationMessage.id === messageId ? update(conversationMessage) : conversationMessage
-		)
-	}
-
-	const handleAsk = async () => {
-		const submittedMessage = message.trim()
-		if (!submittedMessage || isResponding) return
-
-		const assistantMessageId = createMessageId()
-		const requestController = new AbortController()
-		activeRequest = requestController
-		messages = [
-			...messages,
-			{ id: createMessageId(), role: 'user', content: submittedMessage, sources: [] },
-			{ id: assistantMessageId, role: 'assistant', content: '', sources: [] }
-		]
-		message = ''
-		isResponding = true
-		statusMessage = ''
-		actionError = ''
-		proposalError = ''
-
-		try {
-			for await (const event of onask({ message: submittedMessage }, requestController.signal)) {
-				if (event.type === 'text-delta') {
-					updateAssistantMessage(assistantMessageId, (assistantMessage) => ({
-						...assistantMessage,
-						content: assistantMessage.content + event.delta
-					}))
-				}
-
-				if (event.type === 'sources') {
-					updateAssistantMessage(assistantMessageId, (assistantMessage) => ({
-						...assistantMessage,
-						sources: event.sources
-					}))
-				}
-
-				if (event.type === 'proposal') {
-					proposal = {
-						messageId: assistantMessageId,
-						draft: {
-							title: event.proposal.title,
-							category: event.proposal.category,
-							content: event.proposal.content
-						}
-					}
-				}
-
-				if (event.type === 'error') {
-					throw new Error(event.message)
-				}
-			}
-		} catch (error) {
-			const assistantMessage = messages.find(
-				(conversationMessage) => conversationMessage.id === assistantMessageId
-			)
-			if (!assistantMessage?.content) {
-				messages = messages.filter(
-					(conversationMessage) => conversationMessage.id !== assistantMessageId
-				)
-				if (proposal?.messageId === assistantMessageId) {
-					proposal = null
-				}
-			}
-			actionError = getErrorMessage(error, 'Loremaster could not respond')
-		} finally {
-			if (activeRequest === requestController) {
-				activeRequest = null
-			}
-			isResponding = false
-		}
-	}
-
-	const handleAddLore = async (draft: AddLoreInput) => {
-		if (!proposal || isAddingLore) return
-
-		const title = draft.title.trim()
-		const content = draft.content.trim()
-		if (!title) {
-			proposalError = 'Give this lore entry a title before adding it.'
-			return
-		}
-
-		if (!content) {
-			proposalError = 'Add some lore content before saving.'
-			return
-		}
-
-		isAddingLore = true
-		proposalError = ''
-		actionError = ''
-		statusMessage = ''
-
-		try {
-			const createdLore = await onaddlore({
-				title,
-				category: draft.category,
-				content
-			})
-			proposal = null
-			statusMessage = `Added “${createdLore.title}” to your lore.`
-		} catch (error) {
-			proposalError = getErrorMessage(error, 'Unable to add this lore entry')
-		} finally {
-			isAddingLore = false
-		}
-	}
-
-	const cancelProposal = () => {
-		proposal = null
-		proposalError = ''
-	}
+	let { campaignId }: { campaignId: string } = $props()
 </script>
 
-<main class="assistant-page">
-	<div class="announcements" aria-live="polite" aria-atomic="true">
-		{#if statusMessage}
-			<p class="success" role="status">{statusMessage}</p>
-		{/if}
-		{#if actionError}
-			<p class="error" role="alert">{actionError}</p>
-		{/if}
-	</div>
+<svelte:head>
+	<title>Campaign workspace | Loremaster</title>
+</svelte:head>
 
-	<section class="conversation" aria-labelledby="conversation-heading">
-		<div class="conversation-heading">
-			<div>
-				<p class="eyebrow">Creative companion</p>
-				<h2 id="conversation-heading">Ask Loremaster</h2>
-			</div>
-		</div>
+<main class="campaign-home">
+	<header class="intro">
+		<p class="eyebrow">Campaign workspace</p>
+		<h2>Your world at a glance</h2>
+		<p>
+			Move between people, places, sessions, and worldbuilding without losing your place. Ask
+			Loremaster from the floating chat whenever you need the wider context.
+		</p>
+	</header>
 
-		<ConversationFeed
-			{messages}
-			{isResponding}
-			{proposal}
-			proposalCategoryOptions={proposalCategories}
-			isProposalSubmitting={isAddingLore}
-			{proposalError}
-			onproposalsave={handleAddLore}
-			onproposalcancel={cancelProposal}
-		/>
-
-		<div class="composer">
-			<ChatInput
-				id="loremaster-message"
-				bind:value={message}
-				isSubmitting={isResponding}
-				onsubmit={handleAsk}
-			/>
-		</div>
-	</section>
+	<nav aria-label="Explore campaign lore">
+		<ul>
+			{#each documentTypes as type}
+				{@const metadata = documentTypeMetadata[type]}
+				<li>
+					<a href={`/campaigns/${campaignId}/${type}`}>
+						<span class="icon" aria-hidden="true">
+							<Icon icon={metadata.icon} />
+						</span>
+						<span class="label">
+							<strong>{metadata.label}</strong>
+							<small>Browse campaign entries</small>
+						</span>
+						<span class="arrow" aria-hidden="true">
+							<Icon icon="lucide:arrow-up-right" />
+						</span>
+					</a>
+				</li>
+			{/each}
+		</ul>
+	</nav>
 </main>
 
 <style>
-	.assistant-page {
+	.campaign-home {
 		box-sizing: border-box;
-		display: flex;
-		width: min(64rem, calc(100% - 2rem));
-		height: 100%;
-		min-height: 0;
+		width: min(70rem, 100%);
 		margin: 0 auto;
-		padding: clamp(1rem, 3vw, 2rem) 0 clamp(0.75rem, 2vw, 1.25rem);
-		flex-direction: column;
-		overflow: hidden;
-		color: #30291f;
-		font-family: var(--font-sans);
+		padding: clamp(1.5rem, 4vw, 3.25rem);
+		color: #2e281f;
+	}
+
+	.intro {
+		max-width: 42rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.eyebrow {
+		margin: 0 0 0.25rem;
+		color: #896a37;
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
 	}
 
 	h2,
@@ -237,128 +72,89 @@
 	}
 
 	h2 {
-		margin-bottom: 0;
+		margin-bottom: 0.45rem;
 		font-family: var(--font-display);
+		font-size: clamp(2rem, 5vw, 3.2rem);
 		font-weight: 600;
-	}
-
-	h2 {
-		color: #40311f;
-		font-size: clamp(1.55rem, 3vw, 2rem);
 		line-height: 1;
 	}
 
-	.announcements {
+	.intro > p:last-child {
+		margin-bottom: 0;
+		color: #6c6253;
+		line-height: 1.55;
+	}
+
+	ul {
 		display: grid;
-		flex: none;
-		gap: var(--spacing-sm);
+		grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr));
+		gap: 0.8rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 
-	.announcements p {
-		margin-bottom: var(--spacing-sm);
-		padding: 0.65rem 0.85rem;
-		border: 1px solid;
-		border-radius: var(--border-radius-md);
-		font-weight: 600;
-	}
-
-	.success {
-		border-color: #92a584;
-		background: #edf3e7;
-		color: #35522e;
-	}
-
-	.error {
-		color: #842f25;
-	}
-
-	.announcements .error {
-		border-color: #c58e7e;
-		background: #f8e7df;
-	}
-
-	.conversation {
+	a {
 		display: flex;
-		flex: 1;
-		flex-direction: column;
-		min-width: 0;
-		min-height: 0;
-		overflow: hidden;
-	}
-
-	.conversation-heading {
-		display: flex;
-		flex: none;
-		justify-content: space-between;
-		gap: var(--spacing-md);
-		align-items: flex-start;
-	}
-
-	.conversation-heading {
-		padding: 0 1.5rem 0.75rem;
-	}
-
-	.eyebrow {
-		margin-bottom: 0.2rem;
-		color: #786342;
-		font-size: 0.67rem;
-		font-weight: 600;
-		letter-spacing: 0.15em;
-		text-transform: uppercase;
-	}
-
-	.presence {
-		flex: none;
-		border-radius: var(--border-radius-full);
-		font-size: 0.72rem;
-		font-weight: 600;
-		letter-spacing: 0.04em;
-	}
-
-	.presence {
-		display: inline-flex;
-		gap: 0.4rem;
+		min-height: 5.2rem;
 		align-items: center;
+		gap: 0.8rem;
+		padding: 0.85rem;
+		border: 1.5px solid #39342c;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 74%);
+		box-shadow: 0.2rem 0.2rem 0 rgb(57 52 44 / 88%);
+		color: inherit;
+		text-decoration: none;
+		transition:
+			background-color 120ms ease,
+			transform 120ms ease,
+			box-shadow 120ms ease;
+	}
+
+	a:hover {
+		background: #fffaf0;
+		transform: translate(-1px, -1px);
+		box-shadow: 0.28rem 0.28rem 0 #39342c;
+	}
+
+	.icon {
+		display: grid;
+		width: 2.6rem;
+		height: 2.6rem;
+		flex: 0 0 2.6rem;
+		place-items: center;
+		border: 1.5px solid #39342c;
+		background: #e9bf75;
+		color: #39342c;
+	}
+
+	.icon :global(svg),
+	.arrow :global(svg) {
+		width: 1.15rem;
+		height: 1.15rem;
+	}
+
+	.label {
+		display: grid;
+		flex: 1;
+		line-height: 1.15;
+	}
+
+	strong {
+		font-family: var(--font-display);
+		font-size: 1.15rem;
+		font-weight: 600;
+	}
+
+	small {
 		margin-top: 0.2rem;
-		padding: 0.25rem 0.6rem;
-		border: 1px solid #9cad8d;
-		background: rgb(237 245 229 / 80%);
-		color: #3f5b36;
+		color: #756b5b;
+		font-size: 0.72rem;
 	}
 
-	.presence > span {
-		width: 0.42rem;
-		height: 0.42rem;
-		border-radius: 50%;
-		background: #52744a;
-		box-shadow: 0 0 0 0.17rem rgb(82 116 74 / 13%);
-	}
-
-	.presence.working {
-		border-color: #c4a96f;
-		background: rgb(250 239 211 / 80%);
-		color: #75591f;
-	}
-
-	.presence.working > span {
-		background: #a47a27;
-	}
-
-	.composer {
-		flex: none;
-		padding: 0.75rem 1.5rem 0;
-	}
-
-	@media (max-width: 44rem) {
-		.assistant-page {
-			width: min(100% - 1rem, 64rem);
-			padding-top: var(--spacing-md);
-		}
-
-		.conversation-heading,
-		.composer {
-			padding-right: var(--spacing-md);
-			padding-left: var(--spacing-md);
-		}
+	.arrow {
+		display: inline-flex;
+		color: #886735;
 	}
 </style>
