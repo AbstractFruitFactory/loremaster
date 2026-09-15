@@ -120,7 +120,7 @@
 		height: 100%;
 		padding: var(--workspace-gap);
 		overflow: hidden;
-		background: radial-gradient(circle at 18% 0%, rgb(81 104 91 / 55%), transparent 28rem), #2b3732;
+		background: transparent;
 	}
 
 	.campaign-workspace,
