@@ -241,7 +241,6 @@
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		scrollbar-gutter: stable;
-		padding-bottom: 7rem;
 	}
 
 	@media (max-width: 72rem) {

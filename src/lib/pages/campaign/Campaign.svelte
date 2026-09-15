@@ -46,9 +46,8 @@
 <style>
 	.campaign-home {
 		box-sizing: border-box;
-		width: min(66rem, 100%);
-		margin: 0 auto;
-		padding: clamp(1.5rem, 4vw, 3.25rem);
+		width: 100%;
+		padding: clamp(1.5rem, 4vw, 3.25rem) 0 0;
 		color: #2e281f;
 	}
 

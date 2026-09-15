@@ -23,7 +23,7 @@
 		box-sizing: border-box;
 		display: flex;
 		min-width: 0;
-		padding: 0.15rem 0.2rem 0.45rem;
+		padding: 0.15rem 0 0.45rem;
 		flex-direction: column;
 		gap: 0.55rem;
 		color: #f3e8d2;
@@ -35,7 +35,6 @@
 		min-height: 2.4rem;
 		align-items: center;
 		gap: 0.7rem;
-		padding-inline: 0.15rem;
 	}
 
 	.brand,
@@ -63,7 +62,7 @@
 
 	@media (max-width: 40rem) {
 		.header {
-			padding: 0.1rem 0.1rem 0.35rem;
+			padding: 0.1rem 0 0.35rem;
 		}
 	}
 </style>

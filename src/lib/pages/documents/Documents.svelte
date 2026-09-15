@@ -78,9 +78,8 @@
 		--gold: #9a7843;
 		--gold-light: #c8aa75;
 		box-sizing: border-box;
-		width: min(66rem, 100%);
-		margin: 0 auto;
-		padding: clamp(1.5rem, 3vw, 2.75rem);
+		width: 100%;
+		padding: clamp(1.5rem, 3vw, 2.75rem) 0 0;
 		color: var(--ink);
 		font-family: var(--font-sans);
 	}
