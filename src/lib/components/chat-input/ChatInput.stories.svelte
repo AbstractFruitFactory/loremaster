@@ -34,4 +34,6 @@
 
 <Story name="Default" args={defaultArgs} />
 
+<Story name="Compact" args={{ ...defaultArgs, compact: true }} />
+
 <Story name="Submitting" args={submittingArgs} />

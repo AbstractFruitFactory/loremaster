@@ -12,6 +12,7 @@
 		maxlength?: number
 		label?: string
 		id?: string
+		compact?: boolean
 	}
 
 	let {
@@ -22,7 +23,8 @@
 		placeholder = 'Ask Loremaster anything…',
 		maxlength = 2000,
 		label = 'Ask a question or shape your lore',
-		id = 'chat-input-message'
+		id = 'chat-input-message',
+		compact = false
 	}: Props = $props()
 
 	let isHandlingSubmit = $state(false)
@@ -52,7 +54,7 @@
 	}
 </script>
 
-<form class="composer" onsubmit={handleSubmit}>
+<form class:compact class="composer" onsubmit={handleSubmit}>
 	<label class="message-label" for={id}>{label}</label>
 	<div class="composer-field">
 		<Textarea
@@ -60,13 +62,13 @@
 			bind:value
 			required
 			{maxlength}
-			rows={2}
+			rows={compact ? 1 : 2}
 			disabled={disabled || isSubmitting}
 			onkeydown={handleKeydown}
 			{placeholder}
-			--textarea-min-height="4rem"
-			--textarea-max-height="12rem"
-			--textarea-padding="0.82rem 4.2rem 0.82rem 1rem"
+			--textarea-min-height={compact ? '3.15rem' : '4rem'}
+			--textarea-max-height={compact ? '7rem' : '12rem'}
+			--textarea-padding={compact ? '0.68rem 3.5rem 0.68rem 0.9rem' : '0.82rem 4.2rem 0.82rem 1rem'}
 			--textarea-border="1px solid rgb(151 121 80 / 36%)"
 			--textarea-radius="var(--border-radius-md)"
 			--textarea-background="rgb(255 250 239 / 72%)"
@@ -175,5 +177,17 @@
 	.send-button:disabled {
 		cursor: not-allowed;
 		opacity: 0.42;
+	}
+
+	.compact .send-button {
+		right: 0.55rem;
+		width: 2.2rem;
+		height: 2.2rem;
+		border-radius: 0.5rem;
+	}
+
+	.compact .send-button :global(svg) {
+		width: 1.05rem;
+		height: 1.05rem;
 	}
 </style>

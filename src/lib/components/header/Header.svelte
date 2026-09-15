@@ -1,37 +1,68 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 
-	let { children }: { children?: Snippet } = $props()
+	let {
+		brand,
+		children,
+		navigation,
+		actions
+	}: { brand?: Snippet; children?: Snippet; navigation?: Snippet; actions?: Snippet } = $props()
 </script>
 
 <header class="header">
-	<div class="content">
-		{@render children?.()}
+	<div class="primary">
+		{#if brand}<div class="brand">{@render brand()}</div>{/if}
+		<div class="content">{@render children?.()}</div>
+		{#if actions}<div class="actions">{@render actions()}</div>{/if}
 	</div>
+	{#if navigation}<div class="navigation">{@render navigation()}</div>{/if}
 </header>
 
 <style>
 	.header {
 		box-sizing: border-box;
 		display: flex;
-		align-items: center;
 		min-width: 0;
-		min-height: 4.75rem;
-		padding: 1rem clamp(1.25rem, 4vw, 2.5rem);
-		border-bottom: 1px solid rgb(122 91 50 / 28%);
-		color: #3b2d1f;
+		padding: 0.15rem 0 0.45rem;
+		flex-direction: column;
+		gap: 0.55rem;
+		color: #f3e8d2;
 		font-family: var(--font-sans);
 	}
 
+	.primary {
+		display: flex;
+		min-height: 2.4rem;
+		align-items: center;
+		gap: 0.7rem;
+	}
+
+	.brand,
+	.actions {
+		display: flex;
+		flex: 0 0 auto;
+		align-items: center;
+	}
+
 	.content {
-		width: 100%;
+		flex: 1;
 		min-width: 0;
+	}
+
+	.navigation {
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+	}
+
+	.navigation::-webkit-scrollbar {
+		display: none;
 	}
 
 	@media (max-width: 40rem) {
 		.header {
-			min-height: 4.25rem;
-			padding: 0.875rem 1rem;
+			padding: 0.1rem 0 0.35rem;
 		}
 	}
 </style>
