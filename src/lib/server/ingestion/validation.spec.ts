@@ -370,6 +370,8 @@ describe('session claim validation', () => {
 			expect(system ?? '').toContain('Only emit entity references for durable campaign entities')
 			expect(system ?? '').toContain('A location reference must denote a distinct, persistent place')
 			expect(system ?? '').toContain('Scene or section headings are editorial structure')
+			expect(system ?? '').toContain('display-ready canonical names')
+			expect(system ?? '').toContain('Service Tunnels Below Cathedral Square')
 			return succeed([claim])
 		})
 		const validator: ValidateSessionClaims = vi.fn(({ system, prompt }) => {
