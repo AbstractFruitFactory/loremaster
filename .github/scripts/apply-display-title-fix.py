@@ -52,7 +52,7 @@ index.write_text(text)
 spec = Path('src/lib/server/ingestion/index.spec.ts')
 text = spec.read_text()
 marker = "\tit('uses a batched contextual resolver for relational references', async () => {"
-test = r'''\tit('normalizes malformed new entity labels into display-ready document titles', async () => {
+test = '''\tit('normalizes malformed new entity labels into display-ready document titles', async () => {
 \t\tconst harness = setup(
 \t\t\t[
 \t\t\t\tclaim('The service tunnels below Cathedral Square are old.', {
