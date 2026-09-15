@@ -210,7 +210,7 @@ describe('vault revision operations', () => {
 
 	it('excludes campaign metadata from Markdown discovery', async () => {
 		await runPromise(vault.write(campaignId, '.loremaster/internal.md', 'hidden'))
-		await runPromise(vault.write(campaignId, 'Lore/visible.md', 'visible'))
-		expect(await runPromise(vault.list(campaignId))).toEqual(['Lore/visible.md'])
+		await runPromise(vault.write(campaignId, 'Worldbuilding/visible.md', 'visible'))
+		expect(await runPromise(vault.list(campaignId))).toEqual(['Worldbuilding/visible.md'])
 	})
 })

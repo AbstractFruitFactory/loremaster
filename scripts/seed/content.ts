@@ -386,8 +386,8 @@ A folded note left just inside the chapel drainage entrance while Jess escorted 
 It reads, “Mara lies. The box belongs to the dead,” and is signed only with the [[Three-Pointed Crown]].`
 	},
 	{
-		path: 'Lore/Drowned-King.md',
-		type: 'lore',
+		path: 'Worldbuilding/Drowned-King.md',
+		type: 'worldbuilding',
 		content: `# Drowned King
 
 A Greyhaven folktale about a king beneath the city who will wake when the bells ring thirteen times. [[Nell]] learned the story from her mother.
@@ -395,8 +395,8 @@ A Greyhaven folktale about a king beneath the city who will wake when the bells 
 [[Brother Edric Vale]] believed the legend gave a familiar shape to something that was not truly a king. His letters describe a sequence of [[Thirteen Tones]], not merely thirteen bell strikes.`
 	},
 	{
-		path: 'Lore/Three-Pointed-Crown.md',
-		type: 'lore',
+		path: 'Worldbuilding/Three-Pointed-Crown.md',
+		type: 'worldbuilding',
 		aliases: ['Crowned Mark', 'Crown Symbol'],
 		content: `# Three-Pointed Crown
 
@@ -405,8 +405,8 @@ A symbol associated with the [[Drowned King]] and the works beneath [[Greyhaven]
 It appears beside the cistern on [[Mara's Charcoal Map]], on the [[Crowned Warning]], tattooed on the dead man's wrist, carved above the records-room door, and in the wax seal of the [[Silver Lockbox]].`
 	},
 	{
-		path: 'Lore/Thirteen-Tones.md',
-		type: 'lore',
+		path: 'Worldbuilding/Thirteen-Tones.md',
+		type: 'worldbuilding',
 		aliases: ['Thirteen Bells', 'Bell Sequence'],
 		content: `# Thirteen Tones
 
@@ -419,8 +419,8 @@ The old folk story says the [[Drowned King]] wakes after thirteen bells, but the
 Four tones sounded during the expedition.`
 	},
 	{
-		path: 'Lore/Office-of-Subterranean-Works.md',
-		type: 'lore',
+		path: 'Worldbuilding/Office-of-Subterranean-Works.md',
+		type: 'worldbuilding',
 		aliases: ['Subterranean Works'],
 		content: `# Office of Subterranean Works
 
@@ -429,8 +429,8 @@ An organization paid by the Greyhaven customs office to conduct work beneath the
 In 623, [[Magistrate Corven]] ordered its excavation halted and the [[Lower Gate]] sealed, though the bell mechanism was retained.`
 	},
 	{
-		path: 'Lore/Blackwater-Flood.md',
-		type: 'lore',
+		path: 'Worldbuilding/Blackwater-Flood.md',
+		type: 'worldbuilding',
 		aliases: ['The Flood'],
 		content: `# Blackwater Flood
 
@@ -439,8 +439,8 @@ A disaster thirty-one years before the current session that destroyed most of lo
 [[Mara Vale]] was a child at the time. Her father, [[Brother Edric Vale]], later sought a way to return those who drowned. [[Seraphine Vey]] drowned two years after the flood.`
 	},
 	{
-		path: 'Lore/Red-Tide.md',
-		type: 'lore',
+		path: 'Worldbuilding/Red-Tide.md',
+		type: 'worldbuilding',
 		content: `# Red Tide
 
 An event named in the final known letter from [[Elias Vey]]: “Seraphine has agreed. The lower gate will open on the night of the red tide.”

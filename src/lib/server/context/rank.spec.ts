@@ -7,7 +7,7 @@ const fragment = (documentId: string, title = documentId): ContextFragment => ({
 	campaignId: 'campaign',
 	documentId,
 	title,
-	documentType: 'lore',
+	documentType: 'worldbuilding',
 	content: title,
 	position: 0,
 	contentHash: `${documentId}-hash`

@@ -8,7 +8,7 @@ const relationshipDocumentTypes = new Set<VaultDocument['type']>([
 	'npc',
 	'location',
 	'item',
-	'lore'
+	'worldbuilding'
 ])
 
 const genericLeadTokens = new Set([

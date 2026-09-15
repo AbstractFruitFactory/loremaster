@@ -34,7 +34,7 @@
 		location: 'Location',
 		session: 'Session',
 		item: 'Item',
-		lore: 'Lore',
+		worldbuilding: 'Worldbuilding',
 		event: 'Event'
 	}
 	const autoScrollThreshold = 48

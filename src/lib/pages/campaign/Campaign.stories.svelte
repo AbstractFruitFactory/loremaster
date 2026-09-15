@@ -13,7 +13,7 @@
 				{
 					id: 'source-emberwatch-oath',
 					title: 'The Oath of Emberwatch',
-					type: 'lore'
+					type: 'worldbuilding'
 				}
 			]
 		}

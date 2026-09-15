@@ -12,7 +12,7 @@
 		{ value: 'location', label: 'Locations' },
 		{ value: 'session', label: 'Sessions' },
 		{ value: 'item', label: 'Items' },
-		{ value: 'lore', label: 'Lore' },
+		{ value: 'worldbuilding', label: 'Worldbuilding' },
 		{ value: 'event', label: 'Events' }
 	]
 

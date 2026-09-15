@@ -12,7 +12,7 @@ const source = (
 		campaignId,
 		documentId,
 		title: documentId,
-		documentType: 'lore',
+		documentType: 'worldbuilding',
 		content: documentId,
 		position: 0,
 		contentHash: `${documentId}-hash`

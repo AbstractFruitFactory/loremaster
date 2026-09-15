@@ -17,7 +17,7 @@
 			previousRevisionId: null,
 			campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 			documentId: 'document-ashen-crown',
-			path: 'Lore/The-Ashen-Crown.md',
+			path: 'Worldbuilding/The-Ashen-Crown.md',
 			operation: 'create',
 			source: 'manual',
 			createdAt: '2026-08-31T18:12:00.000Z',
@@ -32,7 +32,7 @@
 			previousRevisionId: firstRevisionId,
 			campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 			documentId: 'document-ashen-crown',
-			path: 'Lore/The-Ashen-Crown.md',
+			path: 'Worldbuilding/The-Ashen-Crown.md',
 			operation: 'update',
 			source: 'assistant',
 			createdAt: '2026-09-01T20:45:00.000Z',
@@ -86,7 +86,7 @@
 		hasLoadError: false,
 		isDiffLoading: false,
 		hasDiffError: false,
-		backHref: '/campaigns/demo/lore/document-ashen-crown',
+		backHref: '/campaigns/demo/worldbuilding/document-ashen-crown',
 		onselect: () => undefined,
 		onrestore: async () => undefined
 	} satisfies DocumentHistoryArgs

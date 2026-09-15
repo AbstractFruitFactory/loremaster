@@ -12,7 +12,7 @@ const embeddingModel = 'mock-token-hash-v1'
 const source = (
 	documentId: string,
 	position = 0,
-	documentType: ContextSource['fragment']['documentType'] = 'lore'
+	documentType: ContextSource['fragment']['documentType'] = 'worldbuilding'
 ): ContextSource => ({
 	fragment: {
 		id: `${documentId}:fragment:${position}`,
