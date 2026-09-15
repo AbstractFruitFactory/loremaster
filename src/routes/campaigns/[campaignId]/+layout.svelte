@@ -18,12 +18,10 @@
 			icon: 'lucide:messages-square',
 			href: `/campaigns/${campaignId}`
 		},
-		...documentTypes
-			.filter((type) => type !== 'item')
-			.map((type) => ({
-				...documentTypeMetadata[type],
-				href: `/campaigns/${campaignId}/${type}`
-			}))
+		...documentTypes.map((type) => ({
+			...documentTypeMetadata[type],
+			href: `/campaigns/${campaignId}/${type}`
+		}))
 	])
 </script>
 

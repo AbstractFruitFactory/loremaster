@@ -663,11 +663,13 @@
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 18rem;
 		gap: 1.25rem;
-		align-items: start;
+		align-items: stretch;
 	}
 
 	.review-content {
-		min-height: 39rem;
+		height: 0;
+		min-height: max(39rem, 100%);
+		overflow-y: auto;
 		padding: clamp(1.2rem, 2.5vw, 2rem);
 		border: 1px solid rgb(154 120 67 / 40%);
 		border-radius: var(--border-radius-md);
@@ -699,9 +701,8 @@
 	}
 
 	.review-sidebar {
-		position: sticky;
-		top: 1rem;
 		display: grid;
+		align-content: start;
 		gap: 0.7rem;
 	}
 
@@ -1393,7 +1394,9 @@
 		}
 
 		.review-content {
+			height: auto;
 			min-height: 30rem;
+			overflow-y: visible;
 		}
 	}
 
