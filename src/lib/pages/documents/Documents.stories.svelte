@@ -9,9 +9,9 @@
 	const documents = [
 		{
 			id: 'document-ashen-crown',
-			path: 'lore/the-ashen-crown.md',
+			path: 'worldbuilding/the-ashen-crown.md',
 			title: 'The Ashen Crown',
-			type: 'lore',
+			type: 'worldbuilding',
 			aliases: ['Crown of Ash'],
 			after: [],
 			summary:
@@ -20,9 +20,9 @@
 		},
 		{
 			id: 'document-emberwatch-oath',
-			path: 'lore/the-oath-of-emberwatch.md',
+			path: 'worldbuilding/the-oath-of-emberwatch.md',
 			title: 'The Oath of Emberwatch',
-			type: 'lore',
+			type: 'worldbuilding',
 			after: [],
 			summary:
 				'The Oath of Emberwatch is a campaign lore entry the Dungeon Master can reference at the table.',
@@ -32,7 +32,7 @@
 
 	const loadedArgs = {
 		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
-		selectedType: 'lore',
+		selectedType: 'worldbuilding',
 		documents,
 		isLoading: false,
 		hasLoadError: false

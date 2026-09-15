@@ -8,7 +8,7 @@ const item = (documentId: string, content: string, score: number): ContextItem =
 		campaignId: 'campaign',
 		documentId,
 		title: documentId,
-		documentType: 'lore',
+		documentType: 'worldbuilding',
 		content,
 		position: 0,
 		contentHash: `${documentId}-hash`

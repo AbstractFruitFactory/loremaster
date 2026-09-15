@@ -3,12 +3,14 @@ import type { AiPrompt } from '../ai/provider'
 import type { VaultDocument } from './types'
 
 const documentTypeGuidance: Record<DocumentType, string> = {
-	player: 'Focus on who this player character is, their role in the campaign, and what makes them distinctive.',
+	player:
+		'Focus on who this player character is, their role in the campaign, and what makes them distinctive.',
 	npc: 'Focus on who this NPC is, their role, and why they matter to the campaign.',
 	location: 'Focus on what this place is, its atmosphere, and why it matters in the story.',
 	session: 'Focus on what happened in this session and the most important developments.',
 	item: 'Focus on what this item is, its significance, and how it might appear in play.',
-	lore: 'Focus on the core fact or legend and why it matters to the campaign.',
+	worldbuilding:
+		'Focus on the setting concept, the rules or beliefs that define it, and why it matters to the campaign.',
 	event: 'Focus on what happened, who or what was involved, and why the event matters.'
 }
 

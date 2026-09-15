@@ -52,7 +52,9 @@ Varek owns [[The Black Crown]].`
 	})
 
 	it('uses the filename when the document has no level-one heading', () => {
-		expect(parseDocument('Lore/The Old Road.md', 'An old road.').title).toBe('The Old Road')
+		expect(parseDocument('Worldbuilding/The Old Road.md', 'An old road.').title).toBe(
+			'The Old Road'
+		)
 	})
 
 	it('serializes only supported frontmatter fields', () => {
@@ -239,9 +241,9 @@ after:
 		const result = runSync(
 			flip(
 				parseVaultDocument(
-					'Lore/Notes.md',
+					'Worldbuilding/Notes.md',
 					`---
-type: lore
+type: worldbuilding
 ingestion_id: ingestion-12
 ---
 

@@ -108,8 +108,8 @@ describe('context index operations', () => {
 
 		await runPromise(
 			index.reindexCampaign(campaignId, [
-				{ ...document, id: 'first', path: 'Lore/First.md', content: sharedContent },
-				{ ...document, id: 'second', path: 'Lore/Second.md', content: sharedContent }
+				{ ...document, id: 'first', path: 'Worldbuilding/First.md', content: sharedContent },
+				{ ...document, id: 'second', path: 'Worldbuilding/Second.md', content: sharedContent }
 			])
 		)
 

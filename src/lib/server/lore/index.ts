@@ -11,7 +11,7 @@ const categoryDirectory: Record<DocumentType, string> = {
 	location: 'Locations',
 	session: 'Sessions',
 	item: 'Items',
-	lore: 'Lore',
+	worldbuilding: 'Worldbuilding',
 	event: 'Events'
 }
 
@@ -21,7 +21,7 @@ const toSlug = (title: string) =>
 		.replace(/\p{M}/gu, '')
 		.toLowerCase()
 		.replace(/[^\p{L}\p{N}]+/gu, '-')
-		.replace(/^-|-$/g, '') || 'lore'
+		.replace(/^-|-$/g, '') || 'document'
 
 const toLoreSummary = (document: VaultDocumentSummary): LoreSummary => ({
 	id: document.id,
@@ -36,11 +36,10 @@ const toLoreEntry = (document: VaultDocument): LoreEntry => ({
 	links: document.links
 })
 
-export const lore = ({ vault }: {
-	vault: Pick<
-		ReturnType<typeof createVault>,
-		'createDocument' | 'getDocument' | 'listDocuments'
-	>
+export const lore = ({
+	vault
+}: {
+	vault: Pick<ReturnType<typeof createVault>, 'createDocument' | 'getDocument' | 'listDocuments'>
 }) => {
 	const listLore = (campaignId: string) =>
 		pipe(

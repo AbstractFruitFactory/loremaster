@@ -4,7 +4,7 @@ export const documentTypes = [
 	'location',
 	'session',
 	'item',
-	'lore',
+	'worldbuilding',
 	'event'
 ] as const
 

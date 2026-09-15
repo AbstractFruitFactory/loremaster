@@ -5,7 +5,7 @@ export const ingestionDocumentTypes = [
 	'npc',
 	'location',
 	'item',
-	'lore',
+	'worldbuilding',
 	'event'
 ] as const
 

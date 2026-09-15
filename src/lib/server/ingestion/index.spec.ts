@@ -48,7 +48,7 @@ const document = (
 	overrides: Partial<VaultDocument> = {}
 ): VaultDocument => ({
 	id,
-	path: `${type === 'npc' ? 'NPCs' : 'Lore'}/${title}.md`,
+	path: `${type === 'npc' ? 'NPCs' : 'Worldbuilding'}/${title}.md`,
 	title,
 	type,
 	aliases,
@@ -319,9 +319,7 @@ describe('session ingestion operations', () => {
 			[
 				claim('The service tunnels below Cathedral Square are old.', {
 					content: 'The service tunnels below Cathedral Square are old.',
-					entityReferences: [
-						{ label: 'service tunnels below Cathedral Square', type: 'location' }
-					]
+					entityReferences: [{ label: 'service tunnels below Cathedral Square', type: 'location' }]
 				})
 			],
 			[]
@@ -396,7 +394,48 @@ describe('session ingestion operations', () => {
 		})
 	})
 
-	it('keeps a world fact in the session without inventing a Lore document', async () => {
+	it('creates a Worldbuilding entry for a durable setting concept', async () => {
+		const harness = setup(
+			[
+				claim('The Thirteen-Tone Sequence can communicate with the presence below Greyhaven.', {
+					content: 'The Thirteen-Tone Sequence can communicate with the presence below Greyhaven.',
+					entityReferences: [{ label: 'Thirteen-Tone Sequence', type: 'worldbuilding' }]
+				})
+			],
+			[]
+		)
+		const transcript =
+			'The Thirteen-Tone Sequence can communicate with the presence below Greyhaven.'
+		const draft = await runPromise(analyze(harness.operations, transcript))
+		const proposal = draft.proposals[1]
+
+		expect(proposal).toMatchObject({
+			operation: 'create-entity',
+			documentType: 'worldbuilding',
+			title: 'Thirteen-Tone Sequence',
+			selected: true,
+			canCreate: true
+		})
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft)
+			})
+		)
+		expect(harness.createDocument).toHaveBeenCalledWith(
+			'campaign',
+			expect.objectContaining({
+				path: 'Worldbuilding/thirteen-tone-sequence.md',
+				type: 'worldbuilding',
+				content:
+					'# Thirteen-Tone Sequence\n\nThe Thirteen-Tone Sequence can communicate with the presence below Greyhaven.'
+			})
+		)
+	})
+
+	it('keeps an orphan world fact in the session without inventing a Worldbuilding entry', async () => {
 		const harness = setup(
 			[
 				claim('Four bells have now been found.', {
@@ -505,7 +544,6 @@ describe('session ingestion operations', () => {
 		)
 	})
 
-
 	it('allocates unique paths when selected documents have duplicate generated names', async () => {
 		const duplicateEvent = (content: string): ExtractedSessionClaim =>
 			claim(content, {
@@ -561,7 +599,9 @@ describe('session ingestion operations', () => {
 			],
 			[existingEvent]
 		)
-		const draft = await runPromise(analyze(harness.operations, 'The party disabled the ceiling trap.'))
+		const draft = await runPromise(
+			analyze(harness.operations, 'The party disabled the ceiling trap.')
+		)
 
 		await runPromise(
 			harness.operations.commit({
@@ -571,7 +611,9 @@ describe('session ingestion operations', () => {
 			})
 		)
 
-		const eventCreate = harness.createDocument.mock.calls.find(([, input]) => input.type === 'event')?.[1]
+		const eventCreate = harness.createDocument.mock.calls.find(
+			([, input]) => input.type === 'event'
+		)?.[1]
 		expect(eventCreate?.path).toBe('Events/ceiling-trap-disabled-2.md')
 	})
 

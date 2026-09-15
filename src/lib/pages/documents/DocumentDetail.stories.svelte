@@ -8,9 +8,9 @@
 
 	const document = {
 		id: 'document-ashen-crown',
-		path: 'lore/the-ashen-crown.md',
+		path: 'worldbuilding/the-ashen-crown.md',
 		title: 'The Ashen Crown',
-		type: 'lore',
+		type: 'worldbuilding',
 		aliases: ['Crown of Ash'],
 		after: [],
 		summary:
@@ -31,33 +31,33 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 	} satisfies NonNullable<DocumentDetailArgs['document']>
 
 	const loadedArgs = {
-		selectedType: 'lore',
+		selectedType: 'worldbuilding',
 		document,
 		isLoading: false,
 		hasLoadError: false,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore',
-		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
+		backHref: '/campaigns/demo/worldbuilding',
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const loadingArgs = {
-		selectedType: 'lore',
+		selectedType: 'worldbuilding',
 		document: undefined,
 		isLoading: true,
 		hasLoadError: false,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore',
-		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
+		backHref: '/campaigns/demo/worldbuilding',
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const loadErrorArgs = {
-		selectedType: 'lore',
+		selectedType: 'worldbuilding',
 		document: undefined,
 		isLoading: false,
 		hasLoadError: true,
 		typeMismatch: false,
-		backHref: '/campaigns/demo/lore',
-		historyHref: '/campaigns/demo/lore/document-ashen-crown/history'
+		backHref: '/campaigns/demo/worldbuilding',
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
 	} satisfies DocumentDetailArgs
 
 	const { Story } = defineMeta({

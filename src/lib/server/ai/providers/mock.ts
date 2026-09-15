@@ -33,7 +33,7 @@ const directoryTypes: Record<string, DocumentType> = {
 	locations: 'location',
 	sessions: 'session',
 	items: 'item',
-	lore: 'lore',
+	worldbuilding: 'worldbuilding',
 	events: 'event'
 }
 
@@ -55,7 +55,7 @@ const categoryFor = (message: string): DocumentType => {
 	if (/\b(session|recap|session notes)\b/i.test(message)) return 'session'
 	if (/\b(event|battle|festival|incident|war)\b/i.test(message)) return 'event'
 	if (/\b(item|artifact|weapon|armor|relic)\b/i.test(message)) return 'item'
-	return 'lore'
+	return 'worldbuilding'
 }
 
 const currentMessage = (prompt: string) => prompt.split('## Current message\n').at(-1)?.trim() ?? ''
@@ -91,7 +91,7 @@ const embedText = (text: string) => {
 const generateText: GenerateText = ({ system, prompt }) => {
 	if (prompt.startsWith('## Document:')) {
 		const title = prompt.match(/^## Document: (.+)$/m)?.[1] ?? 'entry'
-		const type = prompt.match(/^Type: (\w+)$/m)?.[1] ?? 'lore'
+		const type = prompt.match(/^Type: (\w+)$/m)?.[1] ?? 'worldbuilding'
 
 		return succeed(
 			`${title} is a campaign ${type} entry the Dungeon Master can reference at the table.`
@@ -158,7 +158,9 @@ const inferDocumentType: InferDocumentType = ({ path, title, content }) => {
 	if (directoryType) return succeed(directoryType)
 
 	const source = `${title}\n${content}`
-	return succeed(contentPatterns.find(([, pattern]) => pattern.test(source))?.[0] ?? 'lore')
+	return succeed(
+		contentPatterns.find(([, pattern]) => pattern.test(source))?.[0] ?? 'worldbuilding'
+	)
 }
 
 const analyzeSessionChunk: AnalyzeSessionChunk = ({ prompt }) => {

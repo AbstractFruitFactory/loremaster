@@ -19,13 +19,20 @@
 	type ReviewDecision = 'approved' | 'rejected'
 	type ReviewStatus = ReviewDecision | 'pending'
 
-	const reviewTypes: ReviewDocumentType[] = ['npc', 'player', 'location', 'item', 'event', 'lore']
+	const reviewTypes: ReviewDocumentType[] = [
+		'npc',
+		'player',
+		'location',
+		'item',
+		'event',
+		'worldbuilding'
+	]
 	const singularTypeLabel: Record<ReviewDocumentType, string> = {
 		player: 'Player',
 		npc: 'NPC',
 		location: 'Location',
 		item: 'Item',
-		lore: 'Lore',
+		worldbuilding: 'Worldbuilding entry',
 		event: 'Event'
 	}
 
@@ -97,21 +104,21 @@
 			: { proposalId: proposal.proposalId, kind: 'existing', documentId: value }
 	}
 
-	const loreProposals = () =>
+	const canonProposals = () =>
 		draft.current?.proposals.filter(
 			(proposal) => proposal.documentType !== 'session' && !isOtherDetail(proposal)
 		) ?? []
 
-	const attentionProposals = () => loreProposals().filter(needsAttention)
+	const attentionProposals = () => canonProposals().filter(needsAttention)
 	const typeProposals = (type: ReviewDocumentType) =>
-		loreProposals().filter((proposal) => proposal.documentType === type)
+		canonProposals().filter((proposal) => proposal.documentType === type)
 	const otherDetails = () => draft.current?.proposals.filter(isOtherDetail) ?? []
 
 	const statusCount = (proposals: SessionProposal[], status: ReviewStatus) =>
 		proposals.filter((proposal) => reviewStatus(proposal) === status).length
 
-	const approvedLoreCount = () => statusCount(loreProposals(), 'approved')
-	const rejectedLoreCount = () => statusCount(loreProposals(), 'rejected')
+	const approvedCanonCount = () => statusCount(canonProposals(), 'approved')
+	const rejectedCanonCount = () => statusCount(canonProposals(), 'rejected')
 	const pendingAttentionCount = () => statusCount(attentionProposals(), 'pending')
 
 	const setGroupDecision = (proposals: SessionProposal[], decision: ReviewDecision) => {
@@ -232,7 +239,9 @@
 			class:active={status === 'approved'}
 			aria-pressed={status === 'approved'}
 			disabled={!canApprove(proposal)}
-			title={!canApprove(proposal) ? 'Choose which Lore entry this refers to first.' : undefined}
+			title={!canApprove(proposal)
+				? 'Choose which campaign entry this refers to first.'
+				: undefined}
 			onclick={() => approveProposal(proposal)}
 		>
 			<Icon icon="lucide:check" aria-hidden="true" />
@@ -264,7 +273,9 @@
 			<div class="badges">
 				{#if status === 'pending'}<span class="badge pending-badge">Review</span>{/if}
 				{#if proposal.certainty === 'inferred'}<span class="badge attention">Inferred</span>{/if}
-				{#if proposal.resolutionMethod === 'model'}<span class="badge attention">Suggested match</span>{/if}
+				{#if proposal.resolutionMethod === 'model'}<span class="badge attention"
+						>Suggested match</span
+					>{/if}
 			</div>
 		</div>
 
@@ -282,12 +293,13 @@
 		{#if proposal.match.kind === 'exact' && proposal.resolutionMethod === 'model'}
 			<p class="match-note">
 				<Icon icon="lucide:git-merge" aria-hidden="true" />
-				Suggested match: <strong>{proposal.match.title}</strong>. Approve only if this is the same entry.
+				Suggested match: <strong>{proposal.match.title}</strong>. Approve only if this is the same
+				entry.
 			</p>
 		{:else if proposal.match.kind === 'unresolved' && proposal.match.candidates.length}
 			<div class="resolution-panel">
 				<div>
-					<strong>Which Lore entry is this?</strong>
+					<strong>Which campaign entry is this?</strong>
 					<p>Choose the destination before approving this change.</p>
 				</div>
 				<label class="resolution">
@@ -335,8 +347,8 @@
 		{/if}
 		<p class="detail-help">
 			{proposal.operation === 'record-only'
-				? 'This can be included in the saved session without creating or updating a Lore entry.'
-				: 'Kept as source context only. It will not change Lore or the session recap.'}
+				? 'This can be included in the saved session without creating or updating a campaign entry.'
+				: 'Kept as source context only. It will not change canon or the session recap.'}
 		</p>
 		<div class="proposal-footer">
 			{@render sourceDetails(proposal)}
@@ -352,7 +364,9 @@
 	<header class="page-heading">
 		<p class="eyebrow">Session review</p>
 		<h2 id="review-heading">{draft.current?.title ?? 'Review session'}</h2>
-		<p>Review what Loremaster learned before saving the session and updating your campaign Lore.</p>
+		<p>
+			Review what Loremaster learned before saving the session and updating your campaign canon.
+		</p>
 	</header>
 
 	{#if draft.error}
@@ -409,7 +423,7 @@
 								<small>{otherDetails().length}</small>
 							</summary>
 							<p class="other-details-intro">
-								These preserve useful session context without becoming normal Lore entries.
+								These preserve useful session context without becoming normal campaign entries.
 							</p>
 							<div class="detail-list">
 								{#each otherDetails() as proposal (proposal.proposalId)}
@@ -426,7 +440,10 @@
 									? 'note'
 									: 'notes'}
 							</summary>
-							<p>Some source details could not be confidently included. These notes are mainly useful for troubleshooting.</p>
+							<p>
+								Some source details could not be confidently included. These notes are mainly useful
+								for troubleshooting.
+							</p>
 							<ul>
 								{#each draft.current.warnings as warning}<li>{warning}</li>{/each}
 							</ul>
@@ -438,9 +455,7 @@
 							<Icon icon="lucide:circle-help" aria-hidden="true" />
 							<div>
 								<strong>Loremaster deferred these decisions to you.</strong>
-								<p>
-									They contain an inference, an ambiguous identity, or a model-suggested match.
-								</p>
+								<p>They contain an inference, an ambiguous identity, or a model-suggested match.</p>
 							</div>
 						</div>
 						<div class="proposal-list">
@@ -452,14 +467,15 @@
 						<div class="empty-view">
 							<Icon icon="lucide:circle-check-big" aria-hidden="true" />
 							<h4>Nothing needs your attention</h4>
-							<p>All proposed Lore changes are routine, explicit updates.</p>
+							<p>All proposed canon changes are routine, explicit updates.</p>
 						</div>
 					{/if}
 				{:else}
 					{@const proposals = typeProposals(activeView)}
 					<div class="group-toolbar">
 						<p>
-							{proposals.length} {proposals.length === 1 ? 'change' : 'changes'} found in this session.
+							{proposals.length}
+							{proposals.length === 1 ? 'change' : 'changes'} found in this session.
 						</p>
 						<div>
 							<button type="button" onclick={() => setGroupDecision(proposals, 'approved')}>
@@ -554,8 +570,9 @@
 		<footer class="approval">
 			<div>
 				<strong>
-					{approvedLoreCount()} approved · {rejectedLoreCount()} rejected
-					{#if pendingAttentionCount()} · {pendingAttentionCount()} need attention{/if}
+					{approvedCanonCount()} approved · {rejectedCanonCount()} rejected
+					{#if pendingAttentionCount()}
+						· {pendingAttentionCount()} need attention{/if}
 				</strong>
 				<p>
 					{pendingAttentionCount()
@@ -566,7 +583,7 @@
 			</div>
 			<button type="button" disabled={committing} onclick={approve}>
 				<Icon icon="lucide:save" aria-hidden="true" />
-				{committing ? 'Saving…' : 'Save session & update Lore'}
+				{committing ? 'Saving…' : 'Save session & update canon'}
 			</button>
 		</footer>
 	{/if}

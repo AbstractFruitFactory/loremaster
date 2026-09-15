@@ -648,7 +648,7 @@ custom: retained
 		await runPromise(
 			storage.write(
 				campaign.id,
-				'Lore/Creation.md',
+				'Worldbuilding/Creation.md',
 				`---
 tags:
   - origin
@@ -673,30 +673,30 @@ type: location
 		)
 		indexedDocuments.set('stale', {
 			id: 'stale',
-			path: 'Lore/Stale.md',
+			path: 'Worldbuilding/Stale.md',
 			title: 'Stale',
-			type: 'lore',
+			type: 'worldbuilding',
 			after: [],
 			summary: '',
 			links: []
 		})
 
 		const documents = await runPromise(operations.reindexCampaign(campaign.id))
-		const creation = documents.find(({ path }) => path === 'Lore/Creation.md')
+		const creation = documents.find(({ path }) => path === 'Worldbuilding/Creation.md')
 		const persistedCreation = runSync(
 			parseVaultDocument(
-				'Lore/Creation.md',
-				await readFile(join(root, campaign.id, 'Lore', 'Creation.md'), 'utf8')
+				'Worldbuilding/Creation.md',
+				await readFile(join(root, campaign.id, 'Worldbuilding', 'Creation.md'), 'utf8')
 			)
 		)
 
 		expect(documents).toHaveLength(2)
 		expect(creation?.id).toBeTruthy()
 		expect(persistedCreation.id).toBe(creation?.id)
-		expect(persistedCreation.type).toBe('lore')
-		expect(await readFile(join(root, campaign.id, 'Lore', 'Creation.md'), 'utf8')).toContain(
-			'tags:\n  - origin'
-		)
+		expect(persistedCreation.type).toBe('worldbuilding')
+		expect(
+			await readFile(join(root, campaign.id, 'Worldbuilding', 'Creation.md'), 'utf8')
+		).toContain('tags:\n  - origin')
 		expect(indexedDocuments.has('stale')).toBe(false)
 		expect(indexedDocuments.get(creation?.id ?? '')?.links).toEqual(['Westgate'])
 		expect(indexedDocuments.get('location_westgate')).toMatchObject({
@@ -745,8 +745,8 @@ id: duplicate
 ---
 
 # Duplicate`
-		await runPromise(storage.write(campaign.id, 'Lore/One.md', duplicate))
-		await runPromise(storage.write(campaign.id, 'Lore/Two.md', duplicate))
+		await runPromise(storage.write(campaign.id, 'Worldbuilding/One.md', duplicate))
+		await runPromise(storage.write(campaign.id, 'Worldbuilding/Two.md', duplicate))
 
 		const result = await runPromise(flip(operations.reindexCampaign(campaign.id)))
 
