@@ -2,6 +2,7 @@ import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type {
 	AnalyzeSessionChunk,
+	InferSessionChronology,
 	ResolveSessionEntities,
 	ValidateSessionClaims
 } from '../ai/provider'
@@ -103,7 +104,8 @@ const setup = (
 	claims: ExtractedSessionClaim[],
 	documents: VaultDocument[] = [varek],
 	resolveSessionEntities: ResolveSessionEntities = () => succeed([]),
-	validateSessionClaims: ValidateSessionClaims = acceptingValidator
+	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
+	inferSessionChronology: InferSessionChronology = () => succeed([])
 ) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
@@ -138,7 +140,8 @@ const setup = (
 			analyzeSessionChunk: validatingAnalyzer(claims),
 			validateSessionClaims,
 			repairSessionClaimEvidence: () => succeed([]),
-			resolveSessionEntities
+			resolveSessionEntities,
+			inferSessionChronology
 		},
 		storage: {
 			write,
@@ -487,6 +490,225 @@ describe('session ingestion operations', () => {
 			content: 'Mara hired the party to recover the lockbox.',
 			selected: true
 		})
+	})
+
+	it('infers reviewed chronology and persists event predecessors', async () => {
+		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				proposalId: string
+			}[]
+			return succeed([
+				{
+					beforeProposalId: events[0]!.proposalId,
+					afterProposalId: events[1]!.proposalId,
+					certainty: 'explicit' as const,
+					reason: 'The party crossed the bridge before opening the gate.'
+				}
+			])
+		})
+		const harness = setup(
+			[
+				claim('The party crossed the bridge.', {
+					kind: 'development',
+					eventTitle: 'Party crosses bridge',
+					evidence: [{ startLine: 1, endLine: 1 }],
+					entityReferences: []
+				}),
+				claim('The party then opened the gate.', {
+					kind: 'development',
+					eventTitle: 'Party opens gate',
+					evidence: [{ startLine: 2, endLine: 2 }],
+					entityReferences: []
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, 'The party crossed the bridge.\nThe party then opened the gate.')
+		)
+
+		expect(inferSessionChronology).toHaveBeenCalledTimes(1)
+		expect(draft.chronology).toEqual([
+			expect.objectContaining({
+				beforeProposalId: draft.proposals[1]!.proposalId,
+				afterProposalId: draft.proposals[2]!.proposalId,
+				certainty: 'explicit',
+				selected: true
+			})
+		])
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		expect(eventCreates).toHaveLength(2)
+		expect(eventCreates[0]!.after).toEqual([])
+		expect(eventCreates[1]!.after).toEqual([eventCreates[0]!.documentId])
+	})
+
+	it('preserves a branch of mutually unordered events with common boundaries', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				proposalId: string
+			}[]
+			const [arrival, warning, north, east, south, departure] = events
+			const relationship = (beforeProposalId: string, afterProposalId: string) => ({
+				beforeProposalId,
+				afterProposalId,
+				certainty: 'explicit' as const,
+				reason: 'The transcript establishes this boundary.'
+			})
+
+			return succeed([
+				relationship(arrival!.proposalId, warning!.proposalId),
+				relationship(warning!.proposalId, north!.proposalId),
+				relationship(warning!.proposalId, east!.proposalId),
+				relationship(warning!.proposalId, south!.proposalId),
+				relationship(north!.proposalId, departure!.proposalId),
+				relationship(east!.proposalId, departure!.proposalId),
+				relationship(south!.proposalId, departure!.proposalId)
+			])
+		}
+		const titles = [
+			'Party arrives',
+			'Warning sounds',
+			'North tower secured',
+			'East gate secured',
+			'South crypt secured',
+			'Party departs'
+		]
+		const claims = titles.map((title, index) =>
+			claim(`${title}.`, {
+				kind: 'development',
+				eventTitle: title,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(claims, [], () => succeed([]), acceptingValidator, inferSessionChronology)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+		const eventProposalIds = draft.proposals
+			.filter(({ operation }) => operation === 'create-event')
+			.map(({ proposalId }) => proposalId)
+		const siblingIds = new Set(eventProposalIds.slice(2, 5))
+
+		expect(draft.chronology).toHaveLength(7)
+		expect(
+			draft.chronology.some(
+				({ beforeProposalId, afterProposalId }) =>
+					siblingIds.has(beforeProposalId) && siblingIds.has(afterProposalId)
+			)
+		).toBe(false)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		const [arrival, warning, north, east, south, departure] = eventCreates
+		expect(arrival!.after).toEqual([])
+		expect(warning!.after).toEqual([arrival!.documentId])
+		expect(north!.after).toEqual([warning!.documentId])
+		expect(east!.after).toEqual([warning!.documentId])
+		expect(south!.after).toEqual([warning!.documentId])
+		expect(departure!.after).toHaveLength(3)
+		expect(departure!.after).toEqual(
+			expect.arrayContaining([north!.documentId, east!.documentId, south!.documentId])
+		)
+	})
+
+	it('does not add a fallback order when chronology is unknown', async () => {
+		const claims = ['First account', 'Second account', 'Third account'].map((title, index) =>
+			claim(`${title}.`, {
+				kind: 'development',
+				eventTitle: title,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(
+			claims,
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			() => succeed([])
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+
+		expect(draft.chronology).toEqual([])
+	})
+
+	it('drops cyclic and transitively redundant chronology relationships', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				proposalId: string
+			}[]
+			const [first, second, third] = events
+			return succeed([
+				{
+					beforeProposalId: first!.proposalId,
+					afterProposalId: second!.proposalId,
+					certainty: 'inferred',
+					reason: 'Narrative progression.'
+				},
+				{
+					beforeProposalId: second!.proposalId,
+					afterProposalId: third!.proposalId,
+					certainty: 'inferred',
+					reason: 'Narrative progression.'
+				},
+				{
+					beforeProposalId: first!.proposalId,
+					afterProposalId: third!.proposalId,
+					certainty: 'inferred',
+					reason: 'Redundant transitive relationship.'
+				},
+				{
+					beforeProposalId: third!.proposalId,
+					afterProposalId: first!.proposalId,
+					certainty: 'explicit',
+					reason: 'Invalid cycle.'
+				}
+			])
+		}
+		const claims = ['First', 'Second', 'Third'].map((title, index) =>
+			claim(`${title} event.`, {
+				kind: 'development',
+				eventTitle: `${title} event`,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(claims, [], () => succeed([]), acceptingValidator, inferSessionChronology)
+		const draft = await runPromise(
+			analyze(harness.operations, 'First event.\nSecond event.\nThird event.')
+		)
+
+		expect(draft.chronology).toHaveLength(2)
+		expect(draft.chronology.every(({ selected }) => !selected)).toBe(true)
+		expect(draft.warnings.some((warning) => warning.includes('[cycle]'))).toBe(true)
 	})
 
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {

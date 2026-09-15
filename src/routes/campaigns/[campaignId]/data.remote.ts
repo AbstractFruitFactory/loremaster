@@ -112,6 +112,7 @@ const proposalResolution = z.discriminatedUnion('kind', [
 const commitIngestionInput = ingestionReference
 	.extend({
 		selectedProposalIds: z.array(z.uuid()).min(1).max(500),
+		selectedChronologyIds: z.array(z.uuid()).max(500),
 		resolutions: z.array(proposalResolution).max(500)
 	})
 	.strict()

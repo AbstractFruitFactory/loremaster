@@ -4,6 +4,7 @@ import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant
 import type { Failure } from '../failure'
 import type {
 	ExtractedSessionClaim,
+	InferredSessionChronology,
 	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
 	SessionEntityResolution
@@ -57,6 +58,10 @@ export type ResolveSessionEntities = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
 
+export type InferSessionChronology = (
+	input: AiPrompt & { model: string }
+) => Effect<InferredSessionChronology[], Failure<'ai', 'inferSessionChronology'>>
+
 export type GenerateRelationshipLinks = (
 	input: AiPrompt & { model: string }
 ) => Effect<RelationshipLink[], Failure<'ai', 'generateRelationshipLinks'>>
@@ -82,6 +87,7 @@ export type AiProvider = {
 	validateSessionClaims: ValidateSessionClaims
 	repairSessionClaimEvidence: RepairSessionClaimEvidence
 	resolveSessionEntities: ResolveSessionEntities
+	inferSessionChronology: InferSessionChronology
 	generateRelationshipLinks: GenerateRelationshipLinks
 }
 

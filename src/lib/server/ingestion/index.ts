@@ -4,6 +4,8 @@ import { pipe } from 'effect/Function'
 import { buildSessionRecap, canonicalDocumentContent } from '../../ingestion'
 import type { AiProvider } from '../ai/provider'
 import type { Failure } from '../failure'
+import { hasTimelineCycle, timelineRelation } from '../timeline/graph'
+import type { TimelineEdge } from '../timeline/types'
 import type { VaultDocument } from '../vault/types'
 import { chunkTranscript } from './chunking'
 import { materializeEvidenceRanges } from './evidence'
@@ -13,12 +15,14 @@ import type {
 	EntityReference,
 	Evidence,
 	ExtractedSessionClaim,
+	InferredSessionChronology,
 	IngestionDocumentType,
 	ProposalCandidate,
 	ProposalMatch,
 	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
 	SessionIngestionDraft,
+	SessionChronologyProposal,
 	SessionEntityResolution,
 	SessionIngestionResult,
 	SessionProposal,
@@ -157,6 +161,7 @@ type CommitInput = {
 	campaignId: string
 	ingestionId: string
 	selectedProposalIds: string[]
+	selectedChronologyIds?: string[]
 	resolutions?: SessionProposalResolution[]
 }
 
@@ -289,7 +294,6 @@ const mentionProposal = (
 		evidence: claim.evidence,
 		match,
 		references,
-		after: [],
 		content: claim.content
 	}
 }
@@ -308,7 +312,6 @@ const developmentProposal = (
 	evidence: claim.evidence,
 	match: { kind: 'unresolved', candidates: [] },
 	references,
-	after: [],
 	content: claim.content
 })
 
@@ -327,7 +330,6 @@ const updateEntityProposal = (
 	evidence: claim.evidence,
 	match: matchForExisting(entity.document),
 	references,
-	after: [],
 	content: claim.content,
 	resolutionMethod: entity.method,
 	base: {
@@ -352,7 +354,6 @@ const createSessionEntityProposal = (
 	evidence: claim.evidence,
 	match: { kind: 'unresolved', candidates: [] },
 	references,
-	after: [],
 	content: claim.content,
 	resolutionMethod: entity.method,
 	canCreate: true
@@ -375,7 +376,6 @@ const unresolvedEntityProposal = (
 				evidence: claim.evidence,
 				match: entity.match,
 				references,
-				after: [],
 				content: claim.content,
 				canCreate: entity.canCreate
 			}
@@ -395,7 +395,6 @@ const recordOnlyProposal = (
 	evidence: claim.evidence,
 	match: { kind: 'unresolved', candidates: [] },
 	references,
-	after: [],
 	content: claim.content
 })
 
@@ -486,7 +485,6 @@ const mergeProposals = (proposals: SessionProposal[]) => {
 			evidence: uniqueEvidence([...existing.evidence, ...proposal.evidence]),
 			match,
 			references: uniqueReferences([...existing.references, ...proposal.references]),
-			after: uniqueReferences([...existing.after, ...proposal.after]),
 			content,
 			resolutionMethod,
 			canCreate: Boolean(existing.canCreate || proposal.canCreate),
@@ -507,6 +505,7 @@ export const sessionIngestion = ({
 		| 'validateSessionClaims'
 		| 'repairSessionClaimEvidence'
 		| 'resolveSessionEntities'
+		| 'inferSessionChronology'
 	> & {
 		analysisModel: string
 	}
@@ -828,6 +827,8 @@ export const sessionIngestion = ({
 		'A Worldbuilding reference is valid only for a persistent setting concept with its own identity that is not primarily a person, place, item, or event, such as a religion, myth, ritual, magical phenomenon or system, social custom, law, prophecy, calendar, or institution. Reject Worldbuilding references used merely as a catch-all for isolated facts without a coherent persistent subject.'
 	const evidenceRepairSystem =
 		'Repair only the evidence line ranges for candidate claims that were rejected solely because their current citations were insufficient. Do not rewrite claim content, kind, certainty, or entity references. For each candidateId, inspect the supplied numbered transcript chunk and return the smallest set of replacement line ranges that collectively supports the exact existing normalized claim, including every identity, attribution, relationship, chronology statement, and coreference it expresses. You may expand the original range or cite multiple separated ranges. Never repair an unsupported claim by weakening, reinterpreting, or changing it. If the exact claim cannot be fully grounded anywhere in the supplied chunk, return an empty evidence array. Never cite outside the supplied chunk.'
+	const chronologySystem =
+		'Infer a partial chronological order between the supplied campaign event proposals. Return an edge only when the session evidence establishes that the first event happened before the second in the campaign world. The result is not required to be a single linear sequence: events may be unrelated, disconnected, concurrent, or have an unknown order. Absence of an edge means their relative order is not established. Events may share a predecessor or successor without being ordered relative to one another; preserve that fan-out or fan-in shape and never add edges between sibling events merely to linearize them. Present-day actions and scene transitions establish narrative order only when the transcript clearly indicates that one action or scene follows another; transcript position by itself is not enough. Transcript position also does not order historical accounts, flashbacks, legends, prophecies, plans, hypothetical events, or out-of-character discussion. Do not infer order from plausible causality or from a need to choose one earliest or latest event. Use explicit when temporal language or the described action directly establishes the order; use inferred for clear narrative progression without explicit temporal language. Return only useful direct constraints and omit transitive relationships. Use only supplied proposal IDs, never create IDs, and never create cycles.'
 
 	const numberedChunkContent = (chunk: TranscriptChunk) =>
 		chunk.content
@@ -1169,26 +1170,114 @@ export const sessionIngestion = ({
 		evidence: claims.flatMap(({ evidence }) => evidence),
 		match: { kind: 'unresolved', candidates: [] },
 		references: [],
-		after: [],
 		content: buildSessionRecap(
 			title,
 			claimProposals.filter(({ selected }) => selected)
 		)
 	})
 
+	const chronologyPrompt = (eventProposals: SessionProposal[]) =>
+		`## Candidate events\n${JSON.stringify(
+			eventProposals.map((proposal) => ({
+				proposalId: proposal.proposalId,
+				title: proposal.title,
+				content: proposal.content,
+				evidence: proposal.evidence.map(({ startLine, endLine, excerpt }) => ({
+					startLine,
+					endLine,
+					excerpt
+				}))
+			})),
+			null,
+			2
+		)}`
+
+	const timelineEdgeFor = ({
+		beforeProposalId,
+		afterProposalId
+	}: InferredSessionChronology): TimelineEdge => ({
+		beforeDocumentId: beforeProposalId,
+		afterDocumentId: afterProposalId
+	})
+
+	const validatedChronology = (
+		relations: InferredSessionChronology[],
+		eventProposals: SessionProposal[]
+	) => {
+		const eventIds = new Set(eventProposals.map(({ proposalId }) => proposalId))
+		const accepted: SessionChronologyProposal[] = []
+		const acceptedKeys = new Set<string>()
+		const warnings: string[] = []
+
+		for (const relation of relations) {
+			const key = `${relation.beforeProposalId}\0${relation.afterProposalId}`
+			if (
+				!eventIds.has(relation.beforeProposalId) ||
+				!eventIds.has(relation.afterProposalId) ||
+				relation.beforeProposalId === relation.afterProposalId ||
+				acceptedKeys.has(key)
+			) {
+				warnings.push(
+					`Chronology relation discarded [invalid-reference] ${JSON.stringify(relation)}`
+				)
+				continue
+			}
+
+			const candidate = {
+				...relation,
+				chronologyId: randomUUID(),
+				selected: relation.certainty === 'explicit'
+			}
+			const edges = [...accepted.map(timelineEdgeFor), timelineEdgeFor(candidate)]
+			if (hasTimelineCycle(edges)) {
+				warnings.push(`Chronology relation discarded [cycle] ${JSON.stringify(relation)}`)
+				continue
+			}
+
+			accepted.push(candidate)
+			acceptedKeys.add(key)
+		}
+
+		const direct = accepted.filter((relation) => {
+			const otherEdges = accepted
+				.filter(({ chronologyId }) => chronologyId !== relation.chronologyId)
+				.map(timelineEdgeFor)
+			return (
+				timelineRelation(relation.beforeProposalId, relation.afterProposalId)(otherEdges) !==
+				'before'
+			)
+		})
+
+		return { chronology: direct, warnings }
+	}
+
+	const inferChronology = (eventProposals: SessionProposal[]) => {
+		if (eventProposals.length < 2) return succeed({ chronology: [], warnings: [] })
+		return pipe(
+			ai.inferSessionChronology({
+				model: ai.analysisModel,
+				system: chronologySystem,
+				prompt: chronologyPrompt(eventProposals)
+			}),
+			map((relations) => validatedChronology(relations, eventProposals))
+		)
+	}
+
 	const buildDraft = (
 		input: { campaignId: string; title: string },
 		claims: ValidatedClaim[],
 		claimProposals: SessionProposal[],
+		chronology: SessionChronologyProposal[],
 		warnings: string[]
 	): SessionIngestionDraft => ({
-		schemaVersion: 1,
+		schemaVersion: 2,
 		ingestionId: randomUUID(),
 		campaignId: input.campaignId,
 		title: input.title,
 		createdAt: new Date().toISOString(),
 		warnings,
-		proposals: [sessionProposalFor(input.title, claims, claimProposals), ...claimProposals]
+		proposals: [sessionProposalFor(input.title, claims, claimProposals), ...claimProposals],
+		chronology
 	})
 
 	const analyze = (input: { campaignId: string; title: string; transcript: string }) =>
@@ -1201,12 +1290,13 @@ export const sessionIngestion = ({
 			const claims = mergeClaims(results.flatMap(({ claims }) => claims))
 			const resolvedClaims = yield* resolveClaims(claims, documents)
 			const claimProposals = mergeProposals(resolvedClaims.flatMap(proposalsForClaim))
-			const draft = buildDraft(
-				input,
-				claims,
-				claimProposals,
-				results.flatMap(({ warnings }) => warnings)
+			const chronology = yield* inferChronology(
+				claimProposals.filter(({ operation }) => operation === 'create-event')
 			)
+			const draft = buildDraft(input, claims, claimProposals, chronology.chronology, [
+				...results.flatMap(({ warnings }) => warnings),
+				...chronology.warnings
+			])
 			yield* storage.write(draft, input.transcript)
 			return draft
 		})
@@ -1222,10 +1312,22 @@ export const sessionIngestion = ({
 		input: CommitInput,
 		draft: SessionIngestionDraft
 	): Effect<
-		{ selectedIds: Set<string>; selected: SessionProposal[]; sessionProposal: SessionProposal },
+		{
+			selectedIds: Set<string>
+			selected: SessionProposal[]
+			selectedChronology: SessionChronologyProposal[]
+			sessionProposal: SessionProposal
+		},
 		Failure
 	> => {
 		const selectedIds = new Set(input.selectedProposalIds)
+		const requestedChronologyIds =
+			input.selectedChronologyIds ??
+			draft.chronology.filter(({ selected }) => selected).map(({ chronologyId }) => chronologyId)
+		const selectedChronologyIds = new Set(requestedChronologyIds)
+		const selectedChronology = draft.chronology.filter(({ chronologyId }) =>
+			selectedChronologyIds.has(chronologyId)
+		)
 		const selected = draft.proposals.filter(({ proposalId }) => selectedIds.has(proposalId))
 		if (
 			input.selectedProposalIds.length !== selectedIds.size ||
@@ -1235,6 +1337,16 @@ export const sessionIngestion = ({
 				domain: 'ingestion',
 				operation: 'commit',
 				cause: { reason: 'unknownProposal' }
+			} satisfies Failure)
+		}
+		if (
+			requestedChronologyIds.length !== selectedChronologyIds.size ||
+			selectedChronology.length !== selectedChronologyIds.size
+		) {
+			return failEffect({
+				domain: 'ingestion',
+				operation: 'commit',
+				cause: { reason: 'unknownChronologyProposal' }
 			} satisfies Failure)
 		}
 		const sessionProposal = draft.proposals.find(({ documentType }) => documentType === 'session')
@@ -1252,7 +1364,7 @@ export const sessionIngestion = ({
 				cause: { reason: 'unselectableProposal' }
 			} satisfies Failure)
 		}
-		return succeed({ selectedIds, selected, sessionProposal })
+		return succeed({ selectedIds, selected, selectedChronology, sessionProposal })
 	}
 
 	const resolutionMapFor = (
@@ -1357,38 +1469,29 @@ export const sessionIngestion = ({
 			])
 		)
 
-	const resolveChronology = (
-		proposal: SessionProposal,
-		existingById: Map<string, VaultDocument>,
-		selectedByTitle: Map<string, string>
-	) => {
-		const resolved: string[] = []
-		for (const reference of proposal.after) {
-			const documentId =
-				(reference.documentId && existingById.has(reference.documentId)
-					? reference.documentId
-					: undefined) ?? selectedByTitle.get(normalize(reference.label))
-			if (!documentId) return undefined
-			resolved.push(documentId)
-		}
-		return [...new Set(resolved)]
-	}
-
 	const planMutations = (
 		resolvedSelected: SessionProposal[],
+		selectedChronology: SessionChronologyProposal[],
 		sessionProposal: SessionProposal,
 		documents: VaultDocument[]
 	): Effect<MutationPlan, Failure> => {
 		const documentIdByProposal = documentIdsFor(resolvedSelected)
-		const selectedByTitle = new Map(
-			resolvedSelected
-				.filter(({ operation }) => operation !== 'record-only')
-				.map((proposal) => [
-					normalize(proposal.title),
-					documentIdByProposal.get(proposal.proposalId)!
-				])
-		)
 		const existingById = new Map(documents.map((document) => [document.id, document]))
+		const selectedProposalIds = new Set(resolvedSelected.map(({ proposalId }) => proposalId))
+		const afterByProposalId = new Map<string, string[]>()
+		for (const relation of selectedChronology) {
+			if (
+				!selectedProposalIds.has(relation.beforeProposalId) ||
+				!selectedProposalIds.has(relation.afterProposalId)
+			) {
+				continue
+			}
+			const beforeDocumentId = documentIdByProposal.get(relation.beforeProposalId)
+			if (!beforeDocumentId) continue
+			const predecessors = afterByProposalId.get(relation.afterProposalId) ?? []
+			predecessors.push(beforeDocumentId)
+			afterByProposalId.set(relation.afterProposalId, predecessors)
+		}
 		const updatedDocumentIds = resolvedSelected
 			.filter(({ operation }) => operation === 'update-canon')
 			.map((proposal) => documentIdByProposal.get(proposal.proposalId)!)
@@ -1429,14 +1532,7 @@ export const sessionIngestion = ({
 				continue
 			}
 
-			const after = resolveChronology(proposal, existingById, selectedByTitle)
-			if (!after) {
-				return failEffect({
-					domain: 'ingestion',
-					operation: 'commit',
-					cause: { reason: 'unresolvedChronology', proposalId: proposal.proposalId }
-				} satisfies Failure)
-			}
+			const after = [...new Set(afterByProposalId.get(proposal.proposalId) ?? [])]
 			const path = nextCreatePath(proposal)
 			planned.push({ proposal, documentId, path, after })
 		}
@@ -1522,7 +1618,12 @@ export const sessionIngestion = ({
 				selection.selectedIds,
 				selection.selected
 			)
-			const plan = yield* planMutations(resolvedSelected, selection.sessionProposal, documents)
+			const plan = yield* planMutations(
+				resolvedSelected,
+				selection.selectedChronology,
+				selection.sessionProposal,
+				documents
+			)
 			return yield* applyMutationPlan(input, draft, transcript, resolvedSelected, plan)
 		})
 
