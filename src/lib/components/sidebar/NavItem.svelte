@@ -5,12 +5,14 @@
 		label,
 		href,
 		icon,
-		active = false
+		active = false,
+		variant = 'sidebar'
 	}: {
 		label: string
 		href?: string
 		icon: string
 		active?: boolean
+		variant?: 'sidebar' | 'tab'
 	} = $props()
 </script>
 
@@ -22,11 +24,11 @@
 {/snippet}
 
 {#if href !== undefined}
-	<a class={['nav-item', { active }]} {href} aria-current={active ? 'page' : undefined}>
+	<a class={['nav-item', variant, { active }]} {href} aria-current={active ? 'page' : undefined}>
 		{@render content()}
 	</a>
 {:else}
-	<span class="nav-item inert" aria-disabled="true">
+	<span class={['nav-item', variant, 'inert']} aria-disabled="true">
 		{@render content()}
 	</span>
 {/if}
@@ -115,5 +117,43 @@
 
 	.label {
 		min-width: 0;
+	}
+
+	.nav-item.tab {
+		min-height: 2.35rem;
+		flex: 0 0 auto;
+		gap: 0.45rem;
+		padding: 0.45rem 0.7rem;
+		border-color: rgb(226 192 126 / 18%);
+		border-radius: 0.45rem;
+		color: #d9ccb3;
+		font-size: 0.82rem;
+	}
+
+	.nav-item.tab::before {
+		display: none;
+	}
+
+	a.nav-item.tab:hover {
+		border-color: rgb(226 192 126 / 38%);
+		background: rgb(255 246 225 / 9%);
+	}
+
+	a.nav-item.tab.active {
+		border-color: #c8a969;
+		background: linear-gradient(145deg, #fff5df, #ead8b7);
+		box-shadow: 0 0.45rem 1rem rgb(10 18 14 / 24%);
+		color: #2a312d;
+	}
+
+	.nav-item.tab .icon {
+		width: 1rem;
+		height: 1rem;
+		flex-basis: 1rem;
+		color: #cba45e;
+	}
+
+	a.nav-item.tab.active .icon {
+		color: #7b5d2d;
 	}
 </style>

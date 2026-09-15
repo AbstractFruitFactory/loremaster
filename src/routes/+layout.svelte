@@ -18,26 +18,24 @@
 <style>
 	.app-stage {
 		--stage-padding: clamp(0.75rem, 2.5vw, 1.75rem);
-		--stage-background: #2f3a34;
+		--stage-background:
+			radial-gradient(circle at 18% 0%, rgb(81 104 91 / 55%), transparent 28rem), #2b3732;
 		--frame-max-width: 90rem;
-		--frame-max-height: 58rem;
 
 		box-sizing: border-box;
 		display: grid;
 		min-height: 100dvh;
-		place-items: center;
-		padding: var(--stage-padding);
+		justify-items: center;
+		padding: var(--stage-padding) var(--stage-padding) 0;
 		background: var(--stage-background);
 	}
 
 	.app-frame {
 		box-sizing: border-box;
 		width: min(100%, var(--frame-max-width));
-		height: min(calc(100dvh - (2 * var(--stage-padding))), var(--frame-max-height));
+		height: calc(100dvh - var(--stage-padding));
 		overflow: hidden;
-		border-radius: var(--border-radius-lg);
-		background: var(--color-background);
-		box-shadow: var(--shadow-lg);
+		background: transparent;
 	}
 
 	@media (max-width: 52rem) {
@@ -48,8 +46,6 @@
 		.app-frame {
 			width: 100%;
 			height: 100dvh;
-			border-radius: 0;
-			box-shadow: none;
 		}
 	}
 </style>

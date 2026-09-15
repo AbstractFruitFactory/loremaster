@@ -67,7 +67,7 @@
 	}
 	.back-link,
 	.eyebrow {
-		color: var(--gold);
+		color: #d7b46e;
 		font-size: 0.78rem;
 		font-weight: 700;
 		letter-spacing: 0.08em;
@@ -76,9 +76,10 @@
 	}
 	header {
 		margin: 1.25rem 0 1.5rem;
+		color: #f5ead6;
 	}
 	header p:last-child {
-		color: var(--ink-soft);
+		color: #c9beaa;
 	}
 	h2 {
 		margin: 0.2rem 0 0.5rem;
@@ -88,6 +89,11 @@
 	form {
 		display: grid;
 		gap: 1rem;
+		padding: clamp(1rem, 3vw, 1.5rem);
+		border: 1.5px solid #3d382f;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 90%);
+		box-shadow: 0.25rem 0.25rem 0 #171d1a;
 	}
 	label {
 		display: grid;

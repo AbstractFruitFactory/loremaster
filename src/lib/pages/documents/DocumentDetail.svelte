@@ -42,28 +42,30 @@
 	{:else if isLoading}
 		<div class="state-panel" role="status" aria-live="polite">Loading entry…</div>
 	{:else if document}
-		<header class="document-header">
-			<div class="title-row">
-				<h2 id="document-heading">{document.title}</h2>
-				<span class="category-badge">{category.label}</span>
-				<a class="history-link" href={historyHref}>View history</a>
+		<article class="document-window">
+			<header class="document-header">
+				<div class="title-row">
+					<h2 id="document-heading">{document.title}</h2>
+					<span class="category-badge">{category.label}</span>
+					<a class="history-link" href={historyHref}>View history</a>
+				</div>
+
+				{#if document.aliases?.length}
+					<p class="aliases">
+						Also known as:
+						{document.aliases.join(', ')}
+					</p>
+				{/if}
+
+				{#if document.summary}
+					<p class="summary">{document.summary}</p>
+				{/if}
+			</header>
+
+			<div class="document-body">
+				<LoreContent content={document.content} />
 			</div>
-
-			{#if document.aliases?.length}
-				<p class="aliases">
-					Also known as:
-					{document.aliases.join(', ')}
-				</p>
-			{/if}
-
-			{#if document.summary}
-				<p class="summary">{document.summary}</p>
-			{/if}
-		</header>
-
-		<div class="document-body">
-			<LoreContent content={document.content} />
-		</div>
+		</article>
 	{/if}
 </section>
 
@@ -83,7 +85,7 @@
 	.back-link {
 		display: inline-block;
 		margin-bottom: 1.25rem;
-		color: var(--gold);
+		color: #d7b46e;
 		font-size: 0.88rem;
 		font-weight: 600;
 		letter-spacing: 0.04em;
@@ -102,6 +104,14 @@
 		border-bottom: 1px solid rgb(154 120 67 / 38%);
 	}
 
+	.document-window {
+		padding: clamp(1.25rem, 3vw, 2rem);
+		border: 1.5px solid #3d382f;
+		border-radius: 2px;
+		background: rgb(255 250 239 / 90%);
+		box-shadow: 0.3rem 0.3rem 0 #171d1a;
+	}
+
 	.document-header::after {
 		position: absolute;
 		bottom: -3px;
@@ -109,7 +119,7 @@
 		width: 5px;
 		height: 5px;
 		border: 1px solid var(--gold);
-		background: #eee0c6;
+		background: #fffaf0;
 		content: '';
 		transform: rotate(45deg);
 	}
