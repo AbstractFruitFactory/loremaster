@@ -26,12 +26,14 @@ import type {
 	ProposalMatch,
 	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
+	SessionChronologyCoverageProposal,
 	SessionIngestionDraft,
 	SessionChronologyProposal,
 	SessionEntityResolution,
 	SessionIngestionResult,
 	SessionProposal,
-	SessionProposalResolution
+	SessionProposalResolution,
+	SessionEventAudit
 } from './types'
 
 const categoryDirectory: Record<VaultDocument['type'], string> = {
@@ -214,6 +216,71 @@ const mergeClaims = (claims: ValidatedClaim[]) => {
 		} else merged.set(key, { ...claim, evidence: [...claim.evidence] })
 	}
 	return [...merged.values()]
+}
+
+const reconcileEventClaims = (
+	claims: ValidatedClaim[],
+	audit: SessionEventAudit,
+	auditedEvents: ValidatedClaim[]
+) => {
+	const eventClaims = new Map(
+		claims.filter(({ kind }) => kind === 'development').map((claim) => [claim.claimId, claim])
+	)
+	const warnings: string[] = []
+	const discarded = new Set<string>()
+
+	for (const decision of audit.discardedEventIds) {
+		if (!eventClaims.has(decision.eventId)) {
+			warnings.push(
+				`Event audit decision discarded [invalid-reference] ${JSON.stringify(decision)}`
+			)
+			continue
+		}
+		discarded.add(decision.eventId)
+		warnings.push(
+			`Event discarded by audit ${JSON.stringify({ eventId: decision.eventId, reason: decision.reason })}`
+		)
+	}
+
+	for (const group of audit.duplicateGroups) {
+		const canonical = eventClaims.get(group.canonicalEventId)
+		const duplicateIds = uniqueStrings(group.duplicateEventIds).filter(
+			(eventId) => eventId !== group.canonicalEventId
+		)
+		const duplicates = duplicateIds.flatMap((eventId) => {
+			const claim = eventClaims.get(eventId)
+			return claim ? [claim] : []
+		})
+		if (
+			!canonical ||
+			discarded.has(group.canonicalEventId) ||
+			duplicates.length !== duplicateIds.length ||
+			duplicateIds.some((eventId) => discarded.has(eventId))
+		) {
+			warnings.push(`Event duplicate group discarded [invalid-reference] ${JSON.stringify(group)}`)
+			continue
+		}
+
+		canonical.evidence = uniqueEvidence([
+			...canonical.evidence,
+			...duplicates.flatMap(({ evidence }) => evidence)
+		])
+		canonical.entityReferences = uniqueEntityReferences([
+			...canonical.entityReferences,
+			...duplicates.flatMap(({ entityReferences }) => entityReferences)
+		])
+		if (duplicates.some(({ certainty }) => certainty === 'inferred'))
+			canonical.certainty = 'inferred'
+		for (const eventId of duplicateIds) discarded.add(eventId)
+	}
+
+	return {
+		claims: [
+			...claims.filter(({ kind, claimId }) => kind !== 'development' || !discarded.has(claimId)),
+			...auditedEvents
+		],
+		warnings
+	}
 }
 
 const canCreateEntityFromReference = (reference: EntityReference) => {
@@ -518,6 +585,7 @@ export const sessionIngestion = ({
 		| 'validateSessionClaims'
 		| 'repairSessionClaimEvidence'
 		| 'resolveSessionEntities'
+		| 'auditSessionEvents'
 		| 'inferSessionChronology'
 	> & {
 		analysisModel: string
@@ -837,15 +905,17 @@ export const sessionIngestion = ({
 	}
 
 	const extractionSystem =
-		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how campaign canon should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Only emit entity references for durable campaign entities with independent identity; do not turn every noun, physical feature, or piece of scenery into an entity. Use worldbuilding for a persistent setting concept with its own identity that is not primarily a person, place, item, or event, such as a religion, myth, ritual, magical phenomenon or system, social custom, law, prophecy, calendar, or institution. Do not use worldbuilding as a catch-all for isolated facts without a coherent persistent subject. A location reference must denote a distinct, persistent place that the campaign could reasonably refer to again by identity. Ordinary scenery or architectural/spatial fragments such as a wall, door, floor, stone, inscription, corner, side of a room, nearby passage, staircase, or incidental service corridor are not Locations merely because something happens there. A room, chamber, tunnel, district, building, region, or descriptively named place may be a Location when the evidence establishes it as a distinct persistent place. Scene or section headings are editorial structure, not canonical entity names or evidence that a place has that identity; never use a heading alone to create or name an entity. If a claim concerns an environmental detail inside a place but no distinct sub-location is established, omit that location reference rather than inventing one. Entity-reference labels that may become document titles must be display-ready canonical names. Preserve capitalization established by the campaign, including proper names and acronyms. When the evidence establishes a descriptive entity but not a canonical capitalization, format the label as a readable title rather than copying sentence casing; for example, emit \"Service Tunnels Below Cathedral Square\" rather than \"service tunnels below Cathedral Square\". Do not mechanically rewrite an explicitly established unusual name. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. For every development claim, set eventTitle to a concise factual label suitable for a timeline or list: usually 3-8 words and under 60 characters. The title must summarize only the claim content and must not introduce new identity, motive, causality, chronology, or interpretation. Prefer plain labels such as "Empty Bell cracks", "Talven\'s body discovered", or "Saltwater draft in Weaver\'s Cut" rather than full sentences or dramatic prose. For stable-fact and mention claims, set eventTitle to null. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
+		'Extract atomic campaign claims from the numbered transcript. Claims describe evidence, not how campaign canon should be stored: do not invent document titles or choose destination documents. Every claim must cite one or more supporting line ranges from the numbered transcript. Cite the smallest set of ranges that collectively supports the full normalized claim. The cited evidence itself must establish every identity, attribution, relationship, chronology statement, and coreference expressed in the claim: if you normalize pronouns or contextual references such as "she", "her", "it", or "E. Vey" into a named entity, expand the range or cite additional ranges that establish that identity. Do not rely on uncited surrounding lines to justify a normalized identity. Use multiple ranges when a conversation or separated statements are needed. Entity references are semantic identifiers, not quotations: include each distinct campaign entity the claim is materially about, using the clearest concise name or contextual identifier supported by the cited evidence. Only emit entity references for durable campaign entities with independent identity; do not turn every noun, physical feature, or piece of scenery into an entity. Use worldbuilding for a persistent setting concept with its own identity that is not primarily a person, place, item, or event, such as a religion, myth, ritual, magical phenomenon or system, social custom, law, prophecy, calendar, or institution. Do not use worldbuilding as a catch-all for isolated facts without a coherent persistent subject. A location reference must denote a distinct, persistent place that the campaign could reasonably refer to again by identity. Ordinary scenery or architectural/spatial fragments such as a wall, door, floor, stone, inscription, corner, side of a room, nearby passage, staircase, or incidental service corridor are not Locations merely because something happens there. A room, chamber, tunnel, district, building, region, or descriptively named place may be a Location when the evidence establishes it as a distinct persistent place. Scene or section headings are editorial structure, not canonical entity names or evidence that a place has that identity; never use a heading alone to create or name an entity. If a claim concerns an environmental detail inside a place but no distinct sub-location is established, omit that location reference rather than inventing one. Entity-reference labels that may become document titles must be display-ready canonical names. Preserve capitalization established by the campaign, including proper names and acronyms. When the evidence establishes a descriptive entity but not a canonical capitalization, format the label as a readable title rather than copying sentence casing; for example, emit \"Service Tunnels Below Cathedral Square\" rather than \"service tunnels below Cathedral Square\". Do not mechanically rewrite an explicitly established unusual name. Entity-reference labels do not need to occur verbatim in the cited lines, but do not resolve ambiguous identities by plausibility; for example, keep "E. Vey" rather than changing it to "Elias Vey" unless the cited evidence establishes they are the same person. Avoid incidental or speculative entity references. Mark interpretation as inferred and mere names as mentions. Treat durable changes such as captures, rescues, deaths, discoveries, openings, item transfers, ritual changes, and escapes or disappearances as developments. Never strengthen an uncertain outcome: disappeared does not mean escaped, fell does not mean died, an attempted action does not mean it succeeded, and an unresolved fate must remain unresolved. For every development claim, set eventTitle to a concise factual label suitable for a timeline or list: usually 3-8 words and under 60 characters. The title must summarize only the claim content and must not introduce new identity, motive, causality, chronology, outcome, or interpretation. Prefer plain labels such as "Empty Bell cracks", "Talven\'s body discovered", or "Saltwater draft in Weaver\'s Cut" rather than full sentences or dramatic prose. For stable-fact and mention claims, set eventTitle to null. Do not turn a property or topic into an entity: use "Mara", not "Mara\'s age".'
 	const validationSystem =
 		"Independently verify candidate campaign claims against their cited transcript evidence. Judge claim content separately from semantic entity-reference metadata. For each candidateId, accepted refers only to whether the cited evidence collectively supports the exact claim content. Always return a reason. Use supported only when accepted is true. When rejected, use insufficient-evidence only when the exact existing claim appears supportable from other lines in the supplied transcript chunk and could be grounded by replacing or expanding the cited ranges without rewriting the claim. Use contradicted-by-evidence when the source contradicts the claim, unsupported-inference when the chunk does not establish the asserted identity, motive, causality, chronology, relationship, or other detail, and lost-attribution when the claim turns testimony, belief, rumor, a written statement, or uncertainty into objective truth. Reject the claim when its content itself adds unsupported motive, causality, chronology, identity, relationships, current state, attribution, or other details; turns a character claim into objective truth; or removes material uncertainty. In particular, if the claim content names a person or object where the cited evidence only contains an unresolved pronoun or abbreviation, classify it as insufficient-evidence only if other lines in this supplied chunk establish that identity; otherwise classify it as unsupported-inference. Separately return one decision for every supplied referenceId. Reference validation checks entityhood and type as well as topical relevance: accept a reference only when the cited evidence establishes that the claim concerns a distinct, persistent campaign entity of the specified type. A Location must be a distinct, persistent place that could reasonably be referred to again by identity. Reject Location references that are only ordinary scenery, architectural components, surfaces, directions, or incidental spatial descriptions, such as a wall, door, floor, stone, inscription, corner, side of a room, nearby passage, staircase, or incidental service corridor, unless the evidence independently establishes that feature as a distinct persistent place. A room, chamber, tunnel, district, building, region, or descriptive place can be a valid Location when the evidence treats it as an independently identifiable place. Scene or section headings are editorial context and cannot by themselves establish a canonical Location name or identity. If a heading supplies a label that the actual transcript never establishes as the place's identity, reject that reference. An unsupported extra entity reference must not cause an otherwise supported claim to be rejected unless that same unsupported identity or detail is asserted in the claim content. Do not rewrite claims or entity references. For an accepted claim, keep certainty unchanged or downgrade explicit to inferred; never upgrade inferred to explicit. The surrounding numbered chunk may be used to decide whether missing context exists and therefore whether insufficient-evidence is the right rejection reason, but substantive support for an accepted claim must come from the cited evidence."
 	const worldbuildingValidationGuidance =
 		'A Worldbuilding reference is valid only for a persistent setting concept with its own identity that is not primarily a person, place, item, or event, such as a religion, myth, ritual, magical phenomenon or system, social custom, law, prophecy, calendar, or institution. Reject Worldbuilding references used merely as a catch-all for isolated facts without a coherent persistent subject.'
 	const evidenceRepairSystem =
 		'Repair only the evidence line ranges for candidate claims that were rejected solely because their current citations were insufficient. Do not rewrite claim content, kind, certainty, or entity references. For each candidateId, inspect the supplied numbered transcript chunk and return the smallest set of replacement line ranges that collectively supports the exact existing normalized claim, including every identity, attribution, relationship, chronology statement, and coreference it expresses. You may expand the original range or cite multiple separated ranges. Never repair an unsupported claim by weakening, reinterpreting, or changing it. If the exact claim cannot be fully grounded anywhere in the supplied chunk, return an empty evidence array. Never cite outside the supplied chunk.'
+	const eventAuditSystem =
+		'Audit the complete set of validated development events against the full numbered transcript. Return events only when a durable in-world development is missing or when a supplied event materially overstates the transcript and needs a faithful replacement. Every returned event must be a development with a concise factual eventTitle, preserve attribution and uncertainty, and cite the smallest supporting transcript line ranges. Never strengthen outcomes: disappeared is not escaped, fell is not died, attempted is not succeeded, and an unknown fate remains unknown. Put the ID of every materially unsupported or overstated supplied event in discardedEventIds and explain why; when an observed underlying event remains useful, also return a corrected replacement event. Identify duplicateGroups only when IDs describe the same in-world occurrence, not merely related actions. Choose as canonical the event that best preserves attribution, uncertainty, and scope. Captures, rescues, deaths, discoveries, openings, item transfers, ritual changes, and meaningful disappearances are durable developments that should not be omitted. Do not return already covered events merely to rephrase them, and use only supplied IDs in discard and duplicate decisions.'
 	const chronologySystem =
-		'Infer loose temporal constraints that anchor the supplied new session events into the existing campaign chronology. Return relation "before" only when the full session transcript establishes that sourceEventId happened before targetEventId in the campaign world. Return relation "during" when sourceEventId happened temporally within targetEventId; the target may be a broad event such as a war, reign, journey, or festival, and the system will promote it to a period. An event may have a during relationship and no before relationships at all. Events during the same period are not ordered relative to one another unless the transcript independently establishes a before relationship. Containment may be nested. Every returned relation must involve at least one new session event; existing events are supplied as anchors, not as an invitation to reorganize unrelated campaign history. Connect present-day events to existing chronology only when the transcript and campaign context support that continuation. Historical revelations may instead relate new historical events to relevant existing historical events or periods, independently of the present-day session chain. The result is not required to be a single linear sequence: events may be unrelated, disconnected, concurrent, contained by a period, or have an unknown order. Absence of a relation means the temporal relationship is not established. Events may share a predecessor, successor, or containing period without being ordered relative to one another. Present-day actions and scene transitions establish narrative order only when the transcript clearly indicates that one action or scene follows another; transcript position by itself is not enough. Transcript position also does not order historical accounts, flashbacks, legends, prophecies, plans, hypothetical events, or out-of-character discussion. Do not infer order from plausible causality or from a need to choose one earliest or latest event. Use explicit when temporal language or the described action directly establishes the relationship; use inferred for a relationship clearly supported by context without explicit temporal language. Return the complete transitive reduction of the supported chronology, not a sample of representative relationships. Completeness means including the direct boundary relationships needed to place every confidently ordered event in its connected sequence or branch. Sparse means omitting only unsupported order and relationships already implied transitively; it does not mean leaving supported adjacent events disconnected. Use only supplied event IDs, and never create precedence cycles, containment cycles, or a before relationship between an event and a period that contains it.'
+		'Infer loose temporal constraints that anchor the supplied new session events into the existing campaign chronology. Return relation "before" only when the full session transcript establishes that sourceEventId happened before targetEventId in the campaign world. Return relation "during" when sourceEventId happened temporally within targetEventId; the target may be a broad event such as a war, reign, journey, or festival, and the system will promote it to a period. An event may have a during relationship and no before relationships at all. Events during the same period are not ordered relative to one another unless the transcript independently establishes a before relationship. Containment may be nested. Every returned relation must involve at least one new session event; existing events are supplied as anchors, not as an invitation to reorganize unrelated campaign history. Connect present-day events to existing chronology only when the transcript and campaign context support that continuation. Historical revelations may instead relate new historical events to relevant existing historical events or periods, independently of the present-day session chain. The result is not required to be a single linear sequence: events may be unrelated, disconnected, concurrent, contained by a period, or have an unknown order. Absence of a relation means the temporal relationship is not established. Events may share a predecessor, successor, or containing period without being ordered relative to one another. Present-day actions and scene transitions establish narrative order only when the transcript clearly indicates that one action or scene follows another; transcript position by itself is not enough. Transcript position also does not order historical accounts, flashbacks, legends, prophecies, plans, hypothetical events, or out-of-character discussion. Do not infer order from plausible causality or from a need to choose one earliest or latest event. Use explicit when temporal language or the described action directly establishes the relationship; use inferred for a relationship clearly supported by context without explicit temporal language. Return the complete transitive reduction of the supported chronology, not a sample of representative relationships. Completeness means including the direct boundary relationships needed to place every confidently ordered event in its connected sequence or branch. Sparse means omitting only unsupported order and relationships already implied transitively; it does not mean leaving supported adjacent events disconnected. Return exactly one coverage decision for every candidate event: connected when it participates in a supported relation, or intentionally-unplaced with a concrete reason when its placement is genuinely unknown. Use only supplied event IDs, and never create precedence cycles, containment cycles, or a before relationship between an event and a period that contains it.'
 
 	const numberedChunkContent = (chunk: TranscriptChunk) =>
 		chunk.content
@@ -862,6 +932,15 @@ export const sessionIngestion = ({
 			.split(/\r?\n/)
 			.map((line, index) => `${index + 1} | ${line}`)
 			.join('\n')
+
+	const completeTranscriptChunk = (transcript: string): TranscriptChunk => ({
+		chunkId: 'event-audit',
+		content: transcript,
+		startStringIndex: 0,
+		endStringIndex: transcript.length,
+		startLine: 1,
+		endLine: transcript.split(/\r?\n/).length
+	})
 
 	const evidenceRangesLabel = (claim: ExtractedSessionClaim) =>
 		claim.evidence.map(({ startLine, endLine }) => `${startLine}-${endLine}`).join(', ') || 'none'
@@ -1123,13 +1202,12 @@ export const sessionIngestion = ({
 		return { claims: repaired, warnings }
 	}
 
-	const analyzeChunk = (transcript: string, chunk: TranscriptChunk) =>
+	const validateExtractedClaims = (
+		transcript: string,
+		chunk: TranscriptChunk,
+		extracted: ExtractedSessionClaim[]
+	) =>
 		gen(function* () {
-			const extracted = yield* ai.analyzeSessionChunk({
-				model: ai.analysisModel,
-				system: extractionSystem,
-				prompt: transcriptChunkPrompt(chunk)
-			})
 			const backed = evidenceBackedClaims(transcript, chunk, extracted)
 			if (!backed.claims.length) {
 				return { claims: [] as ValidatedClaim[], warnings: backed.warnings }
@@ -1178,6 +1256,16 @@ export const sessionIngestion = ({
 			}
 		})
 
+	const analyzeChunk = (transcript: string, chunk: TranscriptChunk) =>
+		gen(function* () {
+			const extracted = yield* ai.analyzeSessionChunk({
+				model: ai.analysisModel,
+				system: extractionSystem,
+				prompt: transcriptChunkPrompt(chunk)
+			})
+			return yield* validateExtractedClaims(transcript, chunk, extracted)
+		})
+
 	const sessionProposalFor = (
 		title: string,
 		claims: ValidatedClaim[],
@@ -1198,6 +1286,58 @@ export const sessionIngestion = ({
 			claimProposals.filter(({ selected }) => selected)
 		)
 	})
+
+	const eventAuditPrompt = (transcript: string, claims: ValidatedClaim[]) =>
+		`## Full numbered transcript\n${numberedTranscript(transcript)}\n\n## Validated development events\n${JSON.stringify(
+			claims
+				.filter(({ kind }) => kind === 'development')
+				.map((claim) => ({
+					eventId: claim.claimId,
+					title: claim.eventTitle,
+					certainty: claim.certainty,
+					content: claim.content,
+					entityReferences: claim.entityReferences,
+					evidence: claim.evidence.map(({ startLine, endLine, excerpt }) => ({
+						startLine,
+						endLine,
+						excerpt
+					}))
+				})),
+			null,
+			2
+		)}`
+
+	const auditEvents = (transcript: string, claims: ValidatedClaim[]) =>
+		gen(function* () {
+			const audit = yield* ai.auditSessionEvents({
+				model: ai.analysisModel,
+				system: eventAuditSystem,
+				prompt: eventAuditPrompt(transcript, claims)
+			})
+			const candidates = audit.events.filter(
+				(event) => event.kind === 'development' && Boolean(event.eventTitle)
+			)
+			const invalidCandidateCount = audit.events.length - candidates.length
+			const validated = candidates.length
+				? yield* validateExtractedClaims(
+						transcript,
+						completeTranscriptChunk(transcript),
+						candidates
+					)
+				: { claims: [] as ValidatedClaim[], warnings: [] as string[] }
+			const reconciled = reconcileEventClaims(claims, audit, validated.claims)
+
+			return {
+				claims: mergeClaims(reconciled.claims),
+				warnings: [
+					...(invalidCandidateCount
+						? [`Event audit discarded ${invalidCandidateCount} non-development candidate(s)`]
+						: []),
+					...validated.warnings,
+					...reconciled.warnings
+				]
+			}
+		})
 
 	const chronologyPrompt = (
 		transcript: string,
@@ -1263,10 +1403,11 @@ export const sessionIngestion = ({
 	}
 
 	const validatedChronology = (
-		relations: InferredSessionChronology[],
+		inference: InferredSessionChronology,
 		eventProposals: SessionProposal[],
 		existingEvents: VaultDocument[]
 	) => {
+		const { relations } = inference
 		const proposalEvents = new Map(
 			eventProposals.map((proposal) => [proposal.proposalId, proposal])
 		)
@@ -1401,7 +1542,57 @@ export const sessionIngestion = ({
 			)
 		})
 
-		return { chronology: direct, warnings }
+		const coverageByEventId = new Map<string, InferredSessionChronology['coverage'][number]>()
+		for (const decision of inference.coverage) {
+			if (!proposalEvents.has(decision.eventId) || coverageByEventId.has(decision.eventId)) {
+				warnings.push(
+					`Chronology coverage discarded [invalid-reference] ${JSON.stringify(decision)}`
+				)
+				continue
+			}
+			coverageByEventId.set(decision.eventId, decision)
+		}
+		const connectedEventIds = new Set(
+			direct.flatMap(({ source, target }) => [source.eventId, target.eventId])
+		)
+		const coverage: SessionChronologyCoverageProposal[] = eventProposals.map((proposal) => {
+			const decision = coverageByEventId.get(proposal.proposalId)
+			const event = {
+				eventId: proposal.proposalId,
+				title: proposal.title,
+				source: 'proposal' as const
+			}
+			const connected = connectedEventIds.has(proposal.proposalId)
+			if (!decision) {
+				warnings.push(
+					`Chronology coverage missing for event ${JSON.stringify(proposal.proposalId)}`
+				)
+				return {
+					event,
+					status: 'missing',
+					reason: 'The chronology model did not account for this event.'
+				}
+			}
+			if (decision.status === 'connected' && !connected) {
+				warnings.push(
+					`Chronology coverage inconsistent [connected-without-relation] ${JSON.stringify(decision)}`
+				)
+				return {
+					event,
+					status: 'missing',
+					reason: 'The event was marked connected, but no valid relationship placed it.'
+				}
+			}
+			if (decision.status === 'intentionally-unplaced' && connected) {
+				warnings.push(
+					`Chronology coverage inconsistent [unplaced-with-relation] ${JSON.stringify(decision)}`
+				)
+				return { event, status: 'connected', reason: 'A valid chronology relationship places it.' }
+			}
+			return { event, status: decision.status, reason: decision.reason }
+		})
+
+		return { chronology: direct, coverage, warnings }
 	}
 
 	const inferChronology = (
@@ -1411,7 +1602,19 @@ export const sessionIngestion = ({
 	) => {
 		const existingEvents = documents.filter(({ type }) => type === 'event')
 		if (!eventProposals.length || eventProposals.length + existingEvents.length < 2) {
-			return succeed({ chronology: [], warnings: [] })
+			return succeed({
+				chronology: [],
+				coverage: eventProposals.map((proposal) => ({
+					event: {
+						eventId: proposal.proposalId,
+						title: proposal.title,
+						source: 'proposal' as const
+					},
+					status: 'intentionally-unplaced' as const,
+					reason: 'No other event is available to establish a relative placement.'
+				})),
+				warnings: []
+			})
 		}
 		return pipe(
 			ai.inferSessionChronology({
@@ -1419,7 +1622,7 @@ export const sessionIngestion = ({
 				system: chronologySystem,
 				prompt: chronologyPrompt(transcript, eventProposals, existingEvents)
 			}),
-			map((relations) => validatedChronology(relations, eventProposals, existingEvents))
+			map((inference) => validatedChronology(inference, eventProposals, existingEvents))
 		)
 	}
 
@@ -1428,16 +1631,18 @@ export const sessionIngestion = ({
 		claims: ValidatedClaim[],
 		claimProposals: SessionProposal[],
 		chronology: SessionChronologyProposal[],
+		chronologyCoverage: SessionChronologyCoverageProposal[],
 		warnings: string[]
 	): SessionIngestionDraft => ({
-		schemaVersion: 2,
+		schemaVersion: 3,
 		ingestionId: randomUUID(),
 		campaignId: input.campaignId,
 		title: input.title,
 		createdAt: new Date().toISOString(),
 		warnings,
 		proposals: [sessionProposalFor(input.title, claims, claimProposals), ...claimProposals],
-		chronology
+		chronology,
+		chronologyCoverage
 	})
 
 	const analyze = (input: { campaignId: string; title: string; transcript: string }) =>
@@ -1447,18 +1652,23 @@ export const sessionIngestion = ({
 			for (const chunk of chunkTranscript(input.transcript)) {
 				results.push(yield* analyzeChunk(input.transcript, chunk))
 			}
-			const claims = mergeClaims(results.flatMap(({ claims }) => claims))
-			const resolvedClaims = yield* resolveClaims(claims, documents)
+			const extractedClaims = mergeClaims(results.flatMap(({ claims }) => claims))
+			const audit = yield* auditEvents(input.transcript, extractedClaims)
+			const resolvedClaims = yield* resolveClaims(audit.claims, documents)
 			const claimProposals = mergeProposals(resolvedClaims.flatMap(proposalsForClaim))
 			const chronology = yield* inferChronology(
 				input.transcript,
 				claimProposals.filter(({ operation }) => operation === 'create-event'),
 				documents
 			)
-			const draft = buildDraft(input, claims, claimProposals, chronology.chronology, [
-				...results.flatMap(({ warnings }) => warnings),
-				...chronology.warnings
-			])
+			const draft = buildDraft(
+				input,
+				audit.claims,
+				claimProposals,
+				chronology.chronology,
+				chronology.coverage,
+				[...results.flatMap(({ warnings }) => warnings), ...audit.warnings, ...chronology.warnings]
+			)
 			yield* storage.write(draft, input.transcript)
 			return draft
 		})

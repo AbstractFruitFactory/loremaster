@@ -50,7 +50,8 @@ const operationsWith = (
 			validateSessionClaims,
 			repairSessionClaimEvidence,
 			resolveSessionEntities: () => succeed([]),
-			inferSessionChronology: () => succeed([])
+			auditSessionEvents: () => succeed({ events: [], discardedEventIds: [], duplicateGroups: [] }),
+			inferSessionChronology: () => succeed({ relations: [], coverage: [] })
 		},
 		storage: {
 			write: () => succeed(undefined),

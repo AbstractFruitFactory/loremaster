@@ -65,12 +65,33 @@ export type SessionEntityResolution = {
 	targetId: string | null
 }
 
-export type InferredSessionChronology = {
+export type SessionEventAudit = {
+	events: ExtractedSessionClaim[]
+	discardedEventIds: { eventId: string; reason: string }[]
+	duplicateGroups: {
+		canonicalEventId: string
+		duplicateEventIds: string[]
+		reason: string
+	}[]
+}
+
+export type InferredSessionChronologyRelation = {
 	relation: 'before' | 'during'
 	sourceEventId: string
 	targetEventId: string
 	certainty: 'explicit' | 'inferred'
 	reason: string
+}
+
+export type InferredSessionChronologyCoverage = {
+	eventId: string
+	status: 'connected' | 'intentionally-unplaced'
+	reason: string
+}
+
+export type InferredSessionChronology = {
+	relations: InferredSessionChronologyRelation[]
+	coverage: InferredSessionChronologyCoverage[]
 }
 
 export type TranscriptChunk = {
@@ -139,7 +160,7 @@ export type SessionChronologyEndpoint = {
 }
 
 export type SessionChronologyProposal = Omit<
-	InferredSessionChronology,
+	InferredSessionChronologyRelation,
 	'sourceEventId' | 'targetEventId'
 > & {
 	chronologyId: string
@@ -148,12 +169,18 @@ export type SessionChronologyProposal = Omit<
 	target: SessionChronologyEndpoint
 }
 
+export type SessionChronologyCoverageProposal = {
+	event: SessionChronologyEndpoint
+	status: 'connected' | 'intentionally-unplaced' | 'missing'
+	reason: string
+}
+
 export type SessionProposalResolution =
 	| { proposalId: string; kind: 'create' }
 	| { proposalId: string; kind: 'existing'; documentId: string }
 
 export type SessionIngestionDraft = {
-	schemaVersion: 2
+	schemaVersion: 3
 	ingestionId: string
 	campaignId: string
 	title: string
@@ -161,6 +188,7 @@ export type SessionIngestionDraft = {
 	warnings: string[]
 	proposals: SessionProposal[]
 	chronology: SessionChronologyProposal[]
+	chronologyCoverage: SessionChronologyCoverageProposal[]
 }
 
 export type SessionIngestionResult = {

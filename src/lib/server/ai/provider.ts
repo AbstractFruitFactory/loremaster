@@ -5,6 +5,7 @@ import type { Failure } from '../failure'
 import type {
 	ExtractedSessionClaim,
 	InferredSessionChronology,
+	SessionEventAudit,
 	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
 	SessionEntityResolution
@@ -58,9 +59,13 @@ export type ResolveSessionEntities = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
 
+export type AuditSessionEvents = (
+	input: AiPrompt & { model: string }
+) => Effect<SessionEventAudit, Failure<'ai', 'auditSessionEvents'>>
+
 export type InferSessionChronology = (
 	input: AiPrompt & { model: string }
-) => Effect<InferredSessionChronology[], Failure<'ai', 'inferSessionChronology'>>
+) => Effect<InferredSessionChronology, Failure<'ai', 'inferSessionChronology'>>
 
 export type GenerateRelationshipLinks = (
 	input: AiPrompt & { model: string }
@@ -87,6 +92,7 @@ export type AiProvider = {
 	validateSessionClaims: ValidateSessionClaims
 	repairSessionClaimEvidence: RepairSessionClaimEvidence
 	resolveSessionEntities: ResolveSessionEntities
+	auditSessionEvents: AuditSessionEvents
 	inferSessionChronology: InferSessionChronology
 	generateRelationshipLinks: GenerateRelationshipLinks
 }
