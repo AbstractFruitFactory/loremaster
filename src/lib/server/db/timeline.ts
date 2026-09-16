@@ -1,10 +1,10 @@
 import { and, asc, eq, inArray, or } from 'drizzle-orm'
 import { map, succeed, tryPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
-import type { TimelineEdge, TimelineEvent } from '../timeline/types'
+import type { TimelineContainment, TimelineEdge, TimelineEvent } from '../timeline/types'
 import { failure } from '../failure'
 import { db } from '.'
-import { eventChronologyEdges, vaultDocuments } from './schema'
+import { eventChronologyEdges, eventDuringEdges, vaultDocuments } from './schema'
 
 export const getTimelineEdges = (campaignId: string) =>
 	pipe(
@@ -54,6 +54,50 @@ export const getTimelineEdgesForDocuments = (campaignId: string, documentIds: st
 			catch: (cause) => failure('database', 'getTimelineEdgesForDocuments', cause)
 		}),
 		map((edges): TimelineEdge[] => edges)
+	)
+}
+
+export const getTimelineContainments = (campaignId: string) =>
+	pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						eventDocumentId: eventDuringEdges.eventDocumentId,
+						periodDocumentId: eventDuringEdges.periodDocumentId
+					})
+					.from(eventDuringEdges)
+					.where(eq(eventDuringEdges.campaignId, campaignId))
+					.orderBy(asc(eventDuringEdges.eventDocumentId), asc(eventDuringEdges.periodDocumentId)),
+			catch: (cause) => failure('database', 'getTimelineContainments', cause)
+		}),
+		map((containments): TimelineContainment[] => containments)
+	)
+
+export const getTimelineContainmentsForDocuments = (campaignId: string, documentIds: string[]) => {
+	if (!documentIds.length) return succeed([])
+	return pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						eventDocumentId: eventDuringEdges.eventDocumentId,
+						periodDocumentId: eventDuringEdges.periodDocumentId
+					})
+					.from(eventDuringEdges)
+					.where(
+						and(
+							eq(eventDuringEdges.campaignId, campaignId),
+							or(
+								inArray(eventDuringEdges.eventDocumentId, documentIds),
+								inArray(eventDuringEdges.periodDocumentId, documentIds)
+							)
+						)
+					)
+					.orderBy(asc(eventDuringEdges.eventDocumentId), asc(eventDuringEdges.periodDocumentId)),
+			catch: (cause) => failure('database', 'getTimelineContainmentsForDocuments', cause)
+		}),
+		map((containments): TimelineContainment[] => containments)
 	)
 }
 

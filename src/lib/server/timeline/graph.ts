@@ -1,4 +1,4 @@
-import type { TimelineEdge, TimelineRelation } from './types'
+import type { TimelineContainment, TimelineEdge, TimelineRelation } from './types'
 
 const adjacency = (edges: TimelineEdge[]) => {
 	const successors = new Map<string, Set<string>>()
@@ -85,3 +85,86 @@ export const topologicalLayers = (
 
 export const hasTimelineCycle = (edges: TimelineEdge[]) =>
 	topologicalLayers([], edges) === undefined
+
+const containmentEdges = (containments: TimelineContainment[]): TimelineEdge[] =>
+	containments.map(({ eventDocumentId, periodDocumentId }) => ({
+		beforeDocumentId: eventDocumentId,
+		afterDocumentId: periodDocumentId
+	}))
+
+const containedEvents = (containments: TimelineContainment[]) => {
+	const direct = new Map<string, Set<string>>()
+	for (const { eventDocumentId, periodDocumentId } of containments) {
+		const events = direct.get(periodDocumentId) ?? new Set<string>()
+		events.add(eventDocumentId)
+		direct.set(periodDocumentId, events)
+	}
+
+	const result = new Map<string, Set<string>>()
+	const descendants = (periodDocumentId: string, visiting = new Set<string>()): Set<string> => {
+		const cached = result.get(periodDocumentId)
+		if (cached) return cached
+		if (visiting.has(periodDocumentId)) return new Set()
+		const nextVisiting = new Set(visiting).add(periodDocumentId)
+		const events = new Set<string>()
+		for (const eventDocumentId of direct.get(periodDocumentId) ?? []) {
+			events.add(eventDocumentId)
+			for (const nested of descendants(eventDocumentId, nextVisiting)) events.add(nested)
+		}
+		result.set(periodDocumentId, events)
+		return events
+	}
+
+	for (const periodDocumentId of direct.keys()) descendants(periodDocumentId)
+	return result
+}
+
+export const expandTimelineEdges = (
+	edges: TimelineEdge[],
+	containments: TimelineContainment[]
+): TimelineEdge[] => {
+	const containedByPeriod = containedEvents(containments)
+	const expanded = new Map<string, TimelineEdge>()
+	for (const edge of edges) {
+		const beforeIds = [
+			edge.beforeDocumentId,
+			...(containedByPeriod.get(edge.beforeDocumentId) ?? [])
+		]
+		const afterIds = [edge.afterDocumentId, ...(containedByPeriod.get(edge.afterDocumentId) ?? [])]
+		for (const beforeDocumentId of beforeIds) {
+			for (const afterDocumentId of afterIds) {
+				const key = `${beforeDocumentId}\0${afterDocumentId}`
+				expanded.set(key, { beforeDocumentId, afterDocumentId })
+			}
+		}
+	}
+	return [...expanded.values()]
+}
+
+export const temporalRelation = (
+	leftDocumentId: string,
+	rightDocumentId: string,
+	edges: TimelineEdge[],
+	containments: TimelineContainment[]
+) => timelineRelation(leftDocumentId, rightDocumentId)(expandTimelineEdges(edges, containments))
+
+export type TemporalGraphProblem =
+	'precedence-cycle' | 'containment-cycle' | 'containment-order-conflict'
+
+export const temporalGraphProblem = (
+	edges: TimelineEdge[],
+	containments: TimelineContainment[]
+): TemporalGraphProblem | undefined => {
+	if (hasTimelineCycle(containmentEdges(containments))) return 'containment-cycle'
+	const expanded = expandTimelineEdges(edges, containments)
+	const containedByPeriod = containedEvents(containments)
+	for (const [periodDocumentId, eventDocumentIds] of containedByPeriod) {
+		for (const eventDocumentId of eventDocumentIds) {
+			if (timelineRelation(eventDocumentId, periodDocumentId)(expanded) !== 'unknown') {
+				return 'containment-order-conflict'
+			}
+		}
+	}
+	if (hasTimelineCycle(expanded)) return 'precedence-cycle'
+	return undefined
+}

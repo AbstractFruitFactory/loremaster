@@ -5,7 +5,13 @@ import { resolveVaultLinks } from '../vault/links'
 import type { RelationshipLink, VaultDocumentIndex } from '../vault/types'
 import { failure } from '../failure'
 import { db } from '.'
-import { eventChronologyEdges, vaultDocuments, vaultLinks, vaultRelationshipLinks } from './schema'
+import {
+	eventChronologyEdges,
+	eventDuringEdges,
+	vaultDocuments,
+	vaultLinks,
+	vaultRelationshipLinks
+} from './schema'
 
 export type LinkedDocument = {
 	seedDocumentId: string
@@ -55,6 +61,24 @@ const chronologyEdgeValues = (
 			campaignId,
 			beforeDocumentId,
 			afterDocumentId: document.id
+		}))
+}
+
+const duringEdgeValues = (
+	campaignId: string,
+	document: VaultDocumentIndex,
+	targets: Pick<VaultDocumentIndex, 'id' | 'type'>[]
+) => {
+	if (document.type !== 'event') return []
+	const eventDocumentIds = new Set(
+		targets.filter(({ type }) => type === 'event').map(({ id }) => id)
+	)
+	return document.during
+		.filter((documentId) => eventDocumentIds.has(documentId))
+		.map((periodDocumentId) => ({
+			campaignId,
+			eventDocumentId: document.id,
+			periodDocumentId
 		}))
 }
 
@@ -308,6 +332,17 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 								)
 							)
 					: []
+				const periodTargets = document.during.length
+					? await transaction
+							.select({ id: vaultDocuments.documentId, type: vaultDocuments.type })
+							.from(vaultDocuments)
+							.where(
+								and(
+									eq(vaultDocuments.campaignId, campaignId),
+									inArray(vaultDocuments.documentId, document.during)
+								)
+							)
+					: []
 				await transaction
 					.insert(vaultDocuments)
 					.values(documentValues(campaignId, document))
@@ -342,6 +377,14 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 							eq(eventChronologyEdges.afterDocumentId, document.id)
 						)
 					)
+				await transaction
+					.delete(eventDuringEdges)
+					.where(
+						and(
+							eq(eventDuringEdges.campaignId, campaignId),
+							eq(eventDuringEdges.eventDocumentId, document.id)
+						)
+					)
 				const links = linkValues(campaignId, document, [
 					...linkTargets,
 					{ id: document.id, title: document.title }
@@ -350,12 +393,19 @@ export const indexDocument = (campaignId: string, document: VaultDocumentIndex) 
 					...predecessorTargets,
 					{ id: document.id, type: document.type }
 				])
+				const duringEdges = duringEdgeValues(campaignId, document, [
+					...periodTargets,
+					{ id: document.id, type: document.type }
+				])
 
 				if (links.length) {
 					await transaction.insert(vaultLinks).values(links)
 				}
 				if (chronologyEdges.length) {
 					await transaction.insert(eventChronologyEdges).values(chronologyEdges)
+				}
+				if (duringEdges.length) {
+					await transaction.insert(eventDuringEdges).values(duringEdges)
 				}
 			}),
 		catch: (cause) => failure('database', 'indexVaultDocument', cause)
@@ -396,6 +446,9 @@ export const replaceCampaignIndex = (campaignId: string, documents: VaultDocumen
 					.delete(eventChronologyEdges)
 					.where(eq(eventChronologyEdges.campaignId, campaignId))
 				await transaction
+					.delete(eventDuringEdges)
+					.where(eq(eventDuringEdges.campaignId, campaignId))
+				await transaction
 					.delete(vaultRelationshipLinks)
 					.where(eq(vaultRelationshipLinks.campaignId, campaignId))
 				await transaction.delete(vaultLinks).where(eq(vaultLinks.campaignId, campaignId))
@@ -419,6 +472,13 @@ export const replaceCampaignIndex = (campaignId: string, documents: VaultDocumen
 
 				if (chronologyEdges.length) {
 					await transaction.insert(eventChronologyEdges).values(chronologyEdges)
+				}
+
+				const duringEdges = documents.flatMap((document) =>
+					duringEdgeValues(campaignId, document, documents)
+				)
+				if (duringEdges.length) {
+					await transaction.insert(eventDuringEdges).values(duringEdges)
 				}
 			}),
 		catch: (cause) => failure('database', 'replaceCampaignVaultIndex', cause)

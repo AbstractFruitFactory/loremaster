@@ -216,6 +216,37 @@ export const eventChronologyEdges = pgTable(
 	]
 )
 
+export const eventDuringEdges = pgTable(
+	'event_during_edges',
+	{
+		campaignId: uuid('campaign_id').notNull(),
+		eventDocumentId: text('event_document_id').notNull(),
+		periodDocumentId: text('period_document_id').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.eventDocumentId, table.periodDocumentId],
+			name: 'event_during_edges_campaign_event_period_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.eventDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'event_during_edges_campaign_event_document_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.periodDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'event_during_edges_campaign_period_document_fk'
+		}).onDelete('cascade'),
+		check(
+			'event_during_edges_different_documents_check',
+			sql`${table.eventDocumentId} <> ${table.periodDocumentId}`
+		),
+		index('event_during_edges_campaign_event_index').on(table.campaignId, table.eventDocumentId),
+		index('event_during_edges_campaign_period_index').on(table.campaignId, table.periodDocumentId)
+	]
+)
+
 export const contextFragments = pgTable(
 	'context_fragments',
 	{

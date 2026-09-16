@@ -6,7 +6,12 @@ import { isDocumentType } from '../../document'
 import { fail } from '../failure'
 import type { Failure } from '../failure'
 import { parseSessionBody, serializeSessionBody } from './session'
-import type { ParsedVaultDocument, VaultFrontmatter } from './types'
+import {
+	eventForms,
+	type EventForm,
+	type ParsedVaultDocument,
+	type VaultFrontmatter
+} from './types'
 
 const frontmatterPattern = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const wikiLinkPattern = /(?<!!)\[\[([^\]\r\n]+)\]\]/g
@@ -64,6 +69,8 @@ const parseFrontmatter = (
 					)
 				: undefined
 			const after = record.after
+			const during = record.during
+			const eventForm = record.event_form
 			const ingestionId =
 				type === 'session' && typeof record.ingestion_id === 'string' && record.ingestion_id.trim()
 					? record.ingestion_id.trim()
@@ -77,6 +84,25 @@ const parseFrontmatter = (
 				return fail('vault', 'parseDocument', {
 					reason: 'invalidEventPredecessors',
 					after
+				})
+			}
+			if (
+				during !== undefined &&
+				(!Array.isArray(during) ||
+					during.some((documentId) => typeof documentId !== 'string' || !documentId.trim()))
+			) {
+				return fail('vault', 'parseDocument', {
+					reason: 'invalidEventPeriods',
+					during
+				})
+			}
+			if (
+				eventForm !== undefined &&
+				(typeof eventForm !== 'string' || !eventForms.includes(eventForm as EventForm))
+			) {
+				return fail('vault', 'parseDocument', {
+					reason: 'invalidEventForm',
+					eventForm
 				})
 			}
 
@@ -98,10 +124,23 @@ const parseFrontmatter = (
 			const predecessorIds = Array.isArray(after)
 				? [...new Set(after.map((documentId: string) => documentId.trim()))]
 				: undefined
+			const periodIds = Array.isArray(during)
+				? [...new Set(during.map((documentId: string) => documentId.trim()))]
+				: undefined
 
 			if (predecessorIds?.length && documentType && documentType !== 'event') {
 				return fail('vault', 'parseDocument', {
 					reason: 'eventPredecessorsOnNonEvent',
+					type: documentType
+				})
+			}
+			if (
+				(periodIds?.length || eventForm !== undefined) &&
+				documentType &&
+				documentType !== 'event'
+			) {
+				return fail('vault', 'parseDocument', {
+					reason: 'eventChronologyOnNonEvent',
 					type: documentType
 				})
 			}
@@ -112,6 +151,11 @@ const parseFrontmatter = (
 					type: documentType,
 					aliases: aliases?.map((alias) => alias.trim()),
 					after: predecessorIds,
+					during: periodIds,
+					eventForm:
+						typeof eventForm === 'string' && eventForms.includes(eventForm as EventForm)
+							? (eventForm as VaultFrontmatter['eventForm'])
+							: undefined,
 					ingestionId
 				},
 				content: source.slice(match[0].length).replace(/^\r?\n/, '')
@@ -153,6 +197,9 @@ export const parseVaultDocument = (path: string, source: string) =>
 				type: frontmatter.type,
 				aliases: frontmatter.aliases,
 				after: frontmatter.after ?? [],
+				during: frontmatter.during ?? [],
+				eventForm:
+					frontmatter.type === 'event' ? (frontmatter.eventForm ?? 'occurrence') : undefined,
 				summary: '',
 				content: indexableContent,
 				transcript: session?.transcript,
@@ -172,6 +219,10 @@ export const serializeVaultDocument = (
 		...(frontmatter.type ? { type: frontmatter.type } : {}),
 		...(frontmatter.aliases?.length ? { aliases: frontmatter.aliases } : {}),
 		...(frontmatter.after?.length ? { after: frontmatter.after } : {}),
+		...(frontmatter.during?.length ? { during: frontmatter.during } : {}),
+		...(frontmatter.type === 'event' && frontmatter.eventForm
+			? { event_form: frontmatter.eventForm }
+			: {}),
 		...(frontmatter.type === 'session' && frontmatter.ingestionId
 			? { ingestion_id: frontmatter.ingestionId }
 			: {})
@@ -207,7 +258,7 @@ export const updateDocumentFrontmatter = (
 export const updateVaultDocumentSource = (
 	source: string,
 	frontmatter: Required<Pick<VaultFrontmatter, 'id' | 'type'>> &
-		Pick<VaultFrontmatter, 'aliases' | 'after' | 'ingestionId'>,
+		Pick<VaultFrontmatter, 'aliases' | 'after' | 'during' | 'eventForm' | 'ingestionId'>,
 	content: string
 ) => {
 	const match = source.match(frontmatterPattern)
@@ -224,6 +275,11 @@ export const updateVaultDocumentSource = (
 					else document.delete('aliases')
 					if (frontmatter.after?.length) document.set('after', frontmatter.after)
 					else document.delete('after')
+					if (frontmatter.during?.length) document.set('during', frontmatter.during)
+					else document.delete('during')
+					if (frontmatter.type === 'event' && frontmatter.eventForm)
+						document.set('event_form', frontmatter.eventForm)
+					else document.delete('event_form')
 					if (frontmatter.type === 'session' && frontmatter.ingestionId)
 						document.set('ingestion_id', frontmatter.ingestionId)
 					else document.delete('ingestion_id')

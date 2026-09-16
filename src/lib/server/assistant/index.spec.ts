@@ -28,7 +28,11 @@ const items: ContextItem[] = [
 describe('assistant operations', () => {
 	it('answers with retrieved lore context and sources', async () => {
 		const buildAssistantContext = vi.fn(() =>
-			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+			succeed({
+				items,
+				timeline: { events: [], edges: [], containments: [], layers: [] },
+				estimatedTokens: 15
+			})
 		)
 		const generateAssistant = vi.fn(() =>
 			succeed({ message: 'Varek watches the western gate.' })
@@ -69,7 +73,11 @@ describe('assistant operations', () => {
 
 	it('returns optional lore proposals selected by the AI edge', async () => {
 		const buildAssistantContext = vi.fn(() =>
-			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+			succeed({
+				items,
+				timeline: { events: [], edges: [], containments: [], layers: [] },
+				estimatedTokens: 15
+			})
 		)
 		const generateAssistant = vi.fn(() =>
 			succeed({
@@ -115,6 +123,7 @@ describe('assistant operations', () => {
 						{ beforeDocumentId: 'b', afterDocumentId: 'c' },
 						{ beforeDocumentId: 'b', afterDocumentId: 'd' }
 					],
+					containments: [{ eventDocumentId: 'c', periodDocumentId: 'd' }],
 					layers: [['a'], ['b'], ['c', 'd']]
 				},
 				estimatedTokens: 30
@@ -135,7 +144,7 @@ describe('assistant operations', () => {
 		expect(generateAssistant).toHaveBeenCalledWith(
 			expect.objectContaining({
 				prompt: expect.stringMatching(
-					/unknown, not simultaneous[\s\S]*Event A -> Event B[\s\S]*Event B -> Event C[\s\S]*3\. Event C, Event D \(no known order within this group\)/
+					/unknown, not simultaneous[\s\S]*Event A -> Event B[\s\S]*Event B -> Event C[\s\S]*Event C during Event D[\s\S]*3\. Event C, Event D \(no known order within this group\)/
 				)
 			})
 		)
@@ -143,7 +152,11 @@ describe('assistant operations', () => {
 
 	it('streams generated events with retrieved lore sources', async () => {
 		const buildAssistantContext = vi.fn(() =>
-			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+			succeed({
+				items,
+				timeline: { events: [], edges: [], containments: [], layers: [] },
+				estimatedTokens: 15
+			})
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
 		const streamAssistant = vi.fn(() =>
@@ -180,7 +193,11 @@ describe('assistant operations', () => {
 
 	it('rejects an empty message before building context', async () => {
 		const buildAssistantContext = vi.fn(() =>
-			succeed({ items, timeline: { events: [], edges: [], layers: [] }, estimatedTokens: 15 })
+			succeed({
+				items,
+				timeline: { events: [], edges: [], containments: [], layers: [] },
+				estimatedTokens: 15
+			})
 		)
 		const generateAssistant = vi.fn(() => succeed({ message: 'Unused' })) as GenerateAssistant
 		const assistant = createAssistant({

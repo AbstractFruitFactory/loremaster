@@ -36,7 +36,7 @@ const createContext = ({
 	relationshipOutgoingLinks = [],
 	relationshipBacklinks = [],
 	queryVector = [1],
-	timelineContext = { events: [], edges: [], layers: [] }
+	timelineContext = { events: [], edges: [], containments: [], layers: [] }
 }: {
 	sources?: ContextSource[]
 	lexicalMatches?: LexicalFragmentMatch[]
@@ -209,6 +209,7 @@ describe('context operations', () => {
 				{ beforeDocumentId: 'a', afterDocumentId: 'b' },
 				{ beforeDocumentId: 'b', afterDocumentId: 'c' }
 			],
+			containments: [],
 			layers: [['a'], ['b'], ['c']]
 		}
 		const { context, timeline } = createContext({

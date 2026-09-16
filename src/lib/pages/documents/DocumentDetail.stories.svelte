@@ -13,6 +13,7 @@
 		type: 'worldbuilding',
 		aliases: ['Crown of Ash'],
 		after: [],
+		during: [],
 		summary:
 			'The Ashen Crown is an ancient relic tied to the northern expedition and the fall of Emberwatch.',
 		content: `# The Ashen Crown

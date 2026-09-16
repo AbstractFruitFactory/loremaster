@@ -18,7 +18,8 @@ const document = (
 	content: `# ${title}`,
 	links: [],
 	currentRevisionId: `${id}-revision`,
-	...overrides
+	...overrides,
+	during: overrides.during ?? []
 })
 
 describe('session entity matching', () => {

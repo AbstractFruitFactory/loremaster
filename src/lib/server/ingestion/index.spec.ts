@@ -2,6 +2,7 @@ import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type {
 	AnalyzeSessionChunk,
+	InferSessionChronology,
 	ResolveSessionEntities,
 	ValidateSessionClaims
 } from '../ai/provider'
@@ -25,6 +26,8 @@ type CreateInput = {
 	path: string
 	type: VaultDocument['type']
 	after?: string[]
+	during?: string[]
+	eventForm?: VaultDocument['eventForm']
 	content: string
 	ingestionId?: string
 	transcript?: string
@@ -35,6 +38,8 @@ type UpdateInput = {
 	type: VaultDocument['type']
 	aliases?: string[]
 	after?: string[]
+	during?: string[]
+	eventForm?: VaultDocument['eventForm']
 	content: string
 	expectedRevisionId: string
 	revision?: typeof revision
@@ -57,7 +62,8 @@ const document = (
 	content: `# ${title}`,
 	links: [],
 	currentRevisionId: `revision-${id}`,
-	...overrides
+	...overrides,
+	during: overrides.during ?? []
 })
 
 const varek = document('varek', 'Varek', ['The Gatekeeper'])
@@ -103,7 +109,8 @@ const setup = (
 	claims: ExtractedSessionClaim[],
 	documents: VaultDocument[] = [varek],
 	resolveSessionEntities: ResolveSessionEntities = () => succeed([]),
-	validateSessionClaims: ValidateSessionClaims = acceptingValidator
+	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
+	inferSessionChronology: InferSessionChronology = () => succeed([])
 ) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
@@ -119,6 +126,8 @@ const setup = (
 			title: input.content.match(/^#\s+(.+)$/m)?.[1] ?? input.path,
 			type: input.type,
 			after: input.after ?? [],
+			during: input.during ?? [],
+			eventForm: input.eventForm,
 			summary: '',
 			content: input.content,
 			links: [],
@@ -138,7 +147,8 @@ const setup = (
 			analyzeSessionChunk: validatingAnalyzer(claims),
 			validateSessionClaims,
 			repairSessionClaimEvidence: () => succeed([]),
-			resolveSessionEntities
+			resolveSessionEntities,
+			inferSessionChronology
 		},
 		storage: {
 			write,
@@ -487,6 +497,619 @@ describe('session ingestion operations', () => {
 			content: 'Mara hired the party to recover the lockbox.',
 			selected: true
 		})
+	})
+
+	it('infers reviewed chronology and persists event predecessors', async () => {
+		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed([
+				{
+					relation: 'before' as const,
+					sourceEventId: events[0]!.eventId,
+					targetEventId: events[1]!.eventId,
+					certainty: 'explicit' as const,
+					reason: 'The party crossed the bridge before opening the gate.'
+				}
+			])
+		})
+		const harness = setup(
+			[
+				claim('The party crossed the bridge.', {
+					kind: 'development',
+					eventTitle: 'Party crosses bridge',
+					evidence: [{ startLine: 1, endLine: 1 }],
+					entityReferences: []
+				}),
+				claim('The party then opened the gate.', {
+					kind: 'development',
+					eventTitle: 'Party opens gate',
+					evidence: [{ startLine: 2, endLine: 2 }],
+					entityReferences: []
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, 'The party crossed the bridge.\nThe party then opened the gate.')
+		)
+
+		expect(inferSessionChronology).toHaveBeenCalledTimes(1)
+		expect(draft.chronology).toEqual([
+			expect.objectContaining({
+				relation: 'before',
+				source: expect.objectContaining({
+					eventId: draft.proposals[1]!.proposalId,
+					source: 'proposal'
+				}),
+				target: expect.objectContaining({
+					eventId: draft.proposals[2]!.proposalId,
+					source: 'proposal'
+				}),
+				certainty: 'explicit',
+				selected: true
+			})
+		])
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		expect(eventCreates).toHaveLength(2)
+		expect(eventCreates[0]!.after).toEqual([])
+		expect(eventCreates[1]!.after).toEqual([eventCreates[0]!.documentId])
+	})
+
+	it('creates new events in topological order even when proposals are reversed', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed([
+				{
+					relation: 'before' as const,
+					sourceEventId: events[1]!.eventId,
+					targetEventId: events[0]!.eventId,
+					certainty: 'explicit' as const,
+					reason: 'The earlier event precedes the later event.'
+				}
+			])
+		}
+		const harness = setup(
+			[
+				claim('The later event happened.', {
+					kind: 'development',
+					eventTitle: 'Later event',
+					entityReferences: []
+				}),
+				claim('The earlier event had happened first.', {
+					kind: 'development',
+					eventTitle: 'Earlier event',
+					entityReferences: []
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, 'The later event happened. The earlier event had happened first.')
+		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		expect(eventCreates.map(({ content }) => content)).toEqual([
+			expect.stringContaining('# Earlier event'),
+			expect.stringContaining('# Later event')
+		])
+		expect(eventCreates[1]!.after).toEqual([eventCreates[0]!.documentId])
+	})
+
+	it('uses the full transcript and anchors a new session event after existing chronology', async () => {
+		const previous = document('previous-session', 'Party escapes Blackwater', [], 'event', {
+			summary: 'The party escaped the flooded tunnels and returned to Greyhaven.'
+		})
+		const transcript =
+			'The party reflects on escaping Blackwater.\nLater that morning, they enter the Crooked Lantern.'
+		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt }) => {
+			expect(prompt).toContain(`## Full numbered transcript\n1 | ${transcript.split('\n')[0]}`)
+			expect(prompt).toContain(`2 | ${transcript.split('\n')[1]}`)
+			expect(prompt).toContain('Party escapes Blackwater')
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed([
+				{
+					relation: 'before' as const,
+					sourceEventId: previous.id,
+					targetEventId: events[0]!.eventId,
+					certainty: 'explicit' as const,
+					reason: 'The session continues after the party escaped Blackwater.'
+				}
+			])
+		})
+		const harness = setup(
+			[
+				claim('The party entered the Crooked Lantern.', {
+					kind: 'development',
+					eventTitle: 'Party enters Crooked Lantern',
+					evidence: [{ startLine: 2, endLine: 2 }],
+					entityReferences: []
+				})
+			],
+			[previous],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(analyze(harness.operations, transcript))
+
+		expect(draft.chronology[0]).toMatchObject({
+			source: { eventId: previous.id, title: previous.title, source: 'existing' },
+			target: { source: 'proposal' }
+		})
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreate = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.find(({ type }) => type === 'event')
+		expect(eventCreate?.after).toEqual([previous.id])
+	})
+
+	it('can place a new historical event before an existing historical event', async () => {
+		const founding = document('kingdom-founded', 'Kingdom of Edrath founded', [], 'event', {
+			after: ['older-history'],
+			summary: 'Edrath was founded after the Goblin Wars.'
+		})
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed([
+				{
+					relation: 'before' as const,
+					sourceEventId: events[0]!.eventId,
+					targetEventId: founding.id,
+					certainty: 'explicit' as const,
+					reason: 'The account dates the Goblin Wars before the founding of Edrath.'
+				}
+			])
+		}
+		const harness = setup(
+			[
+				claim('The Goblin Wars ended five hundred years ago, before Edrath was founded.', {
+					kind: 'development',
+					eventTitle: 'Goblin Wars end',
+					entityReferences: []
+				})
+			],
+			[founding],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(
+				harness.operations,
+				'The Goblin Wars ended five hundred years ago, before Edrath was founded.'
+			)
+		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreate = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.find(({ type }) => type === 'event')!
+		expect(harness.updateDocument).toHaveBeenCalledWith(
+			'campaign',
+			founding.id,
+			expect.objectContaining({
+				after: ['older-history', eventCreate.documentId],
+				expectedRevisionId: founding.currentRevisionId
+			})
+		)
+	})
+
+	it('contains unordered events within an existing occurrence and promotes it to a period', async () => {
+		const goblinWars = document('goblin-wars', 'The Goblin Wars', [], 'event', {
+			eventForm: 'occurrence',
+			summary: 'A war fought five hundred years ago.'
+		})
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			expect(prompt).toContain('"eventForm": "occurrence"')
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed(
+				events.map(({ eventId }) => ({
+					relation: 'during' as const,
+					sourceEventId: eventId,
+					targetEventId: goblinWars.id,
+					certainty: 'explicit' as const,
+					reason: 'The account says this happened during the Goblin Wars.'
+				}))
+			)
+		}
+		const claims = [
+			claim('The Battle of Red Pass happened during the Goblin Wars.', {
+				kind: 'development',
+				eventTitle: 'Battle of Red Pass',
+				evidence: [{ startLine: 1, endLine: 1 }],
+				entityReferences: []
+			}),
+			claim('The Siege of Dunmar happened during the Goblin Wars.', {
+				kind: 'development',
+				eventTitle: 'Siege of Dunmar',
+				evidence: [{ startLine: 2, endLine: 2 }],
+				entityReferences: []
+			})
+		]
+		const harness = setup(
+			claims,
+			[goblinWars],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+
+		expect(draft.chronology).toHaveLength(2)
+		expect(draft.chronology).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					relation: 'during',
+					source: expect.objectContaining({ source: 'proposal' }),
+					target: expect.objectContaining({ eventId: goblinWars.id, source: 'existing' })
+				})
+			])
+		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		expect(eventCreates).toHaveLength(2)
+		for (const event of eventCreates) {
+			expect(event.after).toEqual([])
+			expect(event.during).toEqual([goblinWars.id])
+			expect(event.eventForm).toBe('occurrence')
+		}
+		expect(harness.updateDocument).toHaveBeenCalledWith(
+			'campaign',
+			goblinWars.id,
+			expect.objectContaining({
+				after: [],
+				during: [],
+				eventForm: 'period',
+				expectedRevisionId: goblinWars.currentRevisionId
+			})
+		)
+	})
+
+	it('creates a newly discovered period before the event contained by it', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+				title: string
+			}[]
+			const battle = events.find(({ title }) => title === 'Battle of Red Pass')!
+			const war = events.find(({ title }) => title === 'The Goblin Wars')!
+			return succeed([
+				{
+					relation: 'during' as const,
+					sourceEventId: battle.eventId,
+					targetEventId: war.eventId,
+					certainty: 'explicit' as const,
+					reason: 'The battle occurred during the war.'
+				}
+			])
+		}
+		const harness = setup(
+			[
+				claim('The Battle of Red Pass happened during the Goblin Wars.', {
+					kind: 'development',
+					eventTitle: 'Battle of Red Pass',
+					entityReferences: []
+				}),
+				claim('The Goblin Wars devastated the eastern kingdoms.', {
+					kind: 'development',
+					eventTitle: 'The Goblin Wars',
+					entityReferences: []
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(
+				harness.operations,
+				'The Battle of Red Pass happened during the Goblin Wars.\nThe Goblin Wars devastated the eastern kingdoms.'
+			)
+		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		const [war, battle] = eventCreates
+		expect(war!.content).toContain('# The Goblin Wars')
+		expect(war!.eventForm).toBe('period')
+		expect(battle!.content).toContain('# Battle of Red Pass')
+		expect(battle!.during).toEqual([war!.documentId])
+		expect(battle!.after).toEqual([])
+	})
+
+	it('validates new anchors against the existing campaign graph', async () => {
+		const earlier = document('earlier', 'Siege begins', [], 'event')
+		const later = document('later', 'Siege ends', [], 'event', { after: [earlier.id] })
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const [event] = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return succeed([
+				{
+					relation: 'before' as const,
+					sourceEventId: later.id,
+					targetEventId: event!.eventId,
+					certainty: 'explicit' as const,
+					reason: 'The new event follows the siege.'
+				},
+				{
+					relation: 'before' as const,
+					sourceEventId: event!.eventId,
+					targetEventId: earlier.id,
+					certainty: 'explicit' as const,
+					reason: 'This would create a cycle.'
+				},
+				{
+					relation: 'before' as const,
+					sourceEventId: earlier.id,
+					targetEventId: later.id,
+					certainty: 'explicit' as const,
+					reason: 'Existing-only relationships are outside this ingestion.'
+				}
+			])
+		}
+		const harness = setup(
+			[
+				claim('The party visits the abandoned battlefield.', {
+					kind: 'development',
+					eventTitle: 'Party visits battlefield',
+					entityReferences: []
+				})
+			],
+			[earlier, later],
+			() => succeed([]),
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, 'The party visits the abandoned battlefield.')
+		)
+
+		expect(draft.chronology).toHaveLength(1)
+		expect(draft.chronology[0]).toMatchObject({
+			source: { eventId: later.id, source: 'existing' },
+			target: { source: 'proposal' }
+		})
+		expect(draft.warnings.some((warning) => warning.includes('[precedence-cycle]'))).toBe(true)
+		expect(draft.warnings.some((warning) => warning.includes('[invalid-reference]'))).toBe(true)
+	})
+
+	it('preserves a branch of mutually unordered events with common boundaries', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			const [arrival, warning, north, east, south, departure] = events
+			const relationship = (sourceEventId: string, targetEventId: string) => ({
+				relation: 'before' as const,
+				sourceEventId,
+				targetEventId,
+				certainty: 'explicit' as const,
+				reason: 'The transcript establishes this boundary.'
+			})
+
+			return succeed([
+				relationship(arrival!.eventId, warning!.eventId),
+				relationship(warning!.eventId, north!.eventId),
+				relationship(warning!.eventId, east!.eventId),
+				relationship(warning!.eventId, south!.eventId),
+				relationship(north!.eventId, departure!.eventId),
+				relationship(east!.eventId, departure!.eventId),
+				relationship(south!.eventId, departure!.eventId)
+			])
+		}
+		const titles = [
+			'Party arrives',
+			'Warning sounds',
+			'North tower secured',
+			'East gate secured',
+			'South crypt secured',
+			'Party departs'
+		]
+		const claims = titles.map((title, index) =>
+			claim(`${title}.`, {
+				kind: 'development',
+				eventTitle: title,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(claims, [], () => succeed([]), acceptingValidator, inferSessionChronology)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+		const eventProposalIds = draft.proposals
+			.filter(({ operation }) => operation === 'create-event')
+			.map(({ proposalId }) => proposalId)
+		const siblingIds = new Set(eventProposalIds.slice(2, 5))
+
+		expect(draft.chronology).toHaveLength(7)
+		expect(
+			draft.chronology.some(
+				({ source, target }) => siblingIds.has(source.eventId) && siblingIds.has(target.eventId)
+			)
+		).toBe(false)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const eventCreates = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		const [arrival, warning, north, east, south, departure] = eventCreates
+		expect(arrival!.after).toEqual([])
+		expect(warning!.after).toEqual([arrival!.documentId])
+		expect(north!.after).toEqual([warning!.documentId])
+		expect(east!.after).toEqual([warning!.documentId])
+		expect(south!.after).toEqual([warning!.documentId])
+		expect(departure!.after).toHaveLength(3)
+		expect(departure!.after).toEqual(
+			expect.arrayContaining([north!.documentId, east!.documentId, south!.documentId])
+		)
+	})
+
+	it('does not add a fallback order when chronology is unknown', async () => {
+		const claims = ['First account', 'Second account', 'Third account'].map((title, index) =>
+			claim(`${title}.`, {
+				kind: 'development',
+				eventTitle: title,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(
+			claims,
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			() => succeed([])
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+
+		expect(draft.chronology).toEqual([])
+	})
+
+	it('drops cyclic and transitively redundant chronology relationships', async () => {
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			const [first, second, third] = events
+			return succeed([
+				{
+					relation: 'before',
+					sourceEventId: first!.eventId,
+					targetEventId: second!.eventId,
+					certainty: 'inferred',
+					reason: 'Narrative progression.'
+				},
+				{
+					relation: 'before',
+					sourceEventId: second!.eventId,
+					targetEventId: third!.eventId,
+					certainty: 'inferred',
+					reason: 'Narrative progression.'
+				},
+				{
+					relation: 'before',
+					sourceEventId: first!.eventId,
+					targetEventId: third!.eventId,
+					certainty: 'inferred',
+					reason: 'Redundant transitive relationship.'
+				},
+				{
+					relation: 'before',
+					sourceEventId: third!.eventId,
+					targetEventId: first!.eventId,
+					certainty: 'explicit',
+					reason: 'Invalid cycle.'
+				}
+			])
+		}
+		const claims = ['First', 'Second', 'Third'].map((title, index) =>
+			claim(`${title} event.`, {
+				kind: 'development',
+				eventTitle: `${title} event`,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const harness = setup(claims, [], () => succeed([]), acceptingValidator, inferSessionChronology)
+		const draft = await runPromise(
+			analyze(harness.operations, 'First event.\nSecond event.\nThird event.')
+		)
+
+		expect(draft.chronology).toHaveLength(2)
+		expect(draft.chronology.every(({ selected }) => !selected)).toBe(true)
+		expect(draft.warnings.some((warning) => warning.includes('[precedence-cycle]'))).toBe(true)
 	})
 
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {

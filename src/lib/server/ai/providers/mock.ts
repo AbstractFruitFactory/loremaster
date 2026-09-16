@@ -12,6 +12,7 @@ import type {
 	InferDocumentType,
 	RepairSessionClaimEvidence,
 	ResolveSessionEntities,
+	InferSessionChronology,
 	ValidateSessionClaims,
 	StreamAssistant
 } from '../provider'
@@ -219,6 +220,8 @@ const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
 	)
 }
 
+const inferSessionChronology: InferSessionChronology = () => succeed([])
+
 const generateRelationshipLinks: GenerateRelationshipLinks = () => succeed([])
 
 export const mockAiProvider: AiProvider = {
@@ -226,6 +229,7 @@ export const mockAiProvider: AiProvider = {
 	validateSessionClaims,
 	repairSessionClaimEvidence,
 	resolveSessionEntities,
+	inferSessionChronology,
 	generateRelationshipLinks,
 	models: mockAiModels,
 	embedTexts,

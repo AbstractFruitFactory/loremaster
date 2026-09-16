@@ -1,16 +1,25 @@
-import { flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
-import { pipe } from 'effect/Function'
+import { gen, succeed, type Effect } from 'effect/Effect'
 import type * as TimelineDb from '../db/timeline'
 import { fail, type Failure } from '../failure'
 import type { VaultDocument } from '../vault/types'
-import { hasTimelineCycle, timelineRelation, topologicalLayers } from './graph'
-import type { TimelineContext, TimelineEdge } from './types'
+import {
+	expandTimelineEdges,
+	temporalGraphProblem,
+	temporalRelation,
+	topologicalLayers
+} from './graph'
+import type { TimelineContainment, TimelineContext, TimelineEdge } from './types'
 
 export const DEFAULT_TIMELINE_DEPTH = 2
 export const DEFAULT_TIMELINE_EVENT_LIMIT = 20
 export const DEFAULT_TIMELINE_EDGE_LIMIT = 30
 
-const emptyTimeline = (): TimelineContext => ({ events: [], edges: [], layers: [] })
+const emptyTimeline = (): TimelineContext => ({
+	events: [],
+	edges: [],
+	containments: [],
+	layers: []
+})
 
 const resolveTimelineEdges = (
 	documents: VaultDocument[]
@@ -55,32 +64,71 @@ const resolveTimelineEdges = (
 	return succeed(edges)
 }
 
+const resolveTimelineContainments = (
+	documents: VaultDocument[]
+): Effect<TimelineContainment[], Failure<'timeline', 'validateChronology'>> => {
+	const documentsById = new Map(documents.map((document) => [document.id, document]))
+	const containments: TimelineContainment[] = []
+	for (const document of documents) {
+		if ((document.during.length || document.eventForm) && document.type !== 'event') {
+			return fail('timeline', 'validateChronology', {
+				reason: 'eventChronologyOnNonEvent',
+				documentId: document.id
+			})
+		}
+		for (const periodDocumentId of document.during) {
+			if (periodDocumentId === document.id) {
+				return fail('timeline', 'validateChronology', {
+					reason: 'selfContainment',
+					documentId: document.id
+				})
+			}
+			const period = documentsById.get(periodDocumentId)
+			if (!period) continue
+			if (period.type !== 'event') {
+				return fail('timeline', 'validateChronology', {
+					reason: 'periodIsNotEvent',
+					documentId: document.id,
+					periodDocumentId
+				})
+			}
+			containments.push({ eventDocumentId: document.id, periodDocumentId })
+		}
+	}
+	return succeed(containments)
+}
+
 export const timeline = ({
 	db
 }: {
 	db: {
 		getTimelineEdges: typeof TimelineDb.getTimelineEdges
 		getTimelineEdgesForDocuments: typeof TimelineDb.getTimelineEdgesForDocuments
+		getTimelineContainments: typeof TimelineDb.getTimelineContainments
+		getTimelineContainmentsForDocuments: typeof TimelineDb.getTimelineContainmentsForDocuments
 		getTimelineEvents: typeof TimelineDb.getTimelineEvents
 	}
 }) => {
 	const validateDocuments = (
 		documents: VaultDocument[]
 	): Effect<void, Failure<'timeline', 'validateChronology'>> =>
-		pipe(
-			resolveTimelineEdges(documents),
-			flatMap((edges) =>
-				hasTimelineCycle(edges)
-					? fail('timeline', 'validateChronology', { reason: 'cycle' })
-					: succeed(undefined)
-			)
-		)
+		gen(function* () {
+			const edges = yield* resolveTimelineEdges(documents)
+			const containments = yield* resolveTimelineContainments(documents)
+			const problem = temporalGraphProblem(edges, containments)
+			return problem
+				? yield* fail('timeline', 'validateChronology', {
+						reason: problem === 'precedence-cycle' ? 'cycle' : problem
+					})
+				: undefined
+		})
 
 	const getRelation = (campaignId: string, leftDocumentId: string, rightDocumentId: string) =>
-		pipe(
-			db.getTimelineEdges(campaignId),
-			map(timelineRelation(leftDocumentId, rightDocumentId))
-		)
+		gen(function* () {
+			const edges = yield* db.getTimelineEdges(campaignId)
+			const containments = yield* db.getTimelineContainments(campaignId)
+			return temporalRelation(leftDocumentId, rightDocumentId, edges, containments)
+		})
 
 	const getContext = (
 		campaignId: string,
@@ -101,23 +149,28 @@ export const timeline = ({
 
 			const visited = new Set(seeds)
 			const edgesById = new Map<string, TimelineEdge>()
+			const containmentsById = new Map<string, TimelineContainment>()
 			let frontier = seeds
 
 			for (let depth = 0; depth < maxDepth && frontier.length; depth += 1) {
 				const edges = yield* db.getTimelineEdgesForDocuments(campaignId, frontier)
+				const containments = yield* db.getTimelineContainmentsForDocuments(campaignId, frontier)
 				const next = new Set<string>()
 
-				for (const edge of edges) {
-					if (edgesById.size >= maxEdges) break
+				for (const relation of [...edges, ...containments]) {
+					if (edgesById.size + containmentsById.size >= maxEdges) break
+					const documentIds =
+						'beforeDocumentId' in relation
+							? [relation.beforeDocumentId, relation.afterDocumentId]
+							: [relation.eventDocumentId, relation.periodDocumentId]
+					const relationId = `${documentIds[0]}\0${documentIds[1]}`
 
-					const edgeId = `${edge.beforeDocumentId}\0${edge.afterDocumentId}`
-					const newDocumentIds = [edge.beforeDocumentId, edge.afterDocumentId].filter(
-						(documentId) => !visited.has(documentId)
-					)
+					const newDocumentIds = documentIds.filter((documentId) => !visited.has(documentId))
 
 					if (visited.size + newDocumentIds.length > maxEvents) continue
 
-					edgesById.set(edgeId, edge)
+					if ('beforeDocumentId' in relation) edgesById.set(relationId, relation)
+					else containmentsById.set(relationId, relation)
 					for (const documentId of newDocumentIds) {
 						visited.add(documentId)
 						next.add(documentId)
@@ -133,14 +186,19 @@ export const timeline = ({
 				({ beforeDocumentId, afterDocumentId }) =>
 					eventIds.has(beforeDocumentId) && eventIds.has(afterDocumentId)
 			)
+			const containments = [...containmentsById.values()].filter(
+				({ eventDocumentId, periodDocumentId }) =>
+					eventIds.has(eventDocumentId) && eventIds.has(periodDocumentId)
+			)
 			const layers = topologicalLayers(
 				events.map(({ documentId }) => documentId),
-				edges
+				expandTimelineEdges(edges, containments)
 			)
 
 			return {
 				events,
 				edges,
+				containments,
 				layers: layers ?? []
 			}
 		})

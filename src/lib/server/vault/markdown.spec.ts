@@ -92,6 +92,27 @@ Varek owns [[The Black Crown]].`
 		})
 	})
 
+	it('parses and serializes temporal containment and event form', () => {
+		const source = serializeVaultDocument(
+			{
+				id: 'battle-red-pass',
+				type: 'event',
+				during: ['goblin-wars'],
+				eventForm: 'occurrence'
+			},
+			'# Battle of Red Pass'
+		)
+
+		expect(source).toContain('during:\n  - goblin-wars')
+		expect(source).toContain('event_form: occurrence')
+		expect(parseDocument('Events/Battle of Red Pass.md', source)).toMatchObject({
+			id: 'battle-red-pass',
+			type: 'event',
+			during: ['goblin-wars'],
+			eventForm: 'occurrence'
+		})
+	})
+
 	it('separates a Session recap from its raw transcript', () => {
 		const transcript =
 			'GM: The gate opens. 🐉\nPlayer: I enter.\n<!-- loremaster:raw-transcript -->'
