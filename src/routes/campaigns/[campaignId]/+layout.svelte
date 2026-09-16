@@ -114,6 +114,7 @@
 	.campaign-shell {
 		--workspace-gap: clamp(0.65rem, 1.5vw, 1rem);
 		--chat-panel-width: clamp(25rem, 31vw, 29rem);
+		--campaign-inline-padding: clamp(1.25rem, 3vw, 2.75rem);
 
 		position: relative;
 		width: 100%;

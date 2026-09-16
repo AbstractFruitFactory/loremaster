@@ -83,7 +83,8 @@
 		--gold-light: #c8aa75;
 		box-sizing: border-box;
 		width: 100%;
-		padding: clamp(1.5rem, 3vw, 2.75rem) 0 0;
+		padding: clamp(1.5rem, 3vw, 2.75rem)
+			var(--campaign-inline-padding, clamp(1.25rem, 3vw, 2.75rem)) 2rem;
 		color: var(--ink);
 		font-family: var(--font-sans);
 	}
@@ -164,7 +165,7 @@
 
 	.document-card {
 		display: flex;
-		min-height: 11rem;
+		height: 11rem;
 		padding: 1.05rem 1.15rem 1.15rem;
 		flex-direction: column;
 		border: 1.5px solid #3d382f;
@@ -192,10 +193,16 @@
 	}
 
 	.document-list h3 {
+		display: -webkit-box;
 		margin-top: auto;
 		overflow-wrap: anywhere;
+		overflow: hidden;
+		text-overflow: ellipsis;
 		font-size: 1.25rem;
 		line-height: 1.2;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
 	}
 
 	.document-list p {
@@ -203,11 +210,12 @@
 		margin-top: 0.3rem;
 		overflow-wrap: anywhere;
 		overflow: hidden;
+		text-overflow: ellipsis;
 		color: var(--ink-soft);
 		font-size: 0.85rem;
 		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 4;
-		line-clamp: 4;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
 	}
 
 	.card-heading {

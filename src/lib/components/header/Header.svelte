@@ -23,7 +23,7 @@
 		box-sizing: border-box;
 		display: flex;
 		min-width: 0;
-		padding: 0.15rem 0 0.45rem;
+		padding: 0.15rem var(--campaign-inline-padding, 0) 0.45rem;
 		flex-direction: column;
 		gap: 0.55rem;
 		color: #f3e8d2;
@@ -62,7 +62,7 @@
 
 	@media (max-width: 40rem) {
 		.header {
-			padding: 0.1rem 0 0.35rem;
+			padding: 0.1rem var(--campaign-inline-padding, 0) 0.35rem;
 		}
 	}
 </style>
