@@ -49,7 +49,11 @@
 					>
 						<div class="card-heading">
 							<span class="card-icon" aria-hidden="true">
-								<Icon icon={documentTypeMetadata[selectedType].icon} />
+								<span class="card-icon-corner top-left"></span>
+								<span class="card-icon-corner top-right"></span>
+								<span class="card-icon-corner bottom-left"></span>
+								<span class="card-icon-corner bottom-right"></span>
+								<img src={documentTypeMetadata[selectedType].iconSrc} alt="" />
 							</span>
 							<span class="card-arrow" aria-hidden="true">
 								<Icon icon="lucide:arrow-up-right" />
@@ -214,13 +218,51 @@
 	}
 
 	.card-icon {
+		position: relative;
 		display: grid;
-		width: 2.25rem;
-		height: 2.25rem;
+		width: 2.75rem;
+		height: 2.75rem;
 		place-items: center;
-		border: 1.5px solid #3d382f;
-		background: #e8bc71;
+		border: 2px solid #282016;
+		background: #fffaf0;
 		color: #3d382f;
+	}
+
+	.card-icon img {
+		width: 2rem;
+		height: 2rem;
+		object-fit: contain;
+	}
+
+	.card-icon-corner {
+		position: absolute;
+		z-index: 1;
+		width: 0.4rem;
+		height: 0.4rem;
+		border: 1.5px solid #282016;
+		border-radius: 1px;
+		background: #65cfc9;
+		transform: rotate(45deg);
+	}
+
+	.card-icon-corner.top-left {
+		top: -0.25rem;
+		left: -0.25rem;
+	}
+
+	.card-icon-corner.top-right {
+		top: -0.25rem;
+		right: -0.25rem;
+	}
+
+	.card-icon-corner.bottom-left {
+		bottom: -0.25rem;
+		left: -0.25rem;
+	}
+
+	.card-icon-corner.bottom-right {
+		right: -0.25rem;
+		bottom: -0.25rem;
 	}
 
 	.card-icon :global(svg),

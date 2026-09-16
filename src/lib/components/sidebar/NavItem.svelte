@@ -5,12 +5,14 @@
 		label,
 		href,
 		icon,
+		iconSrc,
 		active = false,
 		variant = 'sidebar'
 	}: {
 		label: string
 		href?: string
 		icon: string
+		iconSrc?: string
 		active?: boolean
 		variant?: 'sidebar' | 'tab'
 	} = $props()
@@ -18,7 +20,11 @@
 
 {#snippet content()}
 	<span class="icon" aria-hidden="true">
-		<Icon {icon} width="1.15rem" height="1.15rem" color="currentColor" aria-hidden="true" />
+		{#if iconSrc}
+			<img src={iconSrc} alt="" />
+		{:else}
+			<Icon {icon} width="1.15rem" height="1.15rem" color="currentColor" aria-hidden="true" />
+		{/if}
 	</span>
 	<span class="label">{label}</span>
 {/snippet}
@@ -106,13 +112,19 @@
 
 	.icon {
 		display: inline-flex;
-		width: 1.15rem;
-		height: 1.15rem;
-		flex: 0 0 1.15rem;
+		width: 1.5rem;
+		height: 1.5rem;
+		flex: 0 0 1.5rem;
 		align-items: center;
 		justify-content: center;
 		color: #cda45c;
 		line-height: 1;
+	}
+
+	.icon img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
 	}
 
 	.label {
@@ -120,13 +132,14 @@
 	}
 
 	.nav-item.tab {
-		min-height: 2.35rem;
+		height: 42px;
 		flex: 0 0 auto;
-		gap: 0.45rem;
-		padding: 0.45rem 0.7rem;
-		border-color: rgb(226 192 126 / 18%);
-		border-radius: 0.45rem;
-		color: #d9ccb3;
+		gap: 8px;
+		padding: 5px 13px 5px 6px;
+		border: 1px solid rgb(113 77 49 / 18%);
+		border-radius: 8px;
+		background: rgb(255 250 239 / 45%);
+		color: #705c4c;
 		font-size: 0.82rem;
 	}
 
@@ -135,25 +148,40 @@
 	}
 
 	a.nav-item.tab:hover {
-		border-color: rgb(226 192 126 / 38%);
-		background: rgb(255 246 225 / 9%);
+		border-color: rgb(113 77 49 / 35%);
+		background: rgb(255 250 239 / 75%);
+		color: #422c24;
 	}
 
 	a.nav-item.tab.active {
-		border-color: #c8a969;
-		background: linear-gradient(145deg, #fff5df, #ead8b7);
-		box-shadow: 0 0.45rem 1rem rgb(10 18 14 / 24%);
-		color: #2a312d;
+		border-color: #c98b3d;
+		background: #fff8e9;
+		box-shadow: 0 2px 5px rgb(73 45 28 / 10%);
+		color: #37241d;
 	}
 
 	.nav-item.tab .icon {
-		width: 1rem;
-		height: 1rem;
-		flex-basis: 1rem;
+		display: grid;
+		aspect-ratio: 1;
+		width: 32px;
+		height: 32px;
+		flex: 0 0 32px;
+		place-items: center;
+		background: transparent;
 		color: #cba45e;
 	}
 
+	.nav-item.tab .icon img {
+		display: block;
+		flex: 0 0 28px;
+		width: 28px;
+		height: 28px;
+		aspect-ratio: 1;
+		object-fit: contain;
+	}
+
 	a.nav-item.tab.active .icon {
+		background: transparent;
 		color: #7b5d2d;
 	}
 </style>
