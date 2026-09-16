@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { hasTimelineCycle, timelineRelation, topologicalLayers } from './graph'
-import type { TimelineEdge } from './types'
+import {
+	hasTimelineCycle,
+	temporalGraphProblem,
+	temporalRelation,
+	timelineRelation,
+	topologicalLayers
+} from './graph'
+import type { TimelineContainment, TimelineEdge } from './types'
 
 const edges: TimelineEdge[] = [
 	{ beforeDocumentId: 'a', afterDocumentId: 'b' },
@@ -30,5 +36,43 @@ describe('timeline graph', () => {
 	it('detects cycles', () => {
 		expect(hasTimelineCycle([...edges, { beforeDocumentId: 'e', afterDocumentId: 'a' }])).toBe(true)
 		expect(hasTimelineCycle(edges)).toBe(false)
+	})
+
+	it('inherits period boundaries without ordering events in the same period', () => {
+		const periodEdges: TimelineEdge[] = [
+			{ beforeDocumentId: 'age-before', afterDocumentId: 'goblin-wars' },
+			{ beforeDocumentId: 'goblin-wars', afterDocumentId: 'age-after' }
+		]
+		const containments: TimelineContainment[] = [
+			{ eventDocumentId: 'red-pass', periodDocumentId: 'goblin-wars' },
+			{ eventDocumentId: 'river-siege', periodDocumentId: 'goblin-wars' }
+		]
+
+		expect(temporalRelation('age-before', 'red-pass', periodEdges, containments)).toBe('before')
+		expect(temporalRelation('red-pass', 'age-after', periodEdges, containments)).toBe('before')
+		expect(temporalRelation('red-pass', 'river-siege', periodEdges, containments)).toBe('unknown')
+	})
+
+	it('supports nested containment and rejects contradictory temporal constraints', () => {
+		const containments: TimelineContainment[] = [
+			{ eventDocumentId: 'battle', periodDocumentId: 'campaign' },
+			{ eventDocumentId: 'campaign', periodDocumentId: 'goblin-wars' }
+		]
+		const edges: TimelineEdge[] = [{ beforeDocumentId: 'goblin-wars', afterDocumentId: 'peace' }]
+
+		expect(temporalRelation('battle', 'peace', edges, containments)).toBe('before')
+		expect(temporalGraphProblem(edges, containments)).toBeUndefined()
+		expect(
+			temporalGraphProblem(
+				[{ beforeDocumentId: 'battle', afterDocumentId: 'goblin-wars' }],
+				containments
+			)
+		).toBe('containment-order-conflict')
+		expect(
+			temporalGraphProblem(
+				[],
+				[...containments, { eventDocumentId: 'goblin-wars', periodDocumentId: 'battle' }]
+			)
+		).toBe('containment-cycle')
 	})
 })

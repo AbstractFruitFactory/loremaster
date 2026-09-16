@@ -14,6 +14,7 @@
 			type: 'worldbuilding',
 			aliases: ['Crown of Ash'],
 			after: [],
+			during: [],
 			summary:
 				'The Ashen Crown is a campaign lore entry the Dungeon Master can reference at the table.',
 			links: ['document-emberwatch-oath']
@@ -24,6 +25,7 @@
 			title: 'The Oath of Emberwatch',
 			type: 'worldbuilding',
 			after: [],
+			during: [],
 			summary:
 				'The Oath of Emberwatch is a campaign lore entry the Dungeon Master can reference at the table.',
 			links: []

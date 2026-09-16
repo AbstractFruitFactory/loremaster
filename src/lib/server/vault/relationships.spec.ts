@@ -17,6 +17,7 @@ const document = (
 		title,
 		type: 'npc',
 		after: [],
+		during: [],
 		summary: '',
 		content: '',
 		links: [],

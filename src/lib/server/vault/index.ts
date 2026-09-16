@@ -219,6 +219,13 @@ export const vault = ({
 					type
 				})
 			}
+			if ((document.during.length || document.eventForm) && type !== 'event') {
+				return yield* fail('vault', 'parseDocument', {
+					path: document.path,
+					reason: 'eventChronologyOnNonEvent',
+					type
+				})
+			}
 
 			const normalizedDocument: VaultDocument = {
 				...document,
@@ -325,6 +332,8 @@ export const vault = ({
 			type: VaultDocument['type']
 			aliases?: string[]
 			after?: string[]
+			during?: string[]
+			eventForm?: VaultDocument['eventForm']
 			content: string
 			revision?: RevisionContext
 			ingestionId?: string
@@ -347,6 +356,8 @@ export const vault = ({
 					type: input.type,
 					aliases: input.aliases,
 					after: input.after,
+					during: input.during,
+					eventForm: input.type === 'event' ? (input.eventForm ?? 'occurrence') : undefined,
 					ingestionId: input.ingestionId
 				},
 				input.content,
@@ -359,6 +370,8 @@ export const vault = ({
 				type: input.type,
 				aliases: input.aliases,
 				after: input.after ?? [],
+				during: input.during ?? [],
+				eventForm: input.type === 'event' ? (input.eventForm ?? 'occurrence') : undefined,
 				summary: '',
 				content: input.content,
 				transcript: input.transcript,
@@ -401,6 +414,8 @@ export const vault = ({
 		type: VaultDocument['type']
 		aliases?: string[]
 		after?: string[]
+		during?: string[]
+		eventForm?: VaultDocument['eventForm']
 		content: string
 		expectedRevisionId?: string
 		revision?: RevisionContext
@@ -413,6 +428,13 @@ export const vault = ({
 			type: input.type,
 			aliases: input.aliases,
 			after: input.after ?? existing.after,
+			during: input.during ?? existing.during,
+			eventForm:
+				input.type === 'event'
+					? existing.eventForm === 'period'
+						? 'period'
+						: (input.eventForm ?? existing.eventForm ?? 'occurrence')
+					: undefined,
 			content: input.content
 		})
 
@@ -447,6 +469,8 @@ export const vault = ({
 					type: updated.type,
 					aliases: updated.aliases,
 					after: updated.after,
+					during: updated.during,
+					eventForm: updated.eventForm,
 					ingestionId: updated.ingestionId
 				},
 				updated.content

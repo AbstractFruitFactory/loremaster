@@ -2,7 +2,7 @@ import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../vault/types'
 import { timeline } from '.'
-import type { TimelineEdge } from './types'
+import type { TimelineContainment, TimelineEdge } from './types'
 
 const event = (id: string, after: string[] = []): VaultDocument => ({
 	id,
@@ -10,6 +10,7 @@ const event = (id: string, after: string[] = []): VaultDocument => ({
 	title: `Event ${id.toUpperCase()}`,
 	type: 'event',
 	after,
+	during: [],
 	summary: '',
 	content: `# Event ${id.toUpperCase()}`,
 	links: []
@@ -21,7 +22,7 @@ const edges: TimelineEdge[] = [
 	{ beforeDocumentId: 'c', afterDocumentId: 'd' }
 ]
 
-const createTimeline = () => {
+const createTimeline = (containments: TimelineContainment[] = []) => {
 	const db = {
 		getTimelineEdges: vi.fn(() => succeed(edges)),
 		getTimelineEdgesForDocuments: vi.fn((_campaignId: string, documentIds: string[]) =>
@@ -29,6 +30,15 @@ const createTimeline = () => {
 				edges.filter(
 					({ beforeDocumentId, afterDocumentId }) =>
 						documentIds.includes(beforeDocumentId) || documentIds.includes(afterDocumentId)
+				)
+			)
+		),
+		getTimelineContainments: vi.fn(() => succeed(containments)),
+		getTimelineContainmentsForDocuments: vi.fn((_campaignId: string, documentIds: string[]) =>
+			succeed(
+				containments.filter(
+					({ eventDocumentId, periodDocumentId }) =>
+						documentIds.includes(eventDocumentId) || documentIds.includes(periodDocumentId)
 				)
 			)
 		),
@@ -69,6 +79,7 @@ describe('timeline operations', () => {
 			title: 'NPC',
 			type: 'npc',
 			after: [],
+			during: [],
 			summary: '',
 			content: '# NPC',
 			links: []
@@ -100,6 +111,23 @@ describe('timeline operations', () => {
 		await expect(runPromise(timeline.getRelation('campaign', 'a', 'unknown'))).resolves.toBe(
 			'unknown'
 		)
+	})
+
+	it('inherits ordering through a containing period without ordering its siblings', async () => {
+		const { timeline } = createTimeline([
+			{ eventDocumentId: 'battle-one', periodDocumentId: 'b' },
+			{ eventDocumentId: 'battle-two', periodDocumentId: 'b' }
+		])
+
+		await expect(runPromise(timeline.getRelation('campaign', 'a', 'battle-one'))).resolves.toBe(
+			'before'
+		)
+		await expect(runPromise(timeline.getRelation('campaign', 'battle-one', 'c'))).resolves.toBe(
+			'before'
+		)
+		await expect(
+			runPromise(timeline.getRelation('campaign', 'battle-one', 'battle-two'))
+		).resolves.toBe('unknown')
 	})
 
 	it('loads only the configured timeline neighborhood', async () => {

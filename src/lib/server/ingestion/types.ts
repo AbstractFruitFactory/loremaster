@@ -65,6 +65,14 @@ export type SessionEntityResolution = {
 	targetId: string | null
 }
 
+export type InferredSessionChronology = {
+	relation: 'before' | 'during'
+	sourceEventId: string
+	targetEventId: string
+	certainty: 'explicit' | 'inferred'
+	reason: string
+}
+
 export type TranscriptChunk = {
 	chunkId: string
 	content: string
@@ -117,7 +125,6 @@ export type SessionProposal = {
 	evidence: Evidence[]
 	match: ProposalMatch
 	references: ProposalReference[]
-	after: ProposalReference[]
 	content: string
 	resolutionMethod?: 'deterministic' | 'model'
 	canCreate?: boolean
@@ -125,18 +132,35 @@ export type SessionProposal = {
 	patch?: CanonPatch
 }
 
+export type SessionChronologyEndpoint = {
+	eventId: string
+	title: string
+	source: 'proposal' | 'existing'
+}
+
+export type SessionChronologyProposal = Omit<
+	InferredSessionChronology,
+	'sourceEventId' | 'targetEventId'
+> & {
+	chronologyId: string
+	selected: boolean
+	source: SessionChronologyEndpoint
+	target: SessionChronologyEndpoint
+}
+
 export type SessionProposalResolution =
 	| { proposalId: string; kind: 'create' }
 	| { proposalId: string; kind: 'existing'; documentId: string }
 
 export type SessionIngestionDraft = {
-	schemaVersion: 1
+	schemaVersion: 2
 	ingestionId: string
 	campaignId: string
 	title: string
 	createdAt: string
 	warnings: string[]
 	proposals: SessionProposal[]
+	chronology: SessionChronologyProposal[]
 }
 
 export type SessionIngestionResult = {

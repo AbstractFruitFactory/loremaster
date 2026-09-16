@@ -146,6 +146,8 @@ describe('vault operations', () => {
 				db: {
 					getTimelineEdges: () => succeed([]),
 					getTimelineEdgesForDocuments: () => succeed([]),
+					getTimelineContainments: () => succeed([]),
+					getTimelineContainmentsForDocuments: () => succeed([]),
 					getTimelineEvents: () => succeed([])
 				}
 			})
@@ -222,6 +224,8 @@ describe('vault operations', () => {
 			title: 'Varek',
 			type: 'npc',
 			after: [],
+			during: [],
+			eventForm: undefined,
 			summary: 'Varek is a campaign npc entry the Dungeon Master can reference at the table.',
 			links: ['Westgate']
 		})
@@ -304,6 +308,37 @@ describe('vault operations', () => {
 			cause: { reason: 'cycle' }
 		})
 		expect(unchanged.after).toEqual([])
+	})
+
+	it('preserves event containment and never downgrades a period to an occurrence', async () => {
+		const period = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Events/The Goblin Wars.md',
+				type: 'event',
+				eventForm: 'period',
+				content: '# The Goblin Wars'
+			})
+		)
+		const battle = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Events/Battle of Red Pass.md',
+				type: 'event',
+				during: [period.id],
+				content: '# Battle of Red Pass'
+			})
+		)
+
+		expect(indexedDocuments.get(battle.id)?.during).toEqual([period.id])
+		await runPromise(
+			operations.updateDocument(campaign.id, period.id, {
+				type: 'event',
+				eventForm: 'occurrence',
+				content: period.content,
+				expectedRevisionId: period.currentRevisionId
+			})
+		)
+		const unchangedPeriod = await runPromise(operations.getDocument(campaign.id, period.id))
+		expect(unchangedPeriod.eventForm).toBe('period')
 	})
 
 	it('loads an indexed document without listing the vault', async () => {
@@ -677,6 +712,7 @@ type: location
 			title: 'Stale',
 			type: 'worldbuilding',
 			after: [],
+			during: [],
 			summary: '',
 			links: []
 		})

@@ -1,10 +1,15 @@
 import type { DocumentType } from '../../document'
 
+export const eventForms = ['occurrence', 'period'] as const
+export type EventForm = (typeof eventForms)[number]
+
 export type VaultFrontmatter = {
 	id?: string
 	type?: DocumentType
 	aliases?: string[]
 	after?: string[]
+	during?: string[]
+	eventForm?: EventForm
 	ingestionId?: string
 }
 
@@ -15,6 +20,8 @@ export type VaultDocument = {
 	type: DocumentType
 	aliases?: string[]
 	after: string[]
+	during: string[]
+	eventForm?: EventForm
 	summary: string
 	content: string
 	transcript?: string
@@ -42,5 +49,5 @@ export type RelationshipLink = {
 
 export type VaultDocumentIndex = Pick<
 	VaultDocument,
-	'id' | 'path' | 'title' | 'type' | 'after' | 'links' | 'summary'
+	'id' | 'path' | 'title' | 'type' | 'after' | 'during' | 'eventForm' | 'links' | 'summary'
 >

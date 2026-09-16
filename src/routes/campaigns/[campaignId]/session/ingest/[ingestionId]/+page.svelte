@@ -5,7 +5,11 @@
 	import { buildSessionRecap } from '#lib/ingestion.js'
 	import { documentTypeMetadata } from '#lib/document-metadata.js'
 	import type { DocumentType } from '#lib/document.js'
-	import type { SessionProposal, SessionProposalResolution } from '#lib/server/ingestion/types.js'
+	import type {
+		SessionChronologyProposal,
+		SessionProposal,
+		SessionProposalResolution
+	} from '#lib/server/ingestion/types.js'
 	import { commitSessionIngestion, getSessionIngestion } from '../../../data.remote'
 
 	let { params }: PageProps = $props()
@@ -38,6 +42,7 @@
 
 	let activeView = $state<ReviewView>('summary')
 	let decisions = $state<Record<string, ReviewDecision>>({})
+	let chronologyDecisions = $state<Record<string, ReviewDecision>>({})
 	let resolutions = $state<Record<string, string>>({})
 	let committing = $state(false)
 	let commitError = $state('')
@@ -110,6 +115,46 @@
 		) ?? []
 
 	const attentionProposals = () => canonProposals().filter(needsAttention)
+	const eventProposalById = () =>
+		new Map(
+			(draft.current?.proposals ?? [])
+				.filter(({ operation }) => operation === 'create-event')
+				.map((proposal) => [proposal.proposalId, proposal])
+		)
+
+	const chronologyStatus = (relation: SessionChronologyProposal): ReviewStatus => {
+		const decision = chronologyDecisions[relation.chronologyId]
+		if (decision) return decision
+		if (relation.certainty === 'inferred') return 'pending'
+		return relation.selected ? 'approved' : 'rejected'
+	}
+
+	const attentionChronology = () =>
+		(draft.current?.chronology ?? []).filter(
+			(relation) => relation.certainty === 'inferred' || chronologyStatus(relation) === 'pending'
+		)
+
+	const approveChronology = (relation: SessionChronologyProposal) => {
+		chronologyDecisions[relation.chronologyId] = 'approved'
+	}
+
+	const rejectChronology = (relation: SessionChronologyProposal) => {
+		chronologyDecisions[relation.chronologyId] = 'rejected'
+	}
+
+	const chronologyEndpointSelected = (endpoint: SessionChronologyProposal['source']) => {
+		if (endpoint.source === 'existing') return true
+		const proposal = eventProposalById().get(endpoint.eventId)
+		return proposal ? selected(proposal) : false
+	}
+
+	const selectedChronology = () =>
+		(draft.current?.chronology ?? []).filter(
+			(relation) =>
+				chronologyStatus(relation) === 'approved' &&
+				chronologyEndpointSelected(relation.source) &&
+				chronologyEndpointSelected(relation.target)
+		)
 	const typeProposals = (type: ReviewDocumentType) =>
 		canonProposals().filter((proposal) => proposal.documentType === type)
 	const otherDetails = () => draft.current?.proposals.filter(isOtherDetail) ?? []
@@ -119,7 +164,9 @@
 
 	const approvedCanonCount = () => statusCount(canonProposals(), 'approved')
 	const rejectedCanonCount = () => statusCount(canonProposals(), 'rejected')
-	const pendingAttentionCount = () => statusCount(attentionProposals(), 'pending')
+	const pendingAttentionCount = () =>
+		statusCount(attentionProposals(), 'pending') +
+		attentionChronology().filter((relation) => chronologyStatus(relation) === 'pending').length
 
 	const setGroupDecision = (proposals: SessionProposal[], decision: ReviewDecision) => {
 		for (const proposal of proposals) {
@@ -186,6 +233,7 @@
 				campaignId: params.campaignId,
 				ingestionId: params.ingestionId,
 				selectedProposalIds: selectedProposals.map(({ proposalId }) => proposalId),
+				selectedChronologyIds: selectedChronology().map(({ chronologyId }) => chronologyId),
 				resolutions: selectedProposals
 					.map(resolutionFor)
 					.filter((resolution): resolution is SessionProposalResolution => Boolean(resolution))
@@ -248,6 +296,54 @@
 			{status === 'approved' ? 'Approved' : 'Approve'}
 		</button>
 	</div>
+{/snippet}
+
+{#snippet chronologyCard(relation: SessionChronologyProposal)}
+	{@const status = chronologyStatus(relation)}
+	<article
+		class="chronology-card"
+		class:approved={status === 'approved'}
+		class:rejected={status === 'rejected'}
+		class:pending={status === 'pending'}
+	>
+		<div class="chronology-relation">
+			<span>{relation.source.title}</span>
+			{#if relation.relation === 'before'}
+				<Icon icon="lucide:arrow-right" aria-label="happened before" />
+			{:else}
+				<span class="relation-kind">during</span>
+			{/if}
+			<span>{relation.target.title}</span>
+		</div>
+		<p>{relation.reason}</p>
+		<div class="proposal-footer">
+			{#if relation.certainty === 'inferred'}
+				<span class="badge attention">Inferred chronology</span>
+			{/if}
+			<div class="decision-actions">
+				<button
+					type="button"
+					class="reject-action"
+					class:active={status === 'rejected'}
+					aria-pressed={status === 'rejected'}
+					onclick={() => rejectChronology(relation)}
+				>
+					<Icon icon="lucide:x" aria-hidden="true" />
+					{status === 'rejected' ? 'Rejected' : 'Reject'}
+				</button>
+				<button
+					type="button"
+					class="approve-action"
+					class:active={status === 'approved'}
+					aria-pressed={status === 'approved'}
+					onclick={() => approveChronology(relation)}
+				>
+					<Icon icon="lucide:check" aria-hidden="true" />
+					{status === 'approved' ? 'Approved' : 'Approve'}
+				</button>
+			</div>
+		</div>
+	</article>
 {/snippet}
 
 {#snippet proposalCard(proposal: SessionProposal)}
@@ -450,7 +546,7 @@
 						</details>
 					{/if}
 				{:else if activeView === 'attention'}
-					{#if attentionProposals().length}
+					{#if attentionProposals().length || attentionChronology().length}
 						<div class="attention-intro">
 							<Icon icon="lucide:circle-help" aria-hidden="true" />
 							<div>
@@ -461,6 +557,9 @@
 						<div class="proposal-list">
 							{#each attentionProposals() as proposal (proposal.proposalId)}
 								{@render proposalCard(proposal)}
+							{/each}
+							{#each attentionChronology() as relation (relation.chronologyId)}
+								{@render chronologyCard(relation)}
 							{/each}
 						</div>
 					{:else}
@@ -486,6 +585,24 @@
 							</button>
 						</div>
 					</div>
+					{#if activeView === 'event' && draft.current.chronology.length}
+						<section class="chronology-review" aria-labelledby="chronology-heading">
+							<div class="section-kicker">
+								<Icon icon="lucide:git-commit-horizontal" aria-hidden="true" />
+								<span>Proposed order</span>
+							</div>
+							<h4 id="chronology-heading">How these events connect</h4>
+							<p class="chronology-help">
+								Approve only relationships established by the session. Missing relationships remain
+								unknown.
+							</p>
+							<div class="chronology-list">
+								{#each draft.current.chronology as relation (relation.chronologyId)}
+									{@render chronologyCard(relation)}
+								{/each}
+							</div>
+						</section>
+					{/if}
 					<div class="proposal-list">
 						{#each proposals as proposal (proposal.proposalId)}
 							{@render proposalCard(proposal)}
@@ -495,7 +612,7 @@
 			</main>
 
 			<aside class="review-sidebar" aria-label="Session review sections">
-				{#if attentionProposals().length}
+				{#if attentionProposals().length || attentionChronology().length}
 					<button
 						type="button"
 						class="nav-card attention-nav"
@@ -923,6 +1040,81 @@
 	.proposal-list {
 		display: grid;
 		gap: 0.7rem;
+	}
+
+	.chronology-review {
+		margin-bottom: 1.25rem;
+		padding: 1rem;
+		border: 1px solid rgb(154 120 67 / 24%);
+		border-radius: var(--border-radius-md);
+		background: rgb(154 120 67 / 5%);
+	}
+
+	.chronology-help,
+	.chronology-card > p {
+		color: var(--ink-soft);
+		font-size: 0.78rem;
+	}
+
+	.chronology-help {
+		margin: 0.35rem 0 0.9rem;
+	}
+
+	.chronology-list {
+		display: grid;
+		gap: 0.6rem;
+	}
+
+	.chronology-card {
+		padding: 0.85rem 0.95rem;
+		border: 1px solid rgb(154 120 67 / 30%);
+		border-radius: calc(var(--border-radius-md) * 0.85);
+		background: rgb(255 251 241 / 68%);
+	}
+
+	.chronology-card.approved {
+		border-color: rgb(53 116 75 / 26%);
+		background: linear-gradient(90deg, var(--green-soft), rgb(255 251 241 / 70%) 22%);
+	}
+
+	.chronology-card.rejected {
+		border-color: rgb(154 68 57 / 24%);
+		background: linear-gradient(90deg, var(--red-soft), rgb(246 242 233 / 54%) 22%);
+	}
+
+	.chronology-card.pending {
+		border-color: rgb(155 100 47 / 42%);
+		background: rgb(255 248 232 / 72%);
+	}
+
+	.chronology-relation {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		gap: 0.7rem;
+		align-items: center;
+		font-family: var(--font-display);
+		font-weight: 700;
+	}
+
+	.chronology-relation :global(svg) {
+		color: var(--gold);
+	}
+
+	.relation-kind {
+		color: var(--gold);
+		font-family: var(--font-body);
+		font-size: 0.78rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+	}
+
+	.chronology-card > p {
+		margin: 0.45rem 0 0;
+	}
+
+	.chronology-card .proposal-footer {
+		margin-left: 0;
 	}
 
 	.proposal-card {

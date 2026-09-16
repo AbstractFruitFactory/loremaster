@@ -11,6 +11,7 @@ const document: VaultDocument = {
 	title: 'Varek the Smith',
 	type: 'npc',
 	after: [],
+	during: [],
 	summary: 'Varek the Smith is a campaign npc entry the Dungeon Master can reference at the table.',
 	content: '# Varek the Smith\n\nVarek repairs armor near the western gate.',
 	links: ['Westgate']
@@ -48,7 +49,8 @@ describe('lore operations', () => {
 			id: 'character-varek',
 			title: 'Varek the Smith',
 			category: 'npc',
-			summary: 'Varek the Smith is a campaign npc entry the Dungeon Master can reference at the table.',
+			summary:
+				'Varek the Smith is a campaign npc entry the Dungeon Master can reference at the table.',
 			content: 'Varek repairs armor near the western gate.',
 			links: ['Westgate']
 		})
