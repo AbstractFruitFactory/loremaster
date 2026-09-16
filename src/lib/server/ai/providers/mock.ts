@@ -4,6 +4,7 @@ import { EMBEDDING_DIMENSIONS } from '../provider'
 import type {
 	AiModels,
 	AnalyzeSessionChunk,
+	AuditSessionEvents,
 	AiProvider,
 	EmbedTexts,
 	GenerateAssistant,
@@ -220,7 +221,11 @@ const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
 	)
 }
 
-const inferSessionChronology: InferSessionChronology = () => succeed([])
+const auditSessionEvents: AuditSessionEvents = () =>
+	succeed({ events: [], discardedEventIds: [], duplicateGroups: [] })
+
+const inferSessionChronology: InferSessionChronology = () =>
+	succeed({ relations: [], coverage: [] })
 
 const generateRelationshipLinks: GenerateRelationshipLinks = () => succeed([])
 
@@ -229,6 +234,7 @@ export const mockAiProvider: AiProvider = {
 	validateSessionClaims,
 	repairSessionClaimEvidence,
 	resolveSessionEntities,
+	auditSessionEvents,
 	inferSessionChronology,
 	generateRelationshipLinks,
 	models: mockAiModels,

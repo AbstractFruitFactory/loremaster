@@ -6,6 +6,7 @@
 	import { documentTypeMetadata } from '#lib/document-metadata.js'
 	import type { DocumentType } from '#lib/document.js'
 	import type {
+		SessionChronologyCoverageProposal,
 		SessionChronologyProposal,
 		SessionProposal,
 		SessionProposalResolution
@@ -155,6 +156,12 @@
 				chronologyEndpointSelected(relation.source) &&
 				chronologyEndpointSelected(relation.target)
 		)
+	const unplacedChronology = () =>
+		(draft.current?.chronologyCoverage ?? []).filter(({ event, status }) => {
+			if (status === 'connected') return false
+			const proposal = eventProposalById().get(event.eventId)
+			return proposal ? selected(proposal) : false
+		})
 	const typeProposals = (type: ReviewDocumentType) =>
 		canonProposals().filter((proposal) => proposal.documentType === type)
 	const otherDetails = () => draft.current?.proposals.filter(isOtherDetail) ?? []
@@ -266,6 +273,21 @@
 			</div>
 		</details>
 	{/if}
+{/snippet}
+
+{#snippet chronologyCoverageCard(coverage: SessionChronologyCoverageProposal)}
+	<article class="chronology-card pending">
+		<div class="chronology-relation chronology-unplaced">
+			<span>{coverage.event.title}</span>
+			<span class="relation-kind">unplaced</span>
+		</div>
+		<p>{coverage.reason}</p>
+		<div class="proposal-footer">
+			<span class="badge attention">
+				{coverage.status === 'missing' ? 'Needs chronology review' : 'Unknown placement'}
+			</span>
+		</div>
+	</article>
 {/snippet}
 
 {#snippet decisionButtons(proposal: SessionProposal)}
@@ -585,7 +607,7 @@
 							</button>
 						</div>
 					</div>
-					{#if activeView === 'event' && draft.current.chronology.length}
+					{#if activeView === 'event' && (draft.current.chronology.length || unplacedChronology().length)}
 						<section class="chronology-review" aria-labelledby="chronology-heading">
 							<div class="section-kicker">
 								<Icon icon="lucide:git-commit-horizontal" aria-hidden="true" />
@@ -599,6 +621,9 @@
 							<div class="chronology-list">
 								{#each draft.current.chronology as relation (relation.chronologyId)}
 									{@render chronologyCard(relation)}
+								{/each}
+								{#each unplacedChronology() as coverage (coverage.event.eventId)}
+									{@render chronologyCoverageCard(coverage)}
 								{/each}
 							</div>
 						</section>
@@ -726,7 +751,7 @@
 
 	.back-link,
 	.eyebrow {
-		color: #d7b46e;
+		color: var(--gold);
 		font-size: 0.76rem;
 		font-weight: 700;
 		letter-spacing: 0.08em;
@@ -736,7 +761,6 @@
 
 	.page-heading {
 		margin: 1.25rem 0 1.5rem;
-		color: #f5ead6;
 	}
 
 	h2,
@@ -769,10 +793,6 @@
 	.approval p,
 	.empty-copy {
 		color: var(--ink-soft);
-	}
-
-	.page-heading > p:last-child {
-		color: #c9beaa;
 	}
 
 	.state {
@@ -1099,6 +1119,10 @@
 		align-items: center;
 		font-family: var(--font-display);
 		font-weight: 700;
+	}
+
+	.chronology-unplaced {
+		grid-template-columns: minmax(0, 1fr) auto;
 	}
 
 	.chronology-relation :global(svg) {

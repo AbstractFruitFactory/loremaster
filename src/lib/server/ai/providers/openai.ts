@@ -13,6 +13,7 @@ import {
 	sessionClaimValidationReasons,
 	type ExtractedSessionClaim,
 	type InferredSessionChronology,
+	type SessionEventAudit,
 	type SessionClaimEvidenceRepair,
 	type SessionClaimValidation,
 	type SessionEntityResolution
@@ -43,18 +44,16 @@ const entityReferenceSchema = z.object({
 	type: z.enum(ingestionDocumentTypes)
 })
 
-const sessionClaimsSchema = z.object({
-	claims: z.array(
-		z.object({
-			kind: z.enum(['stable-fact', 'development', 'mention']),
-			eventTitle: z.string().trim().min(1).max(60).nullable(),
-			certainty: z.enum(['explicit', 'inferred']),
-			content: z.string().trim().min(1),
-			evidence: z.array(evidenceRangeSchema).min(1).max(MAX_EVIDENCE_RANGES),
-			entityReferences: z.array(entityReferenceSchema)
-		})
-	)
+const sessionClaimSchema = z.object({
+	kind: z.enum(['stable-fact', 'development', 'mention']),
+	eventTitle: z.string().trim().min(1).max(60).nullable(),
+	certainty: z.enum(['explicit', 'inferred']),
+	content: z.string().trim().min(1),
+	evidence: z.array(evidenceRangeSchema).min(1).max(MAX_EVIDENCE_RANGES),
+	entityReferences: z.array(entityReferenceSchema)
 })
+
+const sessionClaimsSchema = z.object({ claims: z.array(sessionClaimSchema) })
 
 const evidenceRangeJsonSchema = {
 	type: 'object' as const,
@@ -76,6 +75,25 @@ const entityReferenceJsonSchema = {
 	additionalProperties: false
 }
 
+const sessionClaimJsonSchema = {
+	type: 'object' as const,
+	properties: {
+		kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
+		eventTitle: { type: ['string', 'null'], minLength: 1, maxLength: 60 },
+		certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+		content: { type: 'string' },
+		evidence: {
+			type: 'array',
+			items: evidenceRangeJsonSchema,
+			minItems: 1,
+			maxItems: MAX_EVIDENCE_RANGES
+		},
+		entityReferences: { type: 'array', items: entityReferenceJsonSchema }
+	},
+	required: ['kind', 'eventTitle', 'certainty', 'content', 'evidence', 'entityReferences'],
+	additionalProperties: false
+}
+
 const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
@@ -87,24 +105,7 @@ const sessionClaimsTool = {
 		properties: {
 			claims: {
 				type: 'array',
-				items: {
-					type: 'object',
-					properties: {
-						kind: { type: 'string', enum: ['stable-fact', 'development', 'mention'] },
-						eventTitle: { type: ['string', 'null'], minLength: 1, maxLength: 60 },
-						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
-						content: { type: 'string' },
-						evidence: {
-							type: 'array',
-							items: evidenceRangeJsonSchema,
-							minItems: 1,
-							maxItems: MAX_EVIDENCE_RANGES
-						},
-						entityReferences: { type: 'array', items: entityReferenceJsonSchema }
-					},
-					required: ['kind', 'eventTitle', 'certainty', 'content', 'evidence', 'entityReferences'],
-					additionalProperties: false
-				}
+				items: sessionClaimJsonSchema
 			}
 		},
 		required: ['claims'],
@@ -284,6 +285,77 @@ const parseSessionEntityResolutions = (response: OpenAiResponse): SessionEntityR
 		: []
 }
 
+const sessionEventAuditSchema = z.object({
+	events: z.array(sessionClaimSchema),
+	discardedEventIds: z.array(
+		z.object({
+			eventId: z.string().trim().min(1),
+			reason: z.string().trim().min(1).max(240)
+		})
+	),
+	duplicateGroups: z.array(
+		z.object({
+			canonicalEventId: z.string().trim().min(1),
+			duplicateEventIds: z.array(z.string().trim().min(1)).min(1),
+			reason: z.string().trim().min(1).max(240)
+		})
+	)
+})
+
+const sessionEventAuditTool = {
+	type: 'function' as const,
+	name: 'audit_session_events',
+	description:
+		'Record missing or corrected session events, unsupported extracted events, and duplicate event groups.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			events: { type: 'array', items: sessionClaimJsonSchema },
+			discardedEventIds: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						eventId: { type: 'string' },
+						reason: { type: 'string', minLength: 1, maxLength: 240 }
+					},
+					required: ['eventId', 'reason'],
+					additionalProperties: false
+				}
+			},
+			duplicateGroups: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						canonicalEventId: { type: 'string' },
+						duplicateEventIds: {
+							type: 'array',
+							items: { type: 'string' },
+							minItems: 1
+						},
+						reason: { type: 'string', minLength: 1, maxLength: 240 }
+					},
+					required: ['canonicalEventId', 'duplicateEventIds', 'reason'],
+					additionalProperties: false
+				}
+			}
+		},
+		required: ['events', 'discardedEventIds', 'duplicateGroups'],
+		additionalProperties: false
+	}
+}
+
+const parseSessionEventAudit = (response: OpenAiResponse): SessionEventAudit => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === sessionEventAuditTool.name
+	)
+	return call?.type === 'function_call'
+		? sessionEventAuditSchema.parse(JSON.parse(call.arguments))
+		: { events: [], discardedEventIds: [], duplicateGroups: [] }
+}
+
 const sessionChronologySchema = z.object({
 	relations: z
 		.array(
@@ -292,6 +364,15 @@ const sessionChronologySchema = z.object({
 				sourceEventId: z.string().trim().min(1),
 				targetEventId: z.string().trim().min(1),
 				certainty: z.enum(['explicit', 'inferred']),
+				reason: z.string().trim().min(1).max(240)
+			})
+		)
+		.max(500),
+	coverage: z
+		.array(
+			z.object({
+				eventId: z.string().trim().min(1),
+				status: z.enum(['connected', 'intentionally-unplaced']),
 				reason: z.string().trim().min(1).max(240)
 			})
 		)
@@ -322,20 +403,37 @@ const sessionChronologyTool = {
 					additionalProperties: false
 				},
 				maxItems: 500
+			},
+			coverage: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						eventId: { type: 'string' },
+						status: {
+							type: 'string',
+							enum: ['connected', 'intentionally-unplaced']
+						},
+						reason: { type: 'string', minLength: 1, maxLength: 240 }
+					},
+					required: ['eventId', 'status', 'reason'],
+					additionalProperties: false
+				},
+				maxItems: 500
 			}
 		},
-		required: ['relations'],
+		required: ['relations', 'coverage'],
 		additionalProperties: false
 	}
 }
 
-const parseSessionChronology = (response: OpenAiResponse): InferredSessionChronology[] => {
+const parseSessionChronology = (response: OpenAiResponse): InferredSessionChronology => {
 	const call = response.output.find(
 		(item) => item.type === 'function_call' && item.name === sessionChronologyTool.name
 	)
 	return call?.type === 'function_call'
-		? sessionChronologySchema.parse(JSON.parse(call.arguments)).relations
-		: []
+		? sessionChronologySchema.parse(JSON.parse(call.arguments))
+		: { relations: [], coverage: [] }
 }
 
 const relationshipLinksSchema = z.object({
@@ -609,6 +707,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'resolveSessionEntities', cause)
 		}),
 
+	auditSessionEvents: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [sessionEventAuditTool],
+					tool_choice: { type: 'function', name: sessionEventAuditTool.name }
+				})
+				return parseSessionEventAudit(response)
+			},
+			catch: (cause) => failure('ai', 'auditSessionEvents', cause)
+		}),
+
 	inferSessionChronology: ({ model, system, prompt }) =>
 		tryPromise({
 			try: async () => {
@@ -657,6 +769,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		validateSessionClaims: () => missingApiKey('validateSessionClaims'),
 		repairSessionClaimEvidence: () => missingApiKey('repairSessionClaimEvidence'),
 		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
+		auditSessionEvents: () => missingApiKey('auditSessionEvents'),
 		inferSessionChronology: () => missingApiKey('inferSessionChronology'),
 		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}

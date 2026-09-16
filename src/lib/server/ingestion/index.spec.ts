@@ -2,6 +2,7 @@ import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type {
 	AnalyzeSessionChunk,
+	AuditSessionEvents,
 	InferSessionChronology,
 	ResolveSessionEntities,
 	ValidateSessionClaims
@@ -10,6 +11,7 @@ import type { VaultDocument } from '../vault/types'
 import { sessionIngestion } from '.'
 import type {
 	ExtractedSessionClaim,
+	InferredSessionChronology,
 	SessionIngestionDraft,
 	SessionProposalResolution
 } from './types'
@@ -105,12 +107,19 @@ const acceptingValidator: ValidateSessionClaims = ({ prompt }) => {
 	)
 }
 
+const inferredChronology = (
+	relations: InferredSessionChronology['relations'],
+	coverage: InferredSessionChronology['coverage'] = []
+) => succeed({ relations, coverage })
+
 const setup = (
 	claims: ExtractedSessionClaim[],
 	documents: VaultDocument[] = [varek],
 	resolveSessionEntities: ResolveSessionEntities = () => succeed([]),
 	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
-	inferSessionChronology: InferSessionChronology = () => succeed([])
+	inferSessionChronology: InferSessionChronology = () => inferredChronology([]),
+	auditSessionEvents: AuditSessionEvents = () =>
+		succeed({ events: [], discardedEventIds: [], duplicateGroups: [] })
 ) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
@@ -148,6 +157,7 @@ const setup = (
 			validateSessionClaims,
 			repairSessionClaimEvidence: () => succeed([]),
 			resolveSessionEntities,
+			auditSessionEvents,
 			inferSessionChronology
 		},
 		storage: {
@@ -499,6 +509,125 @@ describe('session ingestion operations', () => {
 		})
 	})
 
+	it('recovers a missing durable event and validates it before creating a proposal', async () => {
+		const auditSessionEvents: AuditSessionEvents = vi.fn(({ prompt, system }) => {
+			expect(system).toContain('Captures, rescues, deaths, discoveries')
+			expect(prompt).toContain('Party enters aqueduct')
+			return succeed({
+				events: [
+					claim('The party captured Raska at the aqueduct.', {
+						kind: 'development',
+						eventTitle: 'Party captures Raska',
+						evidence: [{ startLine: 2, endLine: 2 }],
+						entityReferences: [{ label: 'Raska', type: 'npc' }]
+					})
+				],
+				discardedEventIds: [],
+				duplicateGroups: []
+			})
+		})
+		const harness = setup(
+			[
+				claim('The party entered the aqueduct.', {
+					kind: 'development',
+					eventTitle: 'Party enters aqueduct',
+					entityReferences: []
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			() => inferredChronology([]),
+			auditSessionEvents
+		)
+
+		const draft = await runPromise(
+			analyze(
+				harness.operations,
+				'The party entered the aqueduct.\nThe party captured Raska at the aqueduct.'
+			)
+		)
+
+		expect(auditSessionEvents).toHaveBeenCalledTimes(1)
+		expect(
+			draft.proposals
+				.filter(({ operation }) => operation === 'create-event')
+				.map(({ title }) => title)
+		).toEqual(['Party enters aqueduct', 'Party captures Raska'])
+	})
+
+	it('collapses duplicate events and replaces an overstated outcome', async () => {
+		const auditSessionEvents: AuditSessionEvents = ({ prompt }) => {
+			const events = JSON.parse(
+				prompt.split('## Validated development events\n').at(-1) ?? '[]'
+			) as { eventId: string; title: string }[]
+			const crown = events.find(({ title }) => title === 'Crown removed')!
+			const duplicateCrown = events.find(({ title }) => title === 'Crown removed during reversal')!
+			const escape = events.find(({ title }) => title === 'Vaska escapes')!
+			return succeed({
+				events: [
+					claim('Vaska fell toward a lower ledge and vanished into spray and darkness.', {
+						kind: 'development',
+						eventTitle: 'Vaska disappears into darkness',
+						evidence: [{ startLine: 3, endLine: 3 }],
+						entityReferences: [{ label: 'Vaska', type: 'npc' }]
+					})
+				],
+				discardedEventIds: [
+					{ eventId: escape.eventId, reason: 'The transcript does not establish an escape.' }
+				],
+				duplicateGroups: [
+					{
+						canonicalEventId: crown.eventId,
+						duplicateEventIds: [duplicateCrown.eventId],
+						reason: 'Both events describe Brakka removing the same crown.'
+					}
+				]
+			})
+		}
+		const transcript =
+			'Brakka removed the crown.\nBrakka tore it free as the ritual reversed.\nVaska fell toward a lower ledge and vanished into spray and darkness.'
+		const harness = setup(
+			[
+				claim('Brakka removed the crown.', {
+					kind: 'development',
+					eventTitle: 'Crown removed',
+					evidence: [{ startLine: 1, endLine: 1 }],
+					entityReferences: []
+				}),
+				claim('Brakka tore the crown free as the ritual reversed.', {
+					kind: 'development',
+					eventTitle: 'Crown removed during reversal',
+					evidence: [{ startLine: 2, endLine: 2 }],
+					entityReferences: []
+				}),
+				claim('Vaska escaped from the collapsing bridge.', {
+					kind: 'development',
+					eventTitle: 'Vaska escapes',
+					evidence: [{ startLine: 3, endLine: 3 }],
+					entityReferences: [{ label: 'Vaska', type: 'npc' }]
+				})
+			],
+			[],
+			() => succeed([]),
+			acceptingValidator,
+			() => inferredChronology([]),
+			auditSessionEvents
+		)
+
+		const draft = await runPromise(analyze(harness.operations, transcript))
+		const events = draft.proposals.filter(({ operation }) => operation === 'create-event')
+
+		expect(events.map(({ title }) => title)).toEqual([
+			'Crown removed',
+			'Vaska disappears into darkness'
+		])
+		expect(events[0]?.evidence.map(({ startLine }) => startLine)).toEqual([1, 2])
+		expect(draft.warnings.some((warning) => warning.includes('Event discarded by audit'))).toBe(
+			true
+		)
+	})
+
 	it('infers reviewed chronology and persists event predecessors', async () => {
 		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt, system }) => {
 			expect(system).toContain('complete transitive reduction')
@@ -506,15 +635,22 @@ describe('session ingestion operations', () => {
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed([
-				{
-					relation: 'before' as const,
-					sourceEventId: events[0]!.eventId,
-					targetEventId: events[1]!.eventId,
-					certainty: 'explicit' as const,
-					reason: 'The party crossed the bridge before opening the gate.'
-				}
-			])
+			return inferredChronology(
+				[
+					{
+						relation: 'before' as const,
+						sourceEventId: events[0]!.eventId,
+						targetEventId: events[1]!.eventId,
+						certainty: 'explicit' as const,
+						reason: 'The party crossed the bridge before opening the gate.'
+					}
+				],
+				events.map(({ eventId }) => ({
+					eventId,
+					status: 'connected' as const,
+					reason: 'The event participates in the supported session sequence.'
+				}))
+			)
 		})
 		const harness = setup(
 			[
@@ -556,6 +692,7 @@ describe('session ingestion operations', () => {
 				selected: true
 			})
 		])
+		expect(draft.chronologyCoverage.map(({ status }) => status)).toEqual(['connected', 'connected'])
 
 		await runPromise(
 			harness.operations.commit({
@@ -579,7 +716,7 @@ describe('session ingestion operations', () => {
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'before' as const,
 					sourceEventId: events[1]!.eventId,
@@ -643,7 +780,7 @@ describe('session ingestion operations', () => {
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'before' as const,
 					sourceEventId: previous.id,
@@ -698,7 +835,7 @@ describe('session ingestion operations', () => {
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'before' as const,
 					sourceEventId: events[0]!.eventId,
@@ -760,7 +897,7 @@ describe('session ingestion operations', () => {
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed(
+			return inferredChronology(
 				events.map(({ eventId }) => ({
 					relation: 'during' as const,
 					sourceEventId: eventId,
@@ -844,7 +981,7 @@ describe('session ingestion operations', () => {
 			}[]
 			const battle = events.find(({ title }) => title === 'Battle of Red Pass')!
 			const war = events.find(({ title }) => title === 'The Goblin Wars')!
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'during' as const,
 					sourceEventId: battle.eventId,
@@ -906,7 +1043,7 @@ describe('session ingestion operations', () => {
 			const [event] = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'before' as const,
 					sourceEventId: later.id,
@@ -970,7 +1107,7 @@ describe('session ingestion operations', () => {
 				reason: 'The transcript establishes this boundary.'
 			})
 
-			return succeed([
+			return inferredChronology([
 				relationship(arrival!.eventId, warning!.eventId),
 				relationship(warning!.eventId, north!.eventId),
 				relationship(warning!.eventId, east!.eventId),
@@ -1050,13 +1187,64 @@ describe('session ingestion operations', () => {
 			[],
 			() => succeed([]),
 			acceptingValidator,
-			() => succeed([])
+			({ prompt }) => {
+				const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+					eventId: string
+				}[]
+				return inferredChronology(
+					[],
+					events.map(({ eventId }) => ({
+						eventId,
+						status: 'intentionally-unplaced' as const,
+						reason: 'The accounts have no established relative order.'
+					}))
+				)
+			}
 		)
 		const draft = await runPromise(
 			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
 		)
 
 		expect(draft.chronology).toEqual([])
+		expect(draft.chronologyCoverage).toHaveLength(3)
+		expect(
+			draft.chronologyCoverage.every(({ status }) => status === 'intentionally-unplaced')
+		).toBe(true)
+	})
+
+	it('surfaces an event omitted from chronology coverage', async () => {
+		const claims = ['Arrival', 'Departure'].map((title, index) =>
+			claim(`${title}.`, {
+				kind: 'development',
+				eventTitle: title,
+				evidence: [{ startLine: index + 1, endLine: index + 1 }],
+				entityReferences: []
+			})
+		)
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+			}[]
+			return inferredChronology(
+				[],
+				[
+					{
+						eventId: events[0]!.eventId,
+						status: 'intentionally-unplaced',
+						reason: 'No relative order is established.'
+					}
+				]
+			)
+		}
+		const harness = setup(claims, [], () => succeed([]), acceptingValidator, inferSessionChronology)
+
+		const draft = await runPromise(analyze(harness.operations, 'Arrival.\nDeparture.'))
+
+		expect(draft.chronologyCoverage.map(({ status }) => status)).toEqual([
+			'intentionally-unplaced',
+			'missing'
+		])
+		expect(draft.warnings.some((warning) => warning.includes('coverage missing'))).toBe(true)
 	})
 
 	it('drops cyclic and transitively redundant chronology relationships', async () => {
@@ -1065,7 +1253,7 @@ describe('session ingestion operations', () => {
 				eventId: string
 			}[]
 			const [first, second, third] = events
-			return succeed([
+			return inferredChronology([
 				{
 					relation: 'before',
 					sourceEventId: first!.eventId,
