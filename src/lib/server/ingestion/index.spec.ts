@@ -500,7 +500,9 @@ describe('session ingestion operations', () => {
 	})
 
 	it('infers reviewed chronology and persists event predecessors', async () => {
-		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt }) => {
+		const inferSessionChronology: InferSessionChronology = vi.fn(({ prompt, system }) => {
+			expect(system).toContain('complete transitive reduction')
+			expect(system).toContain('not a sample of representative relationships')
 			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
 				eventId: string
 			}[]

@@ -16,7 +16,7 @@ const loreContext = (fragments: ContextFragment[]) =>
 				.join('\n\n')
 		: 'No relevant campaign lore was found.'
 
-const chronologyContext = ({ events, edges, containments, layers }: TimelineContext) => {
+const chronologyContext = ({ scope, events, edges, containments }: TimelineContext) => {
 	if (!events.length) return 'No relevant event chronology was found.'
 
 	const titlesById = new Map(events.map(({ documentId, title }) => [documentId, title]))
@@ -28,13 +28,25 @@ const chronologyContext = ({ events, edges, containments, layers }: TimelineCont
 		({ eventDocumentId, periodDocumentId }) =>
 			`${titlesById.get(eventDocumentId) ?? eventDocumentId} during ${titlesById.get(periodDocumentId) ?? periodDocumentId}`
 	)
-	const orderedLayers = layers.map((documentIds, index) => {
-		const titles = documentIds.map((documentId) => titlesById.get(documentId) ?? documentId)
-		const qualification = titles.length > 1 ? ' (no known order within this group)' : ''
-		return `${index + 1}. ${titles.join(', ')}${qualification}`
-	})
+	const relatedEventIds = new Set([
+		...edges.flatMap(({ beforeDocumentId, afterDocumentId }) => [
+			beforeDocumentId,
+			afterDocumentId
+		]),
+		...containments.flatMap(({ eventDocumentId, periodDocumentId }) => [
+			eventDocumentId,
+			periodDocumentId
+		])
+	])
+	const unplaced = events
+		.filter(({ documentId }) => !relatedEventIds.has(documentId))
+		.map(({ title }) => title)
+	const scopeDescription =
+		scope === 'campaign'
+			? 'This is the campaign-wide chronology graph.'
+			: 'This is a bounded neighborhood around relevant events, not the complete campaign timeline.'
 
-	return `An arrow means the first event happened before the second. "During" means temporal containment and does not by itself establish before/after ordering. Missing relationships are unknown, not simultaneous.\nDirect precedence constraints:\n${relations.join('\n') || 'None'}\nContainment constraints:\n${periods.join('\n') || 'None'}\nKnown ordering layers:\n${orderedLayers.join('\n')}`
+	return `${scopeDescription}\nAn arrow means the first event happened before the second. "During" means temporal containment and does not by itself establish before/after ordering. Only these relations and paths through them establish temporal order. The order in which events are listed has no temporal meaning. Missing relationships are unknown, not simultaneous.\nDirect precedence constraints:\n${relations.join('\n') || 'None'}\nContainment constraints:\n${periods.join('\n') || 'None'}\nEvents with no placement in this graph:\n${unplaced.join('\n') || 'None'}`
 }
 
 const conversationContext = (history: ContextConversationMessage[]) =>
@@ -57,6 +69,7 @@ Grounding rules:
 - If the supplied evidence does not establish an answer, say that it is unknown, unclear, or not established yet instead of filling the gap.
 - Do not infer motives, family relationships, chronology, causality, possession, identity, or current state unless the supplied evidence supports that inference. When you do infer, make the inference explicit.
 - Respect chronology exactly as supplied. Missing ordering information means the order is unknown, not simultaneous or freely inferable.
+- For broad chronology answers, present only sequences and constraints established by graph relationships. List unplaced events separately; never turn formatting, retrieval order, or a topological grouping into additional chronology.
 - Previous Loremaster messages in the conversation are not evidence and must not be used to establish campaign facts. Dungeon Master messages establish or change canon only when they explicitly state that they are doing so.
 - When sources conflict or the evidence is ambiguous, surface the conflict or ambiguity rather than choosing the most plausible version.
 

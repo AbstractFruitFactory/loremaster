@@ -126,3 +126,20 @@ export const getTimelineEvents = (campaignId: string, documentIds: string[]) => 
 		map((events): TimelineEvent[] => events)
 	)
 }
+
+export const getCampaignTimelineEvents = (campaignId: string) =>
+	pipe(
+		tryPromise({
+			try: () =>
+				db
+					.select({
+						documentId: vaultDocuments.documentId,
+						title: vaultDocuments.title
+					})
+					.from(vaultDocuments)
+					.where(and(eq(vaultDocuments.campaignId, campaignId), eq(vaultDocuments.type, 'event')))
+					.orderBy(asc(vaultDocuments.documentId)),
+			catch: (cause) => failure('database', 'getCampaignTimelineEvents', cause)
+		}),
+		map((events): TimelineEvent[] => events)
+	)

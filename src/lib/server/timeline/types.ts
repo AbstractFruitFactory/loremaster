@@ -16,8 +16,8 @@ export type TimelineEvent = {
 export type TimelineRelation = 'before' | 'after' | 'unknown' | 'same'
 
 export type TimelineContext = {
+	scope: 'campaign' | 'neighborhood'
 	events: TimelineEvent[]
 	edges: TimelineEdge[]
 	containments: TimelineContainment[]
-	layers: string[][]
 }

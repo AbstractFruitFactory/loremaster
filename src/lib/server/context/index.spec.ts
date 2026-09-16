@@ -36,7 +36,7 @@ const createContext = ({
 	relationshipOutgoingLinks = [],
 	relationshipBacklinks = [],
 	queryVector = [1],
-	timelineContext = { events: [], edges: [], containments: [], layers: [] }
+	timelineContext = { scope: 'neighborhood', events: [], edges: [], containments: [] }
 }: {
 	sources?: ContextSource[]
 	lexicalMatches?: LexicalFragmentMatch[]
@@ -76,7 +76,8 @@ const createContext = ({
 		model: embeddingModel
 	}
 	const timeline = {
-		getContext: vi.fn(() => succeed(timelineContext))
+		getContext: vi.fn(() => succeed(timelineContext)),
+		getCampaignContext: vi.fn(() => succeed({ ...timelineContext, scope: 'campaign' as const }))
 	}
 
 	return { ai, context: context({ ai, db, timeline }), db, timeline }
@@ -200,6 +201,7 @@ describe('context operations', () => {
 	it('loads bounded chronology for retrieved event documents', async () => {
 		const eventB = source('b', 0, 'event')
 		const timelineContext: TimelineContext = {
+			scope: 'neighborhood',
 			events: [
 				{ documentId: 'a', title: 'Event A' },
 				{ documentId: 'b', title: 'Event B' },
@@ -209,8 +211,7 @@ describe('context operations', () => {
 				{ beforeDocumentId: 'a', afterDocumentId: 'b' },
 				{ beforeDocumentId: 'b', afterDocumentId: 'c' }
 			],
-			containments: [],
-			layers: [['a'], ['b'], ['c']]
+			containments: []
 		}
 		const { context, timeline } = createContext({
 			sources: [eventB],
@@ -229,5 +230,36 @@ describe('context operations', () => {
 		expect(timeline.getContext).toHaveBeenCalledWith(campaignId, ['b'])
 		expect(result.timeline).toEqual(timelineContext)
 		expect(result.estimatedTokens).toBeGreaterThan(0)
+	})
+
+	it('loads campaign-wide chronology for broad timeline questions', async () => {
+		const eventB = source('b', 0, 'event')
+		const campaignTimeline: TimelineContext = {
+			scope: 'campaign',
+			events: [
+				{ documentId: 'a', title: 'Event A' },
+				{ documentId: 'b', title: 'Event B' },
+				{ documentId: 'unplaced', title: 'Unplaced Event' }
+			],
+			edges: [{ beforeDocumentId: 'a', afterDocumentId: 'b' }],
+			containments: []
+		}
+		const { context, timeline } = createContext({
+			sources: [eventB],
+			lexicalMatches: [{ source: eventB, score: 6 }],
+			timelineContext: campaignTimeline
+		})
+
+		const result = await runPromise(
+			context.buildAssistantContext({
+				campaignId,
+				message: 'Put the major events in chronological order.',
+				history: []
+			})
+		)
+
+		expect(timeline.getCampaignContext).toHaveBeenCalledWith(campaignId)
+		expect(timeline.getContext).not.toHaveBeenCalled()
+		expect(result.timeline.scope).toBe('campaign')
 	})
 })
