@@ -253,7 +253,7 @@ describe('context operations', () => {
 		const result = await runPromise(
 			context.buildAssistantContext({
 				campaignId,
-				message: 'Put the major events in chronological order.',
+				message: 'Which events have no known order relative to one another?',
 				history: []
 			})
 		)

@@ -59,10 +59,7 @@ const estimateTimelineTokens = ({ events, edges, containments }: TimelineContext
 	)
 
 const requestsCampaignChronology = (message: string) =>
-	/\b(?:chronolog(?:y|ical|ically)|timeline|temporal order)\b/i.test(message) ||
-	/\b(?:all|major|main|key) events?\b.*\b(?:order|sequence|happen(?:ed)?)\b/i.test(message) ||
-	/\b(?:order|sequence)\b.*\b(?:all|major|main|key) events?\b/i.test(message) ||
-	/\b(?:whole|entire|full|this|last) session\b.*\b(?:order|sequence|happen(?:ed)?|events?)\b/i.test(
+	/\b(?:before|after|during|earlier|later|first|next|when|order(?:ed|ing)?|sequence|chronolog(?:y|ical|ically)|timeline|simultaneous(?:ly)?|unordered|unplaced|temporal)\b/i.test(
 		message
 	)
 
