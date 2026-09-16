@@ -48,6 +48,14 @@ const createTimeline = (containments: TimelineContainment[] = []) => {
 					.sort()
 					.map((documentId) => ({ documentId, title: `Event ${documentId.toUpperCase()}` }))
 			)
+		),
+		getCampaignTimelineEvents: vi.fn(() =>
+			succeed(
+				['a', 'b', 'c', 'd', 'isolated'].map((documentId) => ({
+					documentId,
+					title: `Event ${documentId.toUpperCase()}`
+				}))
+			)
 		)
 	}
 
@@ -138,8 +146,24 @@ describe('timeline operations', () => {
 
 		expect(immediate.events.map(({ documentId }) => documentId)).toEqual(['a', 'b', 'c'])
 		expect(expanded.events.map(({ documentId }) => documentId)).toEqual(['a', 'b', 'c', 'd'])
-		expect(expanded.layers).toEqual([['a'], ['b'], ['c'], ['d']])
+		expect(expanded.scope).toBe('neighborhood')
 		expect(db.getTimelineEdgesForDocuments).toHaveBeenCalledTimes(3)
+	})
+
+	it('loads the full campaign graph including unplaced events', async () => {
+		const { timeline } = createTimeline()
+
+		const result = await runPromise(timeline.getCampaignContext('campaign'))
+
+		expect(result.scope).toBe('campaign')
+		expect(result.events.map(({ documentId }) => documentId)).toEqual([
+			'a',
+			'b',
+			'c',
+			'd',
+			'isolated'
+		])
+		expect(result.edges).toEqual(edges)
 	})
 
 	it('caps timeline events and edges deterministically', async () => {

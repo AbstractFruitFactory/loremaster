@@ -148,7 +148,8 @@ describe('vault operations', () => {
 					getTimelineEdgesForDocuments: () => succeed([]),
 					getTimelineContainments: () => succeed([]),
 					getTimelineContainmentsForDocuments: () => succeed([]),
-					getTimelineEvents: () => succeed([])
+					getTimelineEvents: () => succeed([]),
+					getCampaignTimelineEvents: () => succeed([])
 				}
 			})
 		})

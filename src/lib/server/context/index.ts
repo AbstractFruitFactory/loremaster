@@ -43,14 +43,27 @@ const semanticRetrievalQuery = (message: string, history: ContextConversationMes
 		: message
 }
 
-const estimateTimelineTokens = ({ events, edges }: TimelineContext) =>
+const estimateTimelineTokens = ({ events, edges, containments }: TimelineContext) =>
 	Math.ceil(
 		(events.reduce((length, event) => length + event.title.length, 0) +
 			edges.reduce(
 				(length, edge) => length + edge.beforeDocumentId.length + edge.afterDocumentId.length,
 				0
+			) +
+			containments.reduce(
+				(length, containment) =>
+					length + containment.eventDocumentId.length + containment.periodDocumentId.length,
+				0
 			)) /
 			4
+	)
+
+const requestsCampaignChronology = (message: string) =>
+	/\b(?:chronolog(?:y|ical|ically)|timeline|temporal order)\b/i.test(message) ||
+	/\b(?:all|major|main|key) events?\b.*\b(?:order|sequence|happen(?:ed)?)\b/i.test(message) ||
+	/\b(?:order|sequence)\b.*\b(?:all|major|main|key) events?\b/i.test(message) ||
+	/\b(?:whole|entire|full|this|last) session\b.*\b(?:order|sequence|happen(?:ed)?|events?)\b/i.test(
+		message
 	)
 
 type ContextDependencies = {
@@ -66,7 +79,7 @@ type ContextDependencies = {
 		searchLexicalFragments: typeof ContextDb.searchLexicalFragments
 		searchVectors: typeof VectorDb.searchVectors
 	}
-	timeline: Pick<ReturnType<typeof createTimeline>, 'getContext'>
+	timeline: Pick<ReturnType<typeof createTimeline>, 'getCampaignContext' | 'getContext'>
 	maxTokens?: number
 }
 
@@ -206,13 +219,15 @@ export const context = ({
 				...semanticMatches,
 				...graphCandidates
 			])
-			const timelineContext = yield* timeline.getContext(campaignId, [
-				...new Set(
-					rankedCandidates
-						.filter(({ fragment }) => fragment.documentType === 'event')
-						.map(({ fragment }) => fragment.documentId)
-				)
-			])
+			const timelineContext = requestsCampaignChronology(message)
+				? yield* timeline.getCampaignContext(campaignId)
+				: yield* timeline.getContext(campaignId, [
+						...new Set(
+							rankedCandidates
+								.filter(({ fragment }) => fragment.documentType === 'event')
+								.map(({ fragment }) => fragment.documentId)
+						)
+					])
 			const timelineTokens = estimateTimelineTokens(timelineContext)
 			const selected = selectWithinBudget(rankedCandidates, Math.max(0, maxTokens - timelineTokens))
 

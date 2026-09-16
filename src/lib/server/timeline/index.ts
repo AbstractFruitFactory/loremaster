@@ -1,24 +1,19 @@
-import { gen, succeed, type Effect } from 'effect/Effect'
+import { all, gen, succeed, type Effect } from 'effect/Effect'
 import type * as TimelineDb from '../db/timeline'
 import { fail, type Failure } from '../failure'
 import type { VaultDocument } from '../vault/types'
-import {
-	expandTimelineEdges,
-	temporalGraphProblem,
-	temporalRelation,
-	topologicalLayers
-} from './graph'
+import { temporalGraphProblem, temporalRelation } from './graph'
 import type { TimelineContainment, TimelineContext, TimelineEdge } from './types'
 
 export const DEFAULT_TIMELINE_DEPTH = 2
 export const DEFAULT_TIMELINE_EVENT_LIMIT = 20
 export const DEFAULT_TIMELINE_EDGE_LIMIT = 30
 
-const emptyTimeline = (): TimelineContext => ({
+const emptyTimeline = (scope: TimelineContext['scope']): TimelineContext => ({
+	scope,
 	events: [],
 	edges: [],
-	containments: [],
-	layers: []
+	containments: []
 })
 
 const resolveTimelineEdges = (
@@ -107,6 +102,7 @@ export const timeline = ({
 		getTimelineContainments: typeof TimelineDb.getTimelineContainments
 		getTimelineContainmentsForDocuments: typeof TimelineDb.getTimelineContainmentsForDocuments
 		getTimelineEvents: typeof TimelineDb.getTimelineEvents
+		getCampaignTimelineEvents: typeof TimelineDb.getCampaignTimelineEvents
 	}
 }) => {
 	const validateDocuments = (
@@ -145,7 +141,7 @@ export const timeline = ({
 	): Effect<TimelineContext, Failure> =>
 		gen(function* () {
 			const seeds = [...new Set(seedDocumentIds)].slice(0, maxEvents)
-			if (!seeds.length) return emptyTimeline()
+			if (!seeds.length) return emptyTimeline('neighborhood')
 
 			const visited = new Set(seeds)
 			const edgesById = new Map<string, TimelineEdge>()
@@ -190,18 +186,36 @@ export const timeline = ({
 				({ eventDocumentId, periodDocumentId }) =>
 					eventIds.has(eventDocumentId) && eventIds.has(periodDocumentId)
 			)
-			const layers = topologicalLayers(
-				events.map(({ documentId }) => documentId),
-				expandTimelineEdges(edges, containments)
-			)
-
 			return {
+				scope: 'neighborhood',
 				events,
 				edges,
-				containments,
-				layers: layers ?? []
+				containments
 			}
 		})
 
-	return { getContext, getRelation, validateDocuments }
+	const getCampaignContext = (campaignId: string): Effect<TimelineContext, Failure> =>
+		gen(function* () {
+			const [events, edges, containments] = yield* all([
+				db.getCampaignTimelineEvents(campaignId),
+				db.getTimelineEdges(campaignId),
+				db.getTimelineContainments(campaignId)
+			])
+			const eventIds = new Set(events.map(({ documentId }) => documentId))
+
+			return {
+				scope: 'campaign',
+				events,
+				edges: edges.filter(
+					({ beforeDocumentId, afterDocumentId }) =>
+						eventIds.has(beforeDocumentId) && eventIds.has(afterDocumentId)
+				),
+				containments: containments.filter(
+					({ eventDocumentId, periodDocumentId }) =>
+						eventIds.has(eventDocumentId) && eventIds.has(periodDocumentId)
+				)
+			}
+		})
+
+	return { getCampaignContext, getContext, getRelation, validateDocuments }
 }

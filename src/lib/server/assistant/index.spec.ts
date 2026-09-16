@@ -30,7 +30,7 @@ describe('assistant operations', () => {
 		const buildAssistantContext = vi.fn(() =>
 			succeed({
 				items,
-				timeline: { events: [], edges: [], containments: [], layers: [] },
+				timeline: { scope: 'neighborhood' as const, events: [], edges: [], containments: [] },
 				estimatedTokens: 15
 			})
 		)
@@ -75,7 +75,7 @@ describe('assistant operations', () => {
 		const buildAssistantContext = vi.fn(() =>
 			succeed({
 				items,
-				timeline: { events: [], edges: [], containments: [], layers: [] },
+				timeline: { scope: 'neighborhood' as const, events: [], edges: [], containments: [] },
 				estimatedTokens: 15
 			})
 		)
@@ -112,6 +112,7 @@ describe('assistant operations', () => {
 			succeed({
 				items,
 				timeline: {
+					scope: 'campaign' as const,
 					events: [
 						{ documentId: 'a', title: 'Event A' },
 						{ documentId: 'b', title: 'Event B' },
@@ -123,8 +124,7 @@ describe('assistant operations', () => {
 						{ beforeDocumentId: 'b', afterDocumentId: 'c' },
 						{ beforeDocumentId: 'b', afterDocumentId: 'd' }
 					],
-					containments: [{ eventDocumentId: 'c', periodDocumentId: 'd' }],
-					layers: [['a'], ['b'], ['c', 'd']]
+					containments: [{ eventDocumentId: 'c', periodDocumentId: 'd' }]
 				},
 				estimatedTokens: 30
 			})
@@ -144,9 +144,51 @@ describe('assistant operations', () => {
 		expect(generateAssistant).toHaveBeenCalledWith(
 			expect.objectContaining({
 				prompt: expect.stringMatching(
-					/unknown, not simultaneous[\s\S]*Event A -> Event B[\s\S]*Event B -> Event C[\s\S]*Event C during Event D[\s\S]*3\. Event C, Event D \(no known order within this group\)/
+					/campaign-wide chronology graph[\s\S]*order in which events are listed has no temporal meaning[\s\S]*Event A -> Event B[\s\S]*Event B -> Event C[\s\S]*Event C during Event D[\s\S]*Events with no placement in this graph:\nNone/
+				),
+				system: expect.stringContaining(
+					'never turn formatting, retrieval order, or a topological grouping into additional chronology'
 				)
 			})
+		)
+	})
+
+	it('keeps unrelated events unplaced instead of grouping them into chronology layers', async () => {
+		const buildAssistantContext = vi.fn(() =>
+			succeed({
+				items,
+				timeline: {
+					scope: 'campaign' as const,
+					events: [
+						{ documentId: 'arrival', title: 'Party arrives' },
+						{ documentId: 'battle', title: 'Battle begins' },
+						{ documentId: 'legend', title: 'Ancient crown forged' }
+					],
+					edges: [{ beforeDocumentId: 'arrival', afterDocumentId: 'battle' }],
+					containments: []
+				},
+				estimatedTokens: 30
+			})
+		)
+		const generateAssistant = vi.fn(() =>
+			succeed({ message: 'Only one order is known.' })
+		) as GenerateAssistant
+		const assistant = createAssistant({
+			ai: { generateAssistant, streamAssistant: unusedStreamAssistant, model: assistantModel },
+			context: { buildAssistantContext }
+		})
+
+		await runPromise(assistant.chat(campaignId, 'Give me the chronology.', []))
+
+		expect(generateAssistant).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.stringMatching(
+					/Party arrives -> Battle begins[\s\S]*Events with no placement in this graph:\nAncient crown forged/
+				)
+			})
+		)
+		expect(generateAssistant).toHaveBeenCalledWith(
+			expect.objectContaining({ prompt: expect.not.stringContaining('Known ordering layers') })
 		)
 	})
 
@@ -154,7 +196,7 @@ describe('assistant operations', () => {
 		const buildAssistantContext = vi.fn(() =>
 			succeed({
 				items,
-				timeline: { events: [], edges: [], containments: [], layers: [] },
+				timeline: { scope: 'neighborhood' as const, events: [], edges: [], containments: [] },
 				estimatedTokens: 15
 			})
 		)
@@ -195,7 +237,7 @@ describe('assistant operations', () => {
 		const buildAssistantContext = vi.fn(() =>
 			succeed({
 				items,
-				timeline: { events: [], edges: [], containments: [], layers: [] },
+				timeline: { scope: 'neighborhood' as const, events: [], edges: [], containments: [] },
 				estimatedTokens: 15
 			})
 		)
