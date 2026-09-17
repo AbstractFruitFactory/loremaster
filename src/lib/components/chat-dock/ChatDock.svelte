@@ -1,6 +1,8 @@
 <script module lang="ts">
 	import type { LoreProposalDraft } from '#lib/components/lore-proposal/LoreProposal.svelte'
 
+	export type ChatDockMode = 'sidebar' | 'expanded' | 'hidden'
+
 	export type AskLoremasterInput = {
 		message: string
 	}
@@ -10,7 +12,7 @@
 
 <script lang="ts">
 	import Icon from '@iconify/svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick, untrack } from 'svelte'
 	import logo from '#lib/assets/logo-eye.png'
 	import ChatInput from '#lib/components/chat-input/ChatInput.svelte'
 	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
@@ -21,7 +23,9 @@
 
 	type Props = {
 		campaignId: string
-		open?: boolean
+		mode?: ChatDockMode
+		id?: string
+		toggleId?: string
 		conversationHistory: ConversationMessage[]
 		onask: (input: AskLoremasterInput, signal: AbortSignal) => AsyncIterable<AssistantStreamEvent>
 		onaddlore: (draft: AddLoreInput) => Promise<{ title: string }>
@@ -43,14 +47,15 @@
 
 	let {
 		campaignId,
-		open = $bindable(false),
+		mode = $bindable<ChatDockMode>('sidebar'),
+		id = 'campaign-chat-panel',
+		toggleId = 'campaign-chat-toggle',
 		conversationHistory,
 		onask,
 		onaddlore
 	}: Props = $props()
 
-	let messages = $state.raw<ConversationMessage[]>([])
-	let hasLoadedHistory = $state(false)
+	let messages = $state.raw<ConversationMessage[]>(untrack(() => conversationHistory))
 	let proposal = $state<ActiveProposal | null>(null)
 	let message = $state('')
 	let isResponding = $state(false)
@@ -60,11 +65,11 @@
 	let proposalError = $state('')
 	let activeRequest: AbortController | null = null
 
-	$effect(() => {
-		if (hasLoadedHistory) return
-		messages = conversationHistory
-		hasLoadedHistory = true
-	})
+	const isExpanded = $derived(mode === 'expanded')
+	const modeActionLabel = $derived(
+		isExpanded ? 'Restore Ask Loremaster sidebar' : 'Expand Ask Loremaster'
+	)
+	const modeActionIcon = $derived(isExpanded ? 'lucide:minimize-2' : 'lucide:maximize-2')
 
 	onDestroy(() => activeRequest?.abort())
 
@@ -86,7 +91,6 @@
 		const submittedMessage = message.trim()
 		if (!submittedMessage || isResponding) return
 
-		open = true
 		const assistantMessageId = createMessageId()
 		const requestController = new AbortController()
 		activeRequest = requestController
@@ -184,10 +188,27 @@
 		proposal = null
 		proposalError = ''
 	}
+
+	const toggleMode = () => {
+		mode = isExpanded ? 'sidebar' : 'expanded'
+	}
+
+	const hideChat = async () => {
+		mode = 'hidden'
+		await tick()
+		document.getElementById(toggleId)?.focus()
+	}
+
+	const handleWindowKeydown = (event: KeyboardEvent) => {
+		if (event.key !== 'Escape' || mode !== 'expanded') return
+		mode = 'sidebar'
+	}
 </script>
 
-{#if open}
-	<aside class="chat-panel" aria-label="Ask Loremaster">
+<svelte:window onkeydown={handleWindowKeydown} />
+
+{#if mode !== 'hidden'}
+	<aside {id} class={['chat-panel', isExpanded && 'expanded']} aria-label="Ask Loremaster">
 		<Window title="Ask Loremaster" eyebrow="Creative companion" size="fill">
 			{#snippet icon()}
 				<img src={logo} alt="" />
@@ -197,10 +218,20 @@
 				<button
 					class="window-action"
 					type="button"
-					aria-label="Collapse chat"
-					onclick={() => (open = false)}
+					aria-label={modeActionLabel}
+					title={modeActionLabel}
+					onclick={toggleMode}
 				>
-					<Icon icon="lucide:panel-right-close" aria-hidden="true" />
+					<Icon icon={modeActionIcon} aria-hidden="true" />
+				</button>
+				<button
+					class="window-action"
+					type="button"
+					aria-label="Hide Ask Loremaster"
+					title="Hide Ask Loremaster"
+					onclick={hideChat}
+				>
+					<Icon icon="lucide:x" aria-hidden="true" />
 				</button>
 			{/snippet}
 
@@ -233,88 +264,23 @@
 			</div>
 		</Window>
 	</aside>
-{:else}
-	<aside class="chat-launcher" aria-label="Ask Loremaster">
-		<button class="launcher-heading" type="button" onclick={() => (open = true)}>
-			<img src={logo} alt="" />
-			<span>
-				<strong>Ask Loremaster</strong>
-				<small>{messages.length ? 'Continue your conversation' : 'Consult your campaign'}</small>
-			</span>
-			<Icon icon="lucide:expand" aria-hidden="true" />
-		</button>
-		<ChatInput
-			id="loremaster-dock-message"
-			bind:value={message}
-			isSubmitting={isResponding}
-			onsubmit={handleAsk}
-			compact
-		/>
-	</aside>
 {/if}
 
 <style>
-	.chat-panel,
-	.chat-launcher {
+	.chat-panel {
 		position: absolute;
 		z-index: 10;
+		top: var(--workspace-gap, 1rem);
 		right: var(--workspace-gap, 1rem);
 		bottom: var(--workspace-gap, 1rem);
-	}
-
-	.chat-panel {
-		top: var(--workspace-gap, 1rem);
 		width: var(--chat-panel-width, 29rem);
+		transition: width var(--chat-resize-duration, 180ms) var(--chat-resize-easing, ease);
 	}
 
-	.chat-launcher {
-		width: min(22.5rem, calc(100% - (2 * var(--workspace-gap, 1rem))));
-		padding: 0.55rem;
-		border: 1px solid rgb(194 155 91 / 72%);
-		border-radius: 0.75rem;
-		background: linear-gradient(145deg, #fff9ed, #f3e6d2);
-		box-shadow: 0 1rem 2.5rem rgb(9 18 14 / 34%);
+	.chat-panel.expanded {
+		width: calc(100% - (2 * var(--workspace-gap, 1rem)));
 	}
 
-	.launcher-heading {
-		display: flex;
-		width: 100%;
-		align-items: center;
-		gap: 0.55rem;
-		margin-bottom: 0.45rem;
-		padding: 0.1rem 0.2rem 0.35rem;
-		border: 0;
-		border-bottom: 1px solid rgb(77 61 40 / 18%);
-		background: transparent;
-		color: #29241d;
-		text-align: left;
-		cursor: pointer;
-	}
-
-	.launcher-heading img {
-		width: 2rem;
-		height: 2rem;
-		object-fit: contain;
-	}
-
-	.launcher-heading span {
-		display: grid;
-		flex: 1;
-		line-height: 1.15;
-	}
-
-	.launcher-heading strong {
-		font-family: var(--font-display);
-		font-size: 1.02rem;
-		font-weight: 600;
-	}
-
-	.launcher-heading small {
-		color: #746957;
-		font-size: 0.7rem;
-	}
-
-	.launcher-heading :global(svg),
 	.window-action :global(svg) {
 		width: 1rem;
 		height: 1rem;
@@ -378,13 +344,13 @@
 
 	@media (max-width: 38rem) {
 		.chat-panel {
-			left: var(--workspace-gap, 0.65rem);
-			width: auto;
+			width: calc(100% - (2 * var(--workspace-gap, 0.65rem)));
 		}
+	}
 
-		.chat-launcher {
-			left: var(--workspace-gap, 0.65rem);
-			width: auto;
+	@media (prefers-reduced-motion: reduce) {
+		.chat-panel {
+			transition: none;
 		}
 	}
 </style>

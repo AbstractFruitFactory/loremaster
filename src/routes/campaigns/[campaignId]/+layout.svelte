@@ -4,7 +4,11 @@
 	import { streamAssistant } from '#lib/assistant-stream.js'
 	import logo from '#lib/assets/logo-eye.png'
 	import ChatDock from '#lib/components/chat-dock/ChatDock.svelte'
-	import type { AddLoreInput, AskLoremasterInput } from '#lib/components/chat-dock/ChatDock.svelte'
+	import type {
+		AddLoreInput,
+		AskLoremasterInput,
+		ChatDockMode
+	} from '#lib/components/chat-dock/ChatDock.svelte'
 	import Header from '#lib/components/header/Header.svelte'
 	import NavItem from '#lib/components/sidebar/NavItem.svelte'
 	import { documentTypes } from '#lib/document.js'
@@ -26,11 +30,8 @@
 		}))
 	)
 
-	let isChatOpen = $state(false)
-
-	$effect(() => {
-		if (page.url.pathname === `/campaigns/${campaignId}`) isChatOpen = true
-	})
+	let chatMode = $state<ChatDockMode>('sidebar')
+	const isChatExpanded = $derived(chatMode === 'expanded')
 
 	const handleAsk = (input: AskLoremasterInput, signal: AbortSignal) =>
 		streamAssistant(campaignId, input, { signal })
@@ -56,34 +57,42 @@
 {/snippet}
 
 {#snippet navigation()}
-	<nav aria-label="Campaign sections">
-		<ul>
-			{#each navigationItems as item (item.label)}
-				<li>
-					<NavItem {...item} variant="tab" active={page.url.pathname.startsWith(item.href)} />
-				</li>
-			{/each}
-		</ul>
-	</nav>
+	<div class="campaign-navigation">
+		<nav aria-label="Campaign sections">
+			<ul>
+				{#each navigationItems as item (item.label)}
+					<li>
+						<NavItem {...item} variant="tab" active={page.url.pathname.startsWith(item.href)} />
+					</li>
+				{/each}
+			</ul>
+		</nav>
+		{#if chatMode === 'hidden'}
+			<button
+				id="campaign-chat-toggle"
+				class="chat-toggle"
+				type="button"
+				aria-controls="campaign-chat-panel"
+				aria-expanded="false"
+				aria-label="Open Ask Loremaster"
+				onclick={() => (chatMode = 'sidebar')}
+			>
+				<Icon icon="lucide:message-circle" aria-hidden="true" />
+				<span>Chat</span>
+			</button>
+		{/if}
+	</div>
 {/snippet}
 
-{#snippet headerActions()}
-	<button
-		class:active={isChatOpen}
-		class="chat-toggle"
-		type="button"
-		aria-label={isChatOpen ? 'Collapse Ask Loremaster' : 'Open Ask Loremaster'}
-		aria-expanded={isChatOpen}
-		onclick={() => (isChatOpen = !isChatOpen)}
-	>
-		<Icon icon="lucide:message-circle" aria-hidden="true" />
-		<span>Chat</span>
-	</button>
-{/snippet}
-
-<div class:chat-open={isChatOpen} class="campaign-shell">
-	<div class="campaign-workspace">
-		<Header {brand} {navigation} actions={headerActions}>
+<div
+	class={[
+		'campaign-shell',
+		chatMode === 'sidebar' && 'chat-sidebar',
+		isChatExpanded && 'chat-expanded'
+	]}
+>
+	<div class="campaign-workspace" inert={isChatExpanded}>
+		<Header {brand} {navigation}>
 			{@render campaignHeading()}
 		</Header>
 
@@ -102,7 +111,9 @@
 		{#key campaignId}
 			<ChatDock
 				{campaignId}
-				bind:open={isChatOpen}
+				id="campaign-chat-panel"
+				toggleId="campaign-chat-toggle"
+				bind:mode={chatMode}
 				conversationHistory={conversation.current}
 				onask={handleAsk}
 				onaddlore={handleAddLore}
@@ -115,6 +126,8 @@
 	.campaign-shell {
 		--workspace-gap: clamp(0.65rem, 1.5vw, 1rem);
 		--chat-panel-width: clamp(25rem, 31vw, 29rem);
+		--chat-resize-duration: 180ms;
+		--chat-resize-easing: ease;
 		--campaign-inline-padding: clamp(1.25rem, 3vw, 2.75rem);
 
 		position: relative;
@@ -137,10 +150,10 @@
 		min-height: 0;
 		flex-direction: column;
 		overflow: hidden;
-		transition: margin-right 180ms ease;
+		transition: margin-right var(--chat-resize-duration) var(--chat-resize-easing);
 	}
 
-	.campaign-shell.chat-open .campaign-workspace {
+	.campaign-shell.chat-sidebar .campaign-workspace {
 		margin-right: calc(var(--chat-panel-width) + var(--workspace-gap));
 	}
 
@@ -176,10 +189,28 @@
 		object-fit: contain;
 	}
 
-	nav,
 	ul {
 		margin: 0;
 		padding: 0;
+	}
+
+	.campaign-navigation {
+		display: flex;
+		min-width: 0;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	.campaign-navigation nav {
+		min-width: 0;
+		flex: 1;
+		overflow-x: auto;
+		overflow-y: hidden;
+		scrollbar-width: none;
+	}
+
+	.campaign-navigation nav::-webkit-scrollbar {
+		display: none;
 	}
 
 	ul {
@@ -189,29 +220,47 @@
 	}
 
 	.chat-toggle {
+		box-sizing: border-box;
 		display: inline-flex;
-		min-height: 2.2rem;
+		height: 42px;
+		flex: 0 0 auto;
 		align-items: center;
-		gap: 0.4rem;
-		padding: 0.4rem 0.65rem;
-		border: 1px solid rgb(215 180 110 / 42%);
-		border-radius: 0.35rem;
-		background: rgb(255 246 225 / 7%);
-		color: #e8dcc4;
-		font-size: 0.78rem;
+		gap: 8px;
+		padding: 5px 13px 5px 6px;
+		border: 1px solid #c98b3d;
+		border-radius: 8px;
+		background: linear-gradient(90deg, #e9bf75, #fff8e9);
+		box-shadow: 0 2px 5px rgb(73 45 28 / 18%);
+		color: #37241d;
+		font-family: var(--font-sans);
+		font-size: 0.82rem;
 		font-weight: 600;
 		cursor: pointer;
+		transition:
+			background-color 150ms ease,
+			border-color 150ms ease,
+			box-shadow 150ms ease,
+			transform 150ms ease;
 	}
 
-	.chat-toggle:hover,
-	.chat-toggle.active {
-		border-color: #d7b46e;
-		background: rgb(215 180 110 / 18%);
+	.chat-toggle:hover {
+		border-color: #a86e2d;
+		background: linear-gradient(90deg, #f2c982, #fffaf0);
+		box-shadow: 0 3px 7px rgb(73 45 28 / 24%);
+		transform: translateY(-1px);
 	}
 
 	.chat-toggle :global(svg) {
-		width: 1rem;
-		height: 1rem;
+		width: 1.15rem;
+		height: 1.15rem;
+		color: #7b5d2d;
+	}
+
+	.chat-toggle:focus-visible {
+		border-color: #a86e2d;
+		outline: 2px solid #efd290;
+		outline-offset: 3px;
+		box-shadow: 0 0 0 4px rgb(11 18 22 / 80%);
 	}
 
 	.campaign-content {
@@ -246,21 +295,20 @@
 	}
 
 	@media (max-width: 72rem) {
-		.campaign-shell.chat-open .campaign-workspace {
+		.campaign-shell.chat-sidebar .campaign-workspace {
 			margin-right: 0;
 		}
 	}
 
 	@media (max-width: 42rem) {
-		.brand span,
-		.chat-toggle span {
+		.brand span {
 			display: none;
 		}
+	}
 
-		.chat-toggle {
-			width: 2.2rem;
-			justify-content: center;
-			padding-inline: 0;
+	@media (prefers-reduced-motion: reduce) {
+		.campaign-workspace {
+			transition: none;
 		}
 	}
 </style>

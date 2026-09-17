@@ -16,13 +16,13 @@
 		<h2>Your world at a glance</h2>
 		<p>
 			Move between people, places, sessions, and worldbuilding without losing your place. Ask
-			Loremaster from the floating chat whenever you need the wider context.
+			Loremaster from the sidebar whenever you need the wider context.
 		</p>
 	</header>
 
 	<nav aria-label="Explore campaign lore">
 		<ul>
-			{#each documentTypes as type}
+			{#each documentTypes as type (type)}
 				{@const metadata = documentTypeMetadata[type]}
 				<li>
 					<a href={`/campaigns/${campaignId}/${type}`}>
