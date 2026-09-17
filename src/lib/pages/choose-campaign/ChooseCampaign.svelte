@@ -1,9 +1,10 @@
 <script lang="ts">
-	import paperBackground from '#lib/assets/paper-background.png'
+	import logo from '#lib/assets/logo-eye.png'
 	import Button from '#lib/components/button/Button.svelte'
 	import CampaignCard from '#lib/components/campaign-card/CampaignCard.svelte'
 	import TextInput from '#lib/components/text-input/TextInput.svelte'
 	import Textarea from '#lib/components/textarea/Textarea.svelte'
+	import Window from '#lib/components/window/Window.svelte'
 	import type { Campaign } from '#lib/server/campaign/types.js'
 
 	type Props = {
@@ -19,17 +20,25 @@
 	let description = $state('')
 	let isCreating = $state(false)
 	let createError = $state('')
+	const isCreateDisabled = $derived(
+		isCreating || name.trim().length === 0 || description.trim().length === 0
+	)
 
 	const getErrorMessage = (error: unknown) =>
 		error instanceof Error ? error.message : 'Unable to create the campaign'
 
 	const handleCreate = async (event: SubmitEvent) => {
 		event.preventDefault()
+		const campaignName = name.trim()
+		const campaignDescription = description.trim()
+
+		if (isCreating || !campaignName || !campaignDescription) return
+
 		isCreating = true
 		createError = ''
 
 		try {
-			await oncreate({ name, description })
+			await oncreate({ name: campaignName, description: campaignDescription })
 			name = ''
 			description = ''
 		} catch (error) {
@@ -45,288 +54,253 @@
 	<meta name="description" content="Create campaigns and grow their lore with Loremaster." />
 </svelte:head>
 
-<main class="page-shell" style:--paper-background={`url("${paperBackground}")`}>
+<main class="page-shell">
 	<div class="content">
-		<header class="hero">
-			<svg class="compass" viewBox="0 0 64 64" aria-hidden="true">
-				<circle cx="32" cy="32" r="19"></circle>
-				<path d="M32 5v54M5 32h54M13 13l38 38M51 13 13 51"></path>
-				<path class="needle" d="m38 26-6 20-6-14 6-20 6 14Z"></path>
-			</svg>
-			<h1>Choose Your Campaign</h1>
-			<p>Begin a new chronicle or continue an existing story.</p>
+		<header class="brand-hero">
+			<img class="brand-logo" src={logo} alt="" />
+			<h1>Loremaster</h1>
+			<p class="page-heading">Choose your campaign</p>
+			<p class="hero-copy">Begin a new chronicle or continue an existing story.</p>
 		</header>
 
-		<section class="create-panel" aria-labelledby="new-campaign-heading">
-			<div class="section-intro">
-				<p class="eyebrow">A new chronicle</p>
-				<h2 id="new-campaign-heading">Create New Campaign</h2>
-				<p>Give your campaign a name and a short description to begin.</p>
-			</div>
+		<div class="window-grid">
+			<div class="create-window">
+				<Window title="Create New Campaign" eyebrow="Begin a new chronicle" size="fill">
+					<p class="window-intro">
+						Give your campaign a memorable name and a short description of the story ahead.
+					</p>
 
-			<form onsubmit={handleCreate} aria-busy={isCreating}>
-				<div class="fields">
-					<label for="campaign-name">
-						<span>Campaign name</span>
-						<TextInput
-							id="campaign-name"
-							bind:value={name}
-							required
-							maxlength={200}
-							autocomplete="off"
-							--text-input-padding="0.75rem 0.85rem"
-							--text-input-border="1px solid rgb(133 102 61 / 55%)"
-							--text-input-radius="2px"
-							--text-input-background="rgb(255 251 241 / 72%)"
-							--text-input-color="var(--ink)"
-							--text-input-focus-border="var(--gold)"
-							--text-input-focus-ring="0 0 0 2px rgb(154 120 67 / 24%), 0 0 0 5px rgb(154 120 67 / 10%)"
-						/>
-					</label>
-
-					<label for="campaign-description">
-						<span>Description</span>
-						<Textarea
-							id="campaign-description"
-							bind:value={description}
-							required
-							rows={2}
-							--textarea-min-height="4.5rem"
-							--textarea-padding="0.75rem 0.85rem"
-							--textarea-border="1px solid rgb(133 102 61 / 55%)"
-							--textarea-radius="2px"
-							--textarea-background="rgb(255 251 241 / 72%)"
-							--textarea-color="var(--ink)"
-							--textarea-focus-border="var(--gold)"
-							--textarea-focus-ring="0 0 0 2px rgb(154 120 67 / 24%), 0 0 0 5px rgb(154 120 67 / 10%)"
-						/>
-					</label>
-				</div>
-
-				<div class="form-action">
-					<Button type="submit" disabled={isCreating}>
-						{isCreating ? 'Creating…' : 'Create campaign'}
-					</Button>
-				</div>
-			</form>
-
-			{#if createError}
-				<p class="error create-error" role="alert">{createError}</p>
-			{/if}
-		</section>
-
-		<section class="campaign-section" aria-labelledby="campaign-list-heading">
-			<div class="list-heading">
-				<p class="eyebrow">Continue the tale</p>
-				<h2 id="campaign-list-heading">Your Campaigns</h2>
-			</div>
-
-			{#if hasLoadError}
-				<div class="state-panel error" role="alert">Unable to load campaigns.</div>
-			{:else if isLoading}
-				<div class="state-panel" role="status" aria-live="polite">Loading campaigns…</div>
-			{:else if campaigns?.length}
-				<ul class="campaign-grid">
-					{#each campaigns as campaign (campaign.id)}
-						<li>
-							<CampaignCard
-								name={campaign.name}
-								description={campaign.description}
-								href="/campaigns/{campaign.id}"
+					<form
+						id="create-campaign-form"
+						onsubmit={handleCreate}
+						aria-busy={isCreating}
+						aria-describedby={createError ? 'create-campaign-error' : undefined}
+					>
+						<div class="field">
+							<label for="campaign-name">Campaign name</label>
+							<p id="campaign-name-hint">The title shown throughout your campaign workspace.</p>
+							<TextInput
+								id="campaign-name"
+								name="campaignName"
+								bind:value={name}
+								required
+								maxlength={200}
+								autocomplete="off"
+								placeholder="The Ashen Crown"
+								disabled={isCreating}
+								aria-describedby="campaign-name-hint"
+								--text-input-padding="0.75rem 0.85rem"
+								--text-input-border="2px solid var(--ink)"
+								--text-input-radius="2px"
+								--text-input-background="#fffdf7"
+								--text-input-color="var(--ink)"
+								--text-input-focus-border="var(--green)"
+								--text-input-focus-ring="0 0 0 3px rgb(56 75 54 / 18%)"
 							/>
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<div class="state-panel">
-					<strong>No campaigns yet.</strong>
-					<span>Create your first campaign above to begin.</span>
-				</div>
-			{/if}
-		</section>
+						</div>
+
+						<div class="field">
+							<label for="campaign-description">Description</label>
+							<p id="campaign-description-hint">
+								Summarize the setting, central conflict, or tone in a sentence or two.
+							</p>
+							<Textarea
+								id="campaign-description"
+								name="campaignDescription"
+								bind:value={description}
+								required
+								rows={4}
+								placeholder="Forgotten kingdoms, dangerous relics, and an ancient oath…"
+								disabled={isCreating}
+								aria-describedby="campaign-description-hint"
+								--textarea-min-height="7rem"
+								--textarea-padding="0.75rem 0.85rem"
+								--textarea-border="2px solid var(--ink)"
+								--textarea-radius="2px"
+								--textarea-background="#fffdf7"
+								--textarea-color="var(--ink)"
+								--textarea-focus-border="var(--green)"
+								--textarea-focus-ring="0 0 0 3px rgb(56 75 54 / 18%)"
+							/>
+						</div>
+
+						<div class="form-actions">
+							<div class="form-feedback">
+								{#if createError}
+									<p id="create-campaign-error" class="error" role="alert">{createError}</p>
+								{:else}
+									<p>Both fields are required.</p>
+								{/if}
+							</div>
+							<Button type="submit" disabled={isCreateDisabled}>
+								{isCreating ? 'Creating…' : 'Create campaign'}
+							</Button>
+						</div>
+					</form>
+				</Window>
+			</div>
+
+			<div class="campaign-window">
+				<Window title="Your Campaigns" eyebrow="Continue the tale" size="fill">
+					{#if hasLoadError}
+						<div class="state-panel error" role="alert">Unable to load campaigns.</div>
+					{:else if isLoading}
+						<div class="state-panel" role="status" aria-live="polite">Loading campaigns…</div>
+					{:else if campaigns?.length}
+						<ul class="campaign-grid">
+							{#each campaigns as campaign (campaign.id)}
+								<li>
+									<CampaignCard
+										name={campaign.name}
+										description={campaign.description}
+										href="/campaigns/{campaign.id}"
+									/>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<div class="state-panel">
+							<strong>No campaigns yet.</strong>
+							<span>Create your first campaign to begin.</span>
+						</div>
+					{/if}
+				</Window>
+			</div>
+		</div>
 	</div>
 </main>
 
 <style>
 	.page-shell {
-		--paper: #eee0c6;
-		--paper-light: #f8eedb;
-		--paper-panel: rgb(250 241 222 / 72%);
-		--ink: #282016;
-		--ink-soft: #6f604e;
-		--gold: #9a7843;
-		--gold-light: #c8aa75;
+		--ink: var(--color-text, #25231f);
+		--ink-soft: var(--color-muted, #625e57);
+		--green: var(--color-main, #3e4b39);
+
 		box-sizing: border-box;
 		height: 100%;
 		min-height: 100%;
 		overflow-y: auto;
-		padding: clamp(2.75rem, 4vw, 4rem) clamp(2rem, 7vw, 6rem);
-		background-color: var(--paper);
-		background-image: var(--paper-background);
-		background-repeat: no-repeat;
-		background-position: center;
-		background-size: 100% 100%;
+		padding: clamp(2rem, 4vw, 3.5rem) clamp(1rem, 4vw, 3.5rem) clamp(2.5rem, 5vw, 4rem);
+		background: transparent;
 		color: var(--ink);
 		font-family: var(--font-sans);
 	}
 
 	.content {
-		width: min(68rem, 100%);
+		width: min(74rem, 100%);
 		margin: 0 auto;
 	}
 
-	.hero {
+	.brand-hero {
+		display: grid;
+		justify-items: center;
 		max-width: 42rem;
-		margin: 0 auto clamp(1.75rem, 3vw, 2.5rem);
+		margin: 0 auto clamp(2rem, 4vw, 3.25rem);
 		text-align: center;
 	}
 
-	.compass {
-		width: 2.75rem;
-		margin-bottom: 0.5rem;
-		overflow: visible;
-		fill: none;
-		stroke: var(--gold);
-		stroke-linecap: round;
-		stroke-linejoin: round;
-		stroke-width: 1;
+	.brand-logo {
+		width: clamp(6.5rem, 12vw, 9rem);
+		margin-bottom: 0.75rem;
+		filter: drop-shadow(0.25rem 0.35rem 0 rgb(255 250 240 / 72%));
 	}
 
-	.compass .needle {
-		fill: rgb(154 120 67 / 13%);
-		stroke-width: 1.4;
-	}
-
-	.hero p {
-		margin-bottom: 0;
-		color: var(--ink-soft);
-		font-family: var(--font-display);
-		font-size: clamp(1.05rem, 2vw, 1.25rem);
-	}
-
-	.create-panel {
-		position: relative;
-		padding: clamp(1.25rem, 2.5vw, 1.75rem);
-		border: 1px solid var(--gold-light);
-		background: linear-gradient(rgb(255 250 237 / 54%), rgb(238 220 186 / 18%)), var(--paper-panel);
-		box-shadow:
-			0 1rem 2.5rem rgb(77 53 25 / 8%),
-			inset 0 0 0 4px rgb(154 120 67 / 6%);
-	}
-
-	.create-panel::before,
-	.create-panel::after {
-		position: absolute;
-		width: 1rem;
-		height: 1rem;
-		border-color: var(--gold);
-		content: '';
-		pointer-events: none;
-	}
-
-	.create-panel::before {
-		top: 0.45rem;
-		left: 0.45rem;
-		border-top: 1px solid;
-		border-left: 1px solid;
-	}
-
-	.create-panel::after {
-		right: 0.45rem;
-		bottom: 0.45rem;
-		border-right: 1px solid;
-		border-bottom: 1px solid;
-	}
-
-	.section-intro {
-		margin-bottom: 1rem;
-	}
-
-	.section-intro h2,
-	.list-heading h2 {
+	h1 {
 		margin-bottom: 0.3rem;
-		font-size: clamp(1.7rem, 4vw, 2.25rem);
+		color: #090909;
+		font-size: clamp(3.4rem, 8vw, 5.75rem);
+		line-height: 0.85;
 	}
 
-	.section-intro > p:last-child {
-		max-width: 37rem;
-		margin-bottom: 0;
+	.page-heading {
+		margin-bottom: 0.45rem;
+		color: var(--green);
+		font-family: var(--font-display);
+		font-size: clamp(1.35rem, 3vw, 1.85rem);
+		font-weight: 600;
+		letter-spacing: 0.025em;
+	}
+
+	.hero-copy {
+		margin: 0;
+		color: var(--ink-soft);
+		font-size: clamp(0.98rem, 2vw, 1.1rem);
+	}
+
+	.window-grid {
+		display: grid;
+		grid-template-columns: minmax(19rem, 0.78fr) minmax(0, 1.45fr);
+		gap: clamp(1.25rem, 3vw, 2rem);
+		align-items: stretch;
+	}
+
+	.create-window,
+	.campaign-window {
+		min-width: 0;
+		padding: 0 0.35rem 0.35rem 0;
+	}
+
+	.window-intro {
+		margin-bottom: 1.25rem;
 		color: var(--ink-soft);
 		line-height: 1.55;
 	}
 
-	.eyebrow {
-		margin-bottom: 0.25rem;
-		color: var(--gold);
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-	}
-
 	form,
-	.fields {
+	.field {
 		display: grid;
-		gap: 0.875rem;
 	}
 
 	form {
-		grid-template-columns: minmax(0, 1fr) auto;
-		align-items: end;
+		gap: 1.2rem;
 	}
 
-	.fields {
-		grid-template-columns: minmax(12rem, 0.75fr) minmax(18rem, 1.25fr);
-		align-items: start;
+	.field {
+		gap: 0.35rem;
 	}
 
 	label {
-		display: grid;
-		gap: 0.4rem;
-		color: var(--ink-soft);
-		font-size: 0.82rem;
 		font-weight: 700;
-		letter-spacing: 0.04em;
+		letter-spacing: 0.015em;
 	}
 
-	.form-action {
+	.field p {
+		margin: -0.1rem 0 0.2rem;
+		color: var(--ink-soft);
+		font-size: 0.8rem;
+		line-height: 1.4;
+	}
+
+	.form-actions {
 		display: flex;
-		justify-content: flex-end;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		margin-top: 0.15rem;
+		padding-top: 1rem;
+		border-top: 1px solid rgb(37 35 31 / 22%);
 		--color-main: #384b36;
-		--color-surface: #fff8e8;
-		--border-radius-md: 2px;
+		--color-surface: #fffaf0;
 	}
 
-	.campaign-section {
-		margin-top: clamp(2rem, 4vw, 3rem);
+	.form-feedback {
+		min-width: 0;
+		color: var(--ink-soft);
+		font-size: 0.8rem;
 	}
 
-	.list-heading {
-		position: relative;
-		margin-bottom: 0.9rem;
-		padding-bottom: 0.6rem;
-		border-bottom: 1px solid rgb(154 120 67 / 38%);
+	.form-feedback p {
+		margin: 0;
 	}
 
-	.list-heading::after {
-		position: absolute;
-		bottom: -3px;
-		left: 2.5rem;
-		width: 5px;
-		height: 5px;
-		border: 1px solid var(--gold);
-		background: var(--paper-light);
-		content: '';
-		transform: rotate(45deg);
-	}
-
-	.list-heading h2 {
-		margin-bottom: 0;
+	.error {
+		color: #8b2f27;
+		font-weight: 650;
 	}
 
 	.campaign-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
 		gap: 1rem;
 		margin: 0;
 		padding: 0;
@@ -335,14 +309,19 @@
 
 	.campaign-grid li {
 		display: flex;
+		min-width: 0;
+		padding: 0 0.25rem 0.25rem 0;
 	}
 
 	.state-panel {
 		display: grid;
+		flex: 1;
 		gap: 0.3rem;
+		min-height: 10rem;
 		padding: 1.6rem;
-		border: 1px dashed rgb(154 120 67 / 48%);
-		background: rgb(250 240 219 / 42%);
+		place-content: center;
+		border: 2px dashed rgb(37 35 31 / 38%);
+		background: #f7f1e6;
 		color: var(--ink-soft);
 		text-align: center;
 	}
@@ -354,44 +333,24 @@
 		font-weight: 600;
 	}
 
-	.error {
-		color: #8b2f27;
-	}
-
-	.create-error {
-		margin: 1rem 0 0;
-		font-weight: 650;
-	}
-
-	@media (max-width: 44rem) {
-		.page-shell {
-			padding: 3.5rem 1.75rem;
-		}
-
-		form {
+	@media (max-width: 62rem) {
+		.window-grid {
 			grid-template-columns: 1fr;
 		}
-
-		.fields {
-			grid-template-columns: 1fr;
-		}
-
-		.form-action {
-			justify-content: stretch;
-		}
-
-		.form-action :global(button) {
-			width: 100%;
-		}
 	}
 
-	@media (max-width: 28rem) {
+	@media (max-width: 36rem) {
 		.page-shell {
-			padding: 3rem 1.25rem;
+			padding: 1.5rem 0.85rem 2.5rem;
 		}
 
-		.create-panel {
-			padding: 1.35rem;
+		.brand-hero {
+			margin-bottom: 1.75rem;
+		}
+
+		.form-actions {
+			align-items: stretch;
+			flex-direction: column;
 		}
 	}
 </style>

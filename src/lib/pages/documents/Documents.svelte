@@ -21,16 +21,12 @@
 	<title>{heading} | Loremaster</title>
 </svelte:head>
 
-<section class="documents-page" aria-labelledby="documents-heading">
-	<header class="page-heading">
-		<div>
-			<p class="eyebrow">Campaign lore</p>
-			<h2 id="documents-heading">{heading}</h2>
-		</div>
-		{#if selectedType === 'session'}
+<section class="documents-page" aria-label={heading}>
+	{#if selectedType === 'session'}
+		<div class="page-actions">
 			<a class="ingest-link" href={`/campaigns/${campaignId}/session/ingest`}>Ingest session</a>
-		{/if}
-	</header>
+		</div>
+	{/if}
 
 	{#if hasLoadError}
 		<div class="state-panel error" role="alert">
@@ -89,16 +85,6 @@
 		font-family: var(--font-sans);
 	}
 
-	.page-heading {
-		position: relative;
-		display: flex;
-		gap: 1rem;
-		align-items: end;
-		justify-content: space-between;
-		margin-bottom: 1.5rem;
-		color: #f5ead6;
-	}
-
 	.ingest-link {
 		padding: 0.55rem 0.75rem;
 		border: 1.5px solid #353129;
@@ -122,29 +108,19 @@
 		outline-offset: 3px;
 	}
 
-	.eyebrow {
-		margin: 0 0 0.25rem;
-		color: var(--gold);
-		font-size: 0.72rem;
-		font-weight: 700;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-	}
-
-	h2,
 	h3,
 	p {
 		margin: 0;
 	}
 
-	h2,
 	h3 {
 		font-family: var(--font-display);
 	}
 
-	h2 {
-		font-size: clamp(2rem, 5vw, 3rem);
-		line-height: 1;
+	.page-actions {
+		display: flex;
+		justify-content: flex-end;
+		margin-bottom: 1.5rem;
 	}
 
 	.document-list {

@@ -14,59 +14,40 @@
 	<div class="card-ornament" aria-hidden="true">✦</div>
 	<h3>{name}</h3>
 	<p>{description}</p>
-	<a {href}>Open campaign <span aria-hidden="true">→</span></a>
+	<a {href} aria-label={`Open ${name} campaign`}>
+		Open campaign <span aria-hidden="true">→</span>
+	</a>
 </article>
 
 <style>
 	.campaign-card {
+		--card-ink: var(--color-text, #25231f);
+		--card-paper: #fffdf7;
+		--card-accent: #d77d57;
+
 		position: relative;
 		display: flex;
 		flex: 1;
 		flex-direction: column;
 		min-height: 10.5rem;
 		padding: 1.2rem;
-		border: 1px solid rgb(154 120 67 / 48%);
-		background: rgb(250 240 219 / 62%);
-		box-shadow: 0 0.35rem 1rem rgb(75 52 27 / 5%);
+		border: 2px solid var(--card-ink);
+		border-radius: 2px;
+		background: var(--card-paper);
+		box-shadow: 0.25rem 0.25rem 0 var(--card-ink);
 		transition:
-			border-color 180ms ease,
-			box-shadow 180ms ease,
-			transform 180ms ease;
-	}
-
-	.campaign-card::before,
-	.campaign-card::after {
-		position: absolute;
-		width: 1rem;
-		height: 1rem;
-		border-color: var(--gold, #9a7843);
-		content: '';
-		pointer-events: none;
-	}
-
-	.campaign-card::before {
-		top: 0.45rem;
-		left: 0.45rem;
-		border-top: 1px solid;
-		border-left: 1px solid;
-	}
-
-	.campaign-card::after {
-		right: 0.45rem;
-		bottom: 0.45rem;
-		border-right: 1px solid;
-		border-bottom: 1px solid;
+			background-color 120ms ease,
+			transform 120ms ease;
 	}
 
 	.campaign-card:hover {
-		border-color: var(--gold, #9a7843);
-		box-shadow: 0 0.9rem 1.8rem rgb(75 52 27 / 11%);
-		transform: translateY(-3px);
+		background: #fffaf0;
+		transform: translate(-0.125rem, -0.125rem);
 	}
 
 	.card-ornament {
 		margin-bottom: 0.6rem;
-		color: var(--gold, #9a7843);
+		color: var(--card-accent);
 		font-size: 1rem;
 		line-height: 1;
 	}
@@ -108,7 +89,7 @@
 
 	a:focus-visible {
 		border-radius: 2px;
-		outline: 2px solid var(--gold, #9a7843);
+		outline: 2px solid var(--color-focus, #3e4b39);
 		outline-offset: 4px;
 	}
 

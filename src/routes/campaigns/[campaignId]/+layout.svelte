@@ -174,7 +174,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.45rem;
-		color: #d7b46e;
+		color: #000;
 		font-family: var(--font-display);
 		font-size: 1rem;
 		font-weight: 600;

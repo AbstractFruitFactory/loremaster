@@ -75,3 +75,23 @@
 <Story name="Loading" args={loadingArgs} />
 
 <Story name="Load error" args={loadErrorArgs} />
+
+<style>
+	:global(.sb-show-main.sb-main-fullscreen) {
+		background-color: #f4efe6;
+		background-image: url('../../assets/background.png');
+		background-repeat: repeat;
+		background-position: center top;
+	}
+
+	:global(.sb-show-main.sb-main-fullscreen #storybook-root) {
+		height: 100dvh;
+		padding: clamp(0.75rem, 2.5vw, 1.75rem) clamp(0.75rem, 2.5vw, 1.75rem) 0;
+	}
+
+	@media (max-width: 52rem) {
+		:global(.sb-show-main.sb-main-fullscreen #storybook-root) {
+			padding: 0;
+		}
+	}
+</style>
