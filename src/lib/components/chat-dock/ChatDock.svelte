@@ -20,6 +20,7 @@
 	import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
 
 	type Props = {
+		campaignId: string
 		open?: boolean
 		conversationHistory: ConversationMessage[]
 		onask: (input: AskLoremasterInput, signal: AbortSignal) => AsyncIterable<AssistantStreamEvent>
@@ -40,7 +41,13 @@
 		{ value: 'event', label: 'Events' }
 	]
 
-	let { open = $bindable(false), conversationHistory, onask, onaddlore }: Props = $props()
+	let {
+		campaignId,
+		open = $bindable(false),
+		conversationHistory,
+		onask,
+		onaddlore
+	}: Props = $props()
 
 	let messages = $state.raw<ConversationMessage[]>([])
 	let hasLoadedHistory = $state(false)
@@ -213,6 +220,7 @@
 				</div>
 
 				<ConversationFeed
+					{campaignId}
 					{messages}
 					{isResponding}
 					{proposal}

@@ -5,21 +5,33 @@ import type {
 	ContextFragment
 } from '../context/types'
 import type { TimelineContext } from '../timeline/types'
+import type { LoreSource } from './types'
 
-const loreContext = (fragments: ContextFragment[]) =>
+const citationKeys = (sources: LoreSource[]) =>
+	new Map(sources.map(({ id }, index) => [id, `S${index + 1}`]))
+
+const sourceTitle = (documentId: string, title: string, citations: Map<string, string>) =>
+	`${title} (citation: [[source:${citations.get(documentId) ?? 'unavailable'}]])`
+
+const loreContext = (fragments: ContextFragment[], citations: Map<string, string>) =>
 	fragments.length
 		? fragments
 				.map(
 					(fragment) =>
-						`## Lore: ${fragment.title}\n${fragment.documentType ? `Category: ${fragment.documentType}\n` : ''}${fragment.heading ? `Section: ${fragment.heading}\n` : ''}${fragment.content}`
+						`## Lore: ${sourceTitle(fragment.documentId, fragment.title, citations)}\n${fragment.documentType ? `Category: ${fragment.documentType}\n` : ''}${fragment.heading ? `Section: ${fragment.heading}\n` : ''}${fragment.content}`
 				)
 				.join('\n\n')
 		: 'No relevant campaign lore was found.'
 
-const chronologyContext = ({ scope, events, edges, containments }: TimelineContext) => {
+const chronologyContext = (
+	{ scope, events, edges, containments }: TimelineContext,
+	citations: Map<string, string>
+) => {
 	if (!events.length) return 'No relevant event chronology was found.'
 
-	const titlesById = new Map(events.map(({ documentId, title }) => [documentId, title]))
+	const titlesById = new Map(
+		events.map(({ documentId, title }) => [documentId, sourceTitle(documentId, title, citations)])
+	)
 	const relations = edges.map(
 		({ beforeDocumentId, afterDocumentId }) =>
 			`${titlesById.get(beforeDocumentId) ?? beforeDocumentId} -> ${titlesById.get(afterDocumentId) ?? afterDocumentId}`
@@ -40,7 +52,7 @@ const chronologyContext = ({ scope, events, edges, containments }: TimelineConte
 	])
 	const unplaced = events
 		.filter(({ documentId }) => !relatedEventIds.has(documentId))
-		.map(({ title }) => title)
+		.map(({ documentId, title }) => sourceTitle(documentId, title, citations))
 	const scopeDescription =
 		scope === 'campaign'
 			? 'This is the campaign-wide chronology graph.'
@@ -55,7 +67,7 @@ const conversationContext = (history: ContextConversationMessage[]) =>
 				.slice(-12)
 				.map(
 					({ role, content }) =>
-						`${role === 'user' ? 'Dungeon Master' : 'Loremaster'}: ${content.slice(0, 2_000)}`
+						`${role === 'user' ? 'Dungeon Master' : 'Loremaster'}: ${content.replaceAll(/\[\[source:S\d+\]\]/g, '').slice(0, 2_000)}`
 				)
 				.join('\n')
 		: 'No previous conversation.'
@@ -91,13 +103,23 @@ Grounding rules:
 - For broad chronology answers, present only sequences and constraints established by graph relationships. List unplaced events separately; never turn formatting, retrieval order, or a topological grouping into additional chronology.
 - Previous Loremaster messages are not evidence. Dungeon Master messages provide conversational context, but do not become durable campaign canon until the Dungeon Master reviews and saves a new-entry proposal.
 - When sources conflict or the evidence is ambiguous, surface the conflict or ambiguity rather than choosing the most plausible version.
+- Cite factual claims immediately after the relevant sentence using one or more exact source markers, for example [[source:S1]] or [[source:S1]][[source:S3]].
+- Only use source identifiers that are explicitly supplied alongside campaign lore or chronology. Do not invent source identifiers and do not include a separate bibliography.
 `
 
 export const assistantPrompt = (
 	message: string,
 	history: ContextConversationMessage[],
-	context: AssistantContext
-): AiPrompt => ({
-	system: assistantSystemPrompt,
-	prompt: `<campaign_lore>\n${loreContext(context.items.map(({ fragment }) => fragment))}\n</campaign_lore>\n\n<known_chronology>\n${chronologyContext(context.timeline)}\n</known_chronology>\n\n<conversation_history>\n${conversationContext(history)}\n</conversation_history>\n\n<current_message>\n${message}\n</current_message>`
-})
+	context: AssistantContext,
+	sources: LoreSource[]
+): AiPrompt => {
+	const citations = citationKeys(sources)
+
+	return {
+		system: assistantSystemPrompt,
+		prompt: `<campaign_lore>\n${loreContext(
+			context.items.map(({ fragment }) => fragment),
+			citations
+		)}\n</campaign_lore>\n\n<known_chronology>\n${chronologyContext(context.timeline, citations)}\n</known_chronology>\n\n<conversation_history>\n${conversationContext(history)}\n</conversation_history>\n\n<current_message>\n${message}\n</current_message>`
+	}
+}
