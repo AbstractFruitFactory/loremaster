@@ -6,5 +6,8 @@ bun.lock
 bun.lockb
 
 # Miscellaneous
-/static/
-/drizzle/
+.cursor/
+**/.svelte-kit/
+**/dist/
+**/drizzle/
+**/static/

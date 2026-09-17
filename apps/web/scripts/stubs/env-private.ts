@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const loadEnvFile = () => {
-	const envPath = resolve(process.cwd(), '.env')
+	const envPath = resolve(process.cwd(), '../../.env')
 	if (!existsSync(envPath)) return
 
 	for (const line of readFileSync(envPath, 'utf8').split('\n')) {
@@ -37,5 +37,6 @@ if (!url) {
 }
 
 export const DATABASE_URL = url
+export const LOREMASTER_DATA_ROOT = process.env.LOREMASTER_DATA_ROOT ?? ''
 export const MOCK_AI_PROVIDER = process.env.MOCK_AI_PROVIDER ?? ''
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? ''

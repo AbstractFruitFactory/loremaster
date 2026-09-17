@@ -4,7 +4,7 @@
 		"rewriteRelativeImportExtensions": true,
 		"sourceMap": true,
 		"strict": true,
-		"types": ["$app/types", "@storybook/addon-svelte-csf"]
+		"types": ["$app/types"]
 	},
 	"include": ["src", "drizzle.config.ts"]
 }

@@ -22,7 +22,10 @@ import { filesystemVaultStorage } from './vault/storage/filesystem'
 const sessionAttributionInstruction =
 	'Preserve epistemic attribution in every extracted claim. If information is presented as dialogue, testimony, belief, rumor, legend, hearsay, or a written source, keep that source in the normalized claim content. Never rewrite "Ilyra says X" as "X", "Nell believes or reports X" as "X", "a letter states X" as "X", or "a legend says X" as "X". Only state X directly as an objective world fact when the transcript itself establishes X authoritatively. The certainty field describes how directly the full attributed claim is supported by the evidence; explicit does not mean that an embedded proposition is objectively true.'
 
-export const createServices = (ai: AiProvider) => {
+export const createServices = (
+	ai: AiProvider,
+	{ vaultRoot = 'data/campaigns' }: { vaultRoot?: string } = {}
+) => {
 	const campaign = createCampaign({
 		ai: {
 			generateText: ai.generateText,
@@ -43,11 +46,11 @@ export const createServices = (ai: AiProvider) => {
 	})
 
 	const timeline = createTimeline({ db: timelineDb })
-	const vaultRoot = resolve('data/campaigns')
-	const storage = filesystemVaultStorage(vaultRoot)
+	const resolvedVaultRoot = resolve(vaultRoot)
+	const storage = filesystemVaultStorage(resolvedVaultRoot)
 	const revisions = vaultRevision({
 		db: revisionDb,
-		revisions: filesystemRevisionStorage(vaultRoot),
+		revisions: filesystemRevisionStorage(resolvedVaultRoot),
 		vault: storage
 	})
 
@@ -84,7 +87,7 @@ export const createServices = (ai: AiProvider) => {
 			inferSessionChronology: ai.inferSessionChronology,
 			analysisModel: ai.models.sessionAnalysis
 		},
-		storage: filesystemIngestionStorage(vaultRoot),
+		storage: filesystemIngestionStorage(resolvedVaultRoot),
 		vault
 	})
 

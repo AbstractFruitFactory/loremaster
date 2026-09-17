@@ -1,67 +1,88 @@
-# sv
+# Loremaster
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Loremaster is a pnpm workspace with two applications:
 
-## Creating a project
+- `apps/web`: the SvelteKit web application, database schema, and campaign vault services.
+- `apps/workflows`: the unbundled Node.js DBOS runtime for durable background workflows.
 
-If you're seeing this, you've probably already done this step. Congrats!
+The repository requires Node.js 20 or later.
 
-```sh
-# create a new project
-npx sv create my-app
-```
+## Local setup
 
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-pnpm dlx sv@0.17.0 create --template minimal --types ts --add prettier vitest="usages:unit" sveltekit-adapter="adapter:auto" drizzle="database:postgresql+postgresql:neon" ai-tools="ide:cursor+tools:mcp,svelte-code-writer,svelte-core-bestpractices,svelte-file-editor+mcpSetup:remote" --install pnpm loremaster
-```
-
-## Developing
-
-Install dependencies, start PostgreSQL, and apply migrations:
+Create the local environment file, install dependencies, start PostgreSQL, and apply application
+migrations:
 
 ```sh
+cp .env.example .env
 pnpm install
 docker compose up -d
 pnpm db:migrate
 pnpm db:seed
 ```
 
-Seed a test campaign ("Curse of Blackwood") with locations, NPCs, lore, events, and more:
+The local DBOS runtime uses `DBOS_SYSTEM_DATABASE_URL`, falling back to `DATABASE_URL`, and stores
+its system tables in the `dbos` schema. The web and workflows applications resolve
+`LOREMASTER_DATA_ROOT` from their package directories, so the campaign vault remains in the
+repository-level `data/campaigns` directory.
 
-```sh
-pnpm db:seed              # skip if already seeded
-pnpm db:seed -- --reset   # delete and recreate
-```
+## Development
 
-After adding revision tracking to an existing development database, initialize its vault history
-and rebuild its document indexes once:
-
-```sh
-pnpm db:reindex-vaults
-```
-
-This is an explicit import boundary: ordinary document reads verify the managed Markdown files and
-never turn unexpected filesystem edits into history.
-
-Open `http://localhost:5173/campaigns/11111111-1111-4111-8111-111111111111` after seeding.
-
-Then start the development server:
+Start both applications:
 
 ```sh
 pnpm dev
 ```
 
-## Building
-
-To create a production version of your app:
+Start either application independently:
 
 ```sh
+pnpm dev:web
+pnpm dev:workflows
+```
+
+The seeded campaign is available at
+`http://localhost:5173/campaigns/11111111-1111-4111-8111-111111111111`.
+
+## Database and vault
+
+Seed the test campaign or recreate it:
+
+```sh
+pnpm db:seed
+pnpm db:seed -- --reset
+```
+
+Initialize vault history and rebuild document indexes:
+
+```sh
+pnpm db:reindex-vaults
+```
+
+Ordinary document reads verify managed Markdown files and do not turn unexpected filesystem edits
+into history.
+
+## Validation
+
+Run workspace checks, tests, formatting validation, and builds from the repository root:
+
+```sh
+pnpm check
+pnpm test
+pnpm lint
 pnpm build
 ```
 
-You can preview the production build with `pnpm preview`.
+Run only the web server test project:
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```sh
+pnpm test:server
+```
+
+## Deployment
+
+`apps/workflows` is compiled with `tsc` and started with Node.js because DBOS applications and
+workflows must not be bundled. Its `dbos-config.yaml` provides the DBOS CLI and DBOS Cloud runtime
+configuration.
+
+The web application still uses `adapter-auto`. Select a concrete SvelteKit adapter before deploying
+it to a specific platform.

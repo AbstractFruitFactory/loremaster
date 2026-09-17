@@ -2,6 +2,7 @@
 
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { LOREMASTER_DATA_ROOT } from '$app/env/private'
 import { and, eq } from 'drizzle-orm'
 import { runPromise } from 'effect/Effect'
 import { vault } from '#lib/server/app.js'
@@ -13,7 +14,10 @@ const reset = process.argv.includes('--reset')
 
 const resetSeedCampaign = async () => {
 	await db.delete(campaigns).where(eq(campaigns.id, seedCampaign.id))
-	rmSync(resolve('data/campaigns', seedCampaign.id), { recursive: true, force: true })
+	rmSync(resolve(LOREMASTER_DATA_ROOT || '../../data/campaigns', seedCampaign.id), {
+		recursive: true,
+		force: true
+	})
 }
 
 const seedCampaignDocuments = async (campaignId: string) => {

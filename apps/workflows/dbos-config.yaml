@@ -1,0 +1,6 @@
+name: loremaster-workflows
+language: node
+system_database_url: ${DBOS_SYSTEM_DATABASE_URL}
+runtimeConfig:
+  start:
+    - node dist/main.js
