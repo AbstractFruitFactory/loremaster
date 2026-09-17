@@ -2,7 +2,7 @@ import { flatMap, map, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import type { AiModel } from '../ai/provider'
 import type { context as createContext } from '../context'
-import type { ContextConversationMessage, ContextItem } from '../context/types'
+import type { AssistantContext, ContextConversationMessage } from '../context/types'
 import { fail, type Failure } from '../failure'
 import { assistantPrompt } from './prompt'
 import type { AssistantResponse, AssistantStream, LoreSource } from './types'
@@ -12,7 +12,7 @@ type AssistantDependencies = {
 	context: Pick<ReturnType<typeof createContext>, 'buildAssistantContext'>
 }
 
-const contextSources = (items: ContextItem[]) => {
+const contextSources = ({ items, timeline }: AssistantContext) => {
 	const sources = new Map<string, LoreSource>()
 
 	for (const { fragment } of items) {
@@ -20,6 +20,15 @@ const contextSources = (items: ContextItem[]) => {
 			id: fragment.documentId,
 			title: fragment.title,
 			type: fragment.documentType
+		})
+	}
+
+	for (const event of timeline.events) {
+		if (sources.has(event.documentId)) continue
+		sources.set(event.documentId, {
+			id: event.documentId,
+			title: event.title,
+			type: 'event'
 		})
 	}
 
@@ -50,21 +59,23 @@ export const assistant = ({ ai, context }: AssistantDependencies) => {
 	): Effect<AssistantResponse, Failure> => {
 		return pipe(
 			requestContext(campaignId, message, history),
-			flatMap(({ assistantContext, request }) =>
-				pipe(
+			flatMap(({ assistantContext, request }) => {
+				const sources = contextSources(assistantContext)
+
+				return pipe(
 					ai.generateAssistant({
-						...assistantPrompt(request, history, assistantContext),
+						...assistantPrompt(request, history, assistantContext, sources),
 						model: ai.model
 					}),
 					map(
 						(response) =>
 							({
 								...response,
-								sources: contextSources(assistantContext.items)
+								sources
 							}) satisfies AssistantResponse
 					)
 				)
-			)
+			})
 		)
 	}
 
@@ -76,19 +87,21 @@ export const assistant = ({ ai, context }: AssistantDependencies) => {
 	): Effect<AssistantStream, Failure> =>
 		pipe(
 			requestContext(campaignId, message, history),
-			flatMap(({ assistantContext, request }) =>
-				pipe(
+			flatMap(({ assistantContext, request }) => {
+				const sources = contextSources(assistantContext)
+
+				return pipe(
 					ai.streamAssistant({
-						...assistantPrompt(request, history, assistantContext),
+						...assistantPrompt(request, history, assistantContext, sources),
 						model: ai.model,
 						signal
 					}),
 					map((events) => ({
 						events,
-						sources: contextSources(assistantContext.items)
+						sources
 					}))
 				)
-			)
+			})
 		)
 
 	return { chat, streamChat }

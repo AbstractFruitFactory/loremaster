@@ -101,6 +101,7 @@
 	{#if conversation.current !== undefined}
 		{#key campaignId}
 			<ChatDock
+				{campaignId}
 				bind:open={isChatOpen}
 				conversationHistory={conversation.current}
 				onask={handleAsk}

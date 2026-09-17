@@ -20,6 +20,7 @@
 	const onaddlore: ChatDockArgs['onaddlore'] = async ({ title }) => ({ title })
 
 	const defaultArgs = {
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
 		conversationHistory: [],
 		onask,
 		onaddlore

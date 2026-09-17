@@ -40,13 +40,41 @@
 				id: 'message-2',
 				role: 'assistant',
 				content:
-					'The Ashen Crown was last carried into the northern ruins, where its bearer disappeared.',
+					'The Ashen Crown was last carried into the northern ruins, where its bearer disappeared.[[source:S1]] Its present location is unknown.',
 				sources: [
 					{
 						id: 'source-1',
 						title: 'The Northern Expedition',
 						type: 'session'
 					}
+				]
+			}
+		]
+	} satisfies ConversationFeedArgs
+
+	const sourceHeavyArgs = {
+		...baseArgs,
+		campaignId: '17ea64a7-98e4-40de-ae5f-b8e35688e157',
+		messages: [
+			{
+				id: 'source-question',
+				role: 'user',
+				content: 'Did Talven die before Raska was captured?',
+				sources: []
+			},
+			{
+				id: 'source-answer',
+				role: 'assistant',
+				content:
+					'Talven was already dead when the party found his body.[[source:S1]] Raska is later described as imprisoned.[[source:S2]] Their order relative to one another is not established.',
+				sources: [
+					{ id: 'talven-death', title: "Talven's body discovered", type: 'event' },
+					{ id: 'raska', title: 'Raska', type: 'npc' },
+					{ id: 'ashen-crown', title: 'The Ashen Crown', type: 'session' },
+					{ id: 'talven', title: 'Captain Ors Talven', type: 'npc' },
+					{ id: 'aeric', title: 'King Aeric', type: 'npc' },
+					{ id: 'aqueduct', title: 'Lower Aqueduct', type: 'location' },
+					{ id: 'tunnels', title: 'Service Tunnels Below Cathedral Square', type: 'location' }
 				]
 			}
 		]
@@ -98,6 +126,8 @@
 <Story name="Conversation with proposal" args={proposalArgs} />
 
 <Story name="Long conversation" args={longConversationArgs} template={longConversation} />
+
+<Story name="Many sources" args={sourceHeavyArgs} />
 
 <style>
 	.feed-frame {
