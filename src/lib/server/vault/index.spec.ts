@@ -467,9 +467,9 @@ id: character-mara
 			})
 		)
 		const updated = await runPromise(
-			operations.updateDocument(campaign.id, created.id, {
-				type: 'session',
-				content: '# Session 12\n\nThe party opened the hidden door.',
+			operations.editDocument(campaign.id, created.id, {
+				title: 'Session 12: The Hidden Door',
+				content: 'The party opened the hidden door.',
 				expectedRevisionId: created.currentRevisionId
 			})
 		)
@@ -480,7 +480,14 @@ id: character-mara
 		)
 		const [listed] = await runPromise(operations.listDocuments(campaign.id))
 
-		expect(updated).toMatchObject({ transcript, ingestionId: 'ingestion-12' })
+		expect(updated).toMatchObject({
+			path: 'Sessions/Session 12.md',
+			title: 'Session 12: The Hidden Door',
+			type: 'session',
+			content: '# Session 12: The Hidden Door\n\nThe party opened the hidden door.',
+			transcript,
+			ingestionId: 'ingestion-12'
+		})
 		expect(restored).toMatchObject({
 			content: '# Session 12\n\nThe party found a door.',
 			transcript,
@@ -542,6 +549,38 @@ id: character-mara
 		expect(await runPromise(operations.getDocument(campaign.id, created.id))).toEqual(created)
 	})
 
+	it('rejects a manual edit based on a stale revision', async () => {
+		const created = await runPromise(
+			operations.createDocument(campaign.id, {
+				path: 'Characters/Varek.md',
+				type: 'npc',
+				content: '# Varek\n\nRuns the forge.'
+			})
+		)
+		const updated = await runPromise(
+			operations.editDocument(campaign.id, created.id, {
+				title: 'Varek',
+				content: 'Guards the western gate.',
+				expectedRevisionId: created.currentRevisionId
+			})
+		)
+		const failure = await runPromise(
+			flip(
+				operations.editDocument(campaign.id, created.id, {
+					title: 'Varek',
+					content: 'Keeps the stale draft.',
+					expectedRevisionId: created.currentRevisionId
+				})
+			)
+		)
+
+		expect(failure).toMatchObject({
+			domain: 'vaultRevision',
+			operation: 'verifyBase'
+		})
+		expect(await runPromise(operations.getDocument(campaign.id, created.id))).toEqual(updated)
+	})
+
 	it('restores a previous snapshot as a new revision without rewriting history', async () => {
 		const created = await runPromise(
 			operations.createDocument(campaign.id, {
@@ -583,6 +622,8 @@ id: character-mara
 				`---
 id: character-varek
 type: npc
+aliases:
+  - The Keeper
 tags:
   - keeper
 custom: retained
@@ -594,15 +635,22 @@ custom: retained
 		const imported = await runPromise(operations.indexDocument(campaign.id, 'Characters/Varek.md'))
 
 		await runPromise(
-			operations.updateDocument(campaign.id, imported.id, {
-				type: 'npc',
-				aliases: ['The Keeper'],
-				content: '# Varek\n\nUpdated.',
+			operations.editDocument(campaign.id, imported.id, {
+				title: 'Varek of Westgate',
+				content: 'Updated.',
 				expectedRevisionId: imported.currentRevisionId
 			})
 		)
 
+		const updated = await runPromise(operations.getDocument(campaign.id, imported.id))
 		const updatedSource = await runPromise(storage.read(campaign.id, imported.path))
+		expect(updated).toMatchObject({
+			path: 'Characters/Varek.md',
+			title: 'Varek of Westgate',
+			type: 'npc',
+			aliases: ['The Keeper'],
+			content: '# Varek of Westgate\n\nUpdated.'
+		})
 		expect(updatedSource).toContain('tags:\n  - keeper')
 		expect(updatedSource).toContain('custom: retained')
 		expect(revisionRecords.map(({ operation }) => operation)).toEqual(['import', 'update'])

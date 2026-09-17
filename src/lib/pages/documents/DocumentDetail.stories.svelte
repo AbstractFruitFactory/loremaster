@@ -8,14 +8,8 @@
 
 	const document = {
 		id: 'document-ashen-crown',
-		path: 'worldbuilding/the-ashen-crown.md',
 		title: 'The Ashen Crown',
 		type: 'worldbuilding',
-		aliases: ['Crown of Ash'],
-		after: [],
-		during: [],
-		summary:
-			'The Ashen Crown is an ancient relic tied to the northern expedition and the fall of Emberwatch.',
 		content: `# The Ashen Crown
 
 An ancient crown forged from blackened silver.
@@ -28,8 +22,10 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 
 - It may rest beneath Westgate
 - Only a blood heir can wear it safely`,
-		links: ['The Oath of Emberwatch']
+		currentRevisionId: '45ed8eba-3816-4b21-82ce-217f97c544bc'
 	} satisfies NonNullable<DocumentDetailArgs['document']>
+
+	const onsave = async () => {}
 
 	const loadedArgs = {
 		selectedType: 'worldbuilding',
@@ -38,7 +34,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		hasLoadError: false,
 		typeMismatch: false,
 		backHref: '/campaigns/demo/worldbuilding',
-		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history',
+		onsave
 	} satisfies DocumentDetailArgs
 
 	const loadingArgs = {
@@ -48,7 +45,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		hasLoadError: false,
 		typeMismatch: false,
 		backHref: '/campaigns/demo/worldbuilding',
-		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history',
+		onsave
 	} satisfies DocumentDetailArgs
 
 	const loadErrorArgs = {
@@ -58,7 +56,8 @@ The crown was last seen during the northern expedition, when [[The Oath of Ember
 		hasLoadError: true,
 		typeMismatch: false,
 		backHref: '/campaigns/demo/worldbuilding',
-		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history'
+		historyHref: '/campaigns/demo/worldbuilding/document-ashen-crown/history',
+		onsave
 	} satisfies DocumentDetailArgs
 
 	const { Story } = defineMeta({

@@ -32,6 +32,11 @@ export type VaultDocument = {
 
 export type VaultDocumentSummary = Omit<VaultDocument, 'content' | 'transcript'>
 
+export type VaultDocumentView = Pick<
+	VaultDocument,
+	'id' | 'title' | 'type' | 'content' | 'currentRevisionId'
+>
+
 export type ParsedVaultDocument = Omit<VaultDocument, 'id' | 'type'> & {
 	id?: string
 	type?: DocumentType

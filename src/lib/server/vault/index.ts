@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
+import { withDocumentTitle } from '../../document'
 import type { AiProvider } from '../ai/provider'
 import type * as CampaignDb from '../db/campaign'
 import type * as VaultDb from '../db/vault'
@@ -483,6 +484,29 @@ export const vault = ({
 			return yield* updateDocumentIndexes(campaignId)(document)
 		})
 
+	const editDocument = (
+		campaignId: string,
+		documentId: string,
+		input: {
+			title: string
+			content: string
+			expectedRevisionId?: string
+		}
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const existing = yield* findDocument(campaignId, documentId)
+			return yield* updateDocument(campaignId, documentId, {
+				type: existing.type,
+				aliases: existing.aliases,
+				after: existing.after,
+				during: existing.during,
+				eventForm: existing.eventForm,
+				content: withDocumentTitle(input.title, input.content),
+				expectedRevisionId: input.expectedRevisionId
+			})
+		})
+
 	const deleteDocument = (
 		campaignId: string,
 		documentId: string,
@@ -613,6 +637,7 @@ export const vault = ({
 		createDocument,
 		deleteDocument,
 		diffDocumentRevisions,
+		editDocument,
 		getBacklinks,
 		getDocument,
 		getDocumentRevision,

@@ -2,7 +2,7 @@ import { basename } from 'node:path'
 import { flatMap, map, succeed, type Effect } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { parseDocument as parseYamlDocument, stringify } from 'yaml'
-import { isDocumentType } from '../../document'
+import { getDocumentTitle, isDocumentType } from '../../document'
 import { fail } from '../failure'
 import type { Failure } from '../failure'
 import { parseSessionBody, serializeSessionBody } from './session'
@@ -165,7 +165,7 @@ const parseFrontmatter = (
 }
 
 const deriveTitle = (path: string, content: string) => {
-	const heading = content.match(/^#\s+(.+?)\s*#*\s*$/m)?.[1]?.trim()
+	const heading = getDocumentTitle(content)
 	return heading || basename(path, '.md')
 }
 

@@ -1,7 +1,9 @@
 <script lang="ts">
-	import DocumentDetail from '#lib/pages/documents/DocumentDetail.svelte'
+	import DocumentDetail, {
+		type DocumentSaveRequest
+	} from '#lib/pages/documents/DocumentDetail.svelte'
 	import type { PageProps } from './$types'
-	import { getDocument } from '../../data.remote'
+	import { editDocument, getDocument } from '../../data.remote'
 
 	let { params }: PageProps = $props()
 
@@ -12,6 +14,14 @@
 	const backHref = $derived(`/campaigns/${campaignId}/${selectedType}`)
 	const historyHref = $derived(`/campaigns/${campaignId}/${selectedType}/${documentId}/history`)
 	const typeMismatch = $derived(Boolean(document.current && document.current.type !== selectedType))
+
+	async function saveDocument(request: DocumentSaveRequest) {
+		await editDocument({
+			campaignId,
+			documentId,
+			...request
+		})
+	}
 </script>
 
 <DocumentDetail
@@ -22,4 +32,5 @@
 	{typeMismatch}
 	{backHref}
 	{historyHref}
+	onsave={saveDocument}
 />

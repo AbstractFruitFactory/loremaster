@@ -13,7 +13,11 @@ import type {
 	VaultRevision,
 	VaultRevisionMetadata
 } from '#lib/server/vault/revisions/types.js'
-import type { VaultDocumentSummary } from '#lib/server/vault/types.js'
+import type {
+	VaultDocument,
+	VaultDocumentSummary,
+	VaultDocumentView
+} from '#lib/server/vault/types.js'
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
@@ -51,6 +55,20 @@ const updateDocumentInput = z
 		type: documentType,
 		aliases,
 		after: eventPredecessors,
+		content: z.string().max(1_000_000),
+		currentRevisionId: revisionId
+	})
+	.strict()
+const editDocumentInput = z
+	.object({
+		campaignId,
+		documentId,
+		title: z
+			.string()
+			.trim()
+			.min(1)
+			.max(200)
+			.refine((value) => !/[\r\n]/.test(value)),
 		content: z.string().max(1_000_000),
 		currentRevisionId: revisionId
 	})
@@ -269,27 +287,43 @@ export const listDocumentsByType = query(
 		(await loadVaultDocuments(campaignId)).filter((document) => document.type === type)
 )
 
-export const getDocument = query(documentReference, ({ campaignId, documentId }) =>
-	runPromise(
-		pipe(
-			vault.getDocument(campaignId, documentId),
-			match({
-				onFailure: (failure) => {
-					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
-						error(404, `Campaign "${campaignId}" was not found`)
-					}
+const toDocumentView = ({
+	id,
+	title,
+	type,
+	content,
+	currentRevisionId
+}: VaultDocument): VaultDocumentView => ({
+	id,
+	title,
+	type,
+	content,
+	currentRevisionId
+})
 
-					if (failure.domain === 'vault' && failure.operation === 'getDocument') {
-						error(404, `Document "${documentId}" was not found`)
-					}
+export const getDocument = query(
+	documentReference,
+	({ campaignId, documentId }): Promise<VaultDocumentView> =>
+		runPromise(
+			pipe(
+				vault.getDocument(campaignId, documentId),
+				match({
+					onFailure: (failure) => {
+						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+							error(404, `Campaign "${campaignId}" was not found`)
+						}
 
-					logFailure(failure)
-					error(500, 'Unable to load vault document')
-				},
-				onSuccess: (document) => document
-			})
+						if (failure.domain === 'vault' && failure.operation === 'getDocument') {
+							error(404, `Document "${documentId}" was not found`)
+						}
+
+						logFailure(failure)
+						error(500, 'Unable to load vault document')
+					},
+					onSuccess: toDocumentView
+				})
+			)
 		)
-	)
 )
 
 export const listDocumentRevisions = query(
@@ -394,7 +428,7 @@ export const createDocument = command(createDocumentInput, (input) =>
 					getDocument({
 						campaignId: input.campaignId,
 						documentId: document.id
-					}).set(document)
+					}).set(toDocumentView(document))
 					return document
 				}
 			})
@@ -431,8 +465,55 @@ export const updateDocument = command(updateDocumentInput, (input) =>
 					getDocument({
 						campaignId: input.campaignId,
 						documentId: document.id
-					}).set(document)
+					}).set(toDocumentView(document))
 					return document
+				}
+			})
+		)
+	)
+)
+
+export const editDocument = command(editDocumentInput, (input): Promise<VaultDocumentView> =>
+	runPromise(
+		pipe(
+			vault.editDocument(input.campaignId, input.documentId, {
+				title: input.title,
+				content: input.content,
+				expectedRevisionId: input.currentRevisionId
+			}),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${input.campaignId}" was not found`)
+					}
+
+					if (failure.domain === 'vault' && failure.operation === 'getDocument') {
+						error(404, `Document "${input.documentId}" was not found`)
+					}
+
+					if (failure.domain === 'vaultRevision' && failure.operation === 'verifyBase') {
+						error(409, 'This document changed after you opened it. Reload before saving.')
+					}
+
+					logFailure(failure)
+					error(500, 'Unable to edit vault document')
+				},
+				onSuccess: (document) => {
+					const view = toDocumentView(document)
+					getDocument({
+						campaignId: input.campaignId,
+						documentId: input.documentId
+					}).set(view)
+					void listDocuments(input.campaignId).refresh()
+					void listDocumentsByType({
+						campaignId: input.campaignId,
+						type: document.type
+					}).refresh()
+					void listDocumentRevisions({
+						campaignId: input.campaignId,
+						documentId: input.documentId
+					}).refresh()
+					return view
 				}
 			})
 		)
@@ -510,7 +591,7 @@ export const restoreDocumentRevision = command(restoreRevisionInput, (input) =>
 					getDocument({
 						campaignId: input.campaignId,
 						documentId: input.documentId
-					}).set(document)
+					}).set(toDocumentView(document))
 					void listDocumentRevisions({
 						campaignId: input.campaignId,
 						documentId: input.documentId
