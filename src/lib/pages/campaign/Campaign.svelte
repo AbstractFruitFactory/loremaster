@@ -27,7 +27,7 @@
 				<li>
 					<a href={`/campaigns/${campaignId}/${type}`}>
 						<span class="icon" aria-hidden="true">
-							<Icon icon={metadata.icon} />
+							<img src={metadata.iconSrc} alt="" />
 						</span>
 						<span class="label">
 							<strong>{metadata.label}</strong>
@@ -47,19 +47,20 @@
 	.campaign-home {
 		box-sizing: border-box;
 		width: 100%;
-		padding: clamp(1.5rem, 4vw, 3.25rem) 0 0;
+		padding: clamp(1.5rem, 4vw, 3.25rem)
+			var(--campaign-inline-padding, clamp(1.25rem, 3vw, 2.75rem)) 0;
 		color: #2e281f;
 	}
 
 	.intro {
 		max-width: 42rem;
 		margin-bottom: 1.5rem;
-		color: #f5ead6;
+		color: #000;
 	}
 
 	.eyebrow {
 		margin: 0 0 0.25rem;
-		color: #896a37;
+		color: #000;
 		font-size: 0.7rem;
 		font-weight: 700;
 		letter-spacing: 0.14em;
@@ -81,7 +82,7 @@
 
 	.intro > p:last-child {
 		margin-bottom: 0;
-		color: #c9beaa;
+		color: #000;
 		line-height: 1.55;
 	}
 
@@ -129,7 +130,12 @@
 		color: #39342c;
 	}
 
-	.icon :global(svg),
+	.icon img {
+		width: 2rem;
+		height: 2rem;
+		object-fit: contain;
+	}
+
 	.arrow :global(svg) {
 		width: 1.15rem;
 		height: 1.15rem;
