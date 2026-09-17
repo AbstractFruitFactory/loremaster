@@ -1,5 +1,5 @@
 import { succeed } from 'effect/Effect'
-import type { DocumentType } from '../../../document'
+import type { DocumentType, ProposalDocumentType } from '../../../document'
 import { EMBEDDING_DIMENSIONS } from '../provider'
 import type {
 	AiModels,
@@ -48,19 +48,20 @@ const contentPatterns: [DocumentType, RegExp][] = [
 	['event', /\b(event|battle|festival|incident|war)\b/i]
 ]
 
-const proposalRequest = /\b(add|create|establish|introduce|invent|make|record|remember|update)\b/i
+const proposalRequest = /\b(add|create|establish|introduce|invent|make|record|remember)\b/i
 
-const categoryFor = (message: string): DocumentType => {
+const categoryFor = (message: string): ProposalDocumentType | null => {
 	if (/\b(player|player character|hero)\b/i.test(message)) return 'player'
 	if (/\b(character|person|npc|blacksmith|merchant|villain)\b/i.test(message)) return 'npc'
 	if (/\b(place|location|town|city|village|region|dungeon)\b/i.test(message)) return 'location'
-	if (/\b(session|recap|session notes)\b/i.test(message)) return 'session'
+	if (/\b(session|recap|session notes)\b/i.test(message)) return null
 	if (/\b(event|battle|festival|incident|war)\b/i.test(message)) return 'event'
 	if (/\b(item|artifact|weapon|armor|relic)\b/i.test(message)) return 'item'
 	return 'worldbuilding'
 }
 
-const currentMessage = (prompt: string) => prompt.split('## Current message\n').at(-1)?.trim() ?? ''
+const currentMessage = (prompt: string) =>
+	prompt.split('<current_message>\n').at(-1)?.split('\n</current_message>')[0]?.trim() ?? ''
 
 const tokens = (text: string) => text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []
 
@@ -121,6 +122,11 @@ const assistantGeneration = (prompt: string) => {
 	}
 
 	const category = categoryFor(message)
+	if (!category) {
+		return {
+			message: 'I cannot draft session entries through chat. Use session ingestion instead.'
+		}
+	}
 
 	return {
 		message:

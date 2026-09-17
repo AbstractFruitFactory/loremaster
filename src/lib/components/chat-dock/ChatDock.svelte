@@ -16,7 +16,7 @@
 	import ConversationFeed from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import type { ConversationMessage } from '#lib/components/conversation-feed/ConversationFeed.svelte'
 	import Window from '#lib/components/window/Window.svelte'
-	import type { DocumentType } from '#lib/document.js'
+	import type { ProposalDocumentType } from '#lib/document.js'
 	import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
 
 	type Props = {
@@ -31,11 +31,10 @@
 		draft: AddLoreInput
 	}
 
-	const proposalCategories: Array<{ value: DocumentType; label: string }> = [
+	const proposalCategories: Array<{ value: ProposalDocumentType; label: string }> = [
 		{ value: 'player', label: 'Players' },
 		{ value: 'npc', label: 'NPCs' },
 		{ value: 'location', label: 'Locations' },
-		{ value: 'session', label: 'Sessions' },
 		{ value: 'item', label: 'Items' },
 		{ value: 'worldbuilding', label: 'Worldbuilding' },
 		{ value: 'event', label: 'Events' }

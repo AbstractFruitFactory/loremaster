@@ -4,9 +4,7 @@ import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
-import { assistant, ingestion, lore, vault } from '#lib/server/app.js'
-import { askLoremasterCommandSchema } from '#lib/server/assistant/schema.js'
-import type { AssistantResponse } from '#lib/server/assistant/types.js'
+import { ingestion, lore, vault } from '#lib/server/app.js'
 import { logFailure } from '#lib/server/failure.js'
 import type { SessionIngestionDraft, SessionIngestionResult } from '#lib/server/ingestion/types.js'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
@@ -183,27 +181,6 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 			})
 		)
 	)
-)
-
-export const askLoremaster = command(
-	askLoremasterCommandSchema,
-	({ campaignId, message, history }): Promise<AssistantResponse> =>
-		runPromise(
-			pipe(
-				assistant.chat(campaignId, message, history),
-				match({
-					onFailure: (failure) => {
-						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
-							error(404, `Campaign "${campaignId}" was not found`)
-						}
-
-						logFailure(failure)
-						error(500, 'Loremaster could not respond')
-					},
-					onSuccess: (response) => response
-				})
-			)
-		)
 )
 
 export const analyzeSession = command(

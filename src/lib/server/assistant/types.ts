@@ -1,11 +1,11 @@
-import type { DocumentType } from '../../document'
+import type { ProposalDocumentType } from '../../document'
 import type { VaultDocument } from '../vault/types'
 
 export type LoreSource = Pick<VaultDocument, 'id' | 'title' | 'type'>
 
 export type LoreProposal = {
 	title: string
-	category: DocumentType
+	category: ProposalDocumentType
 	content: string
 }
 

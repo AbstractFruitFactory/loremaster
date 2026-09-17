@@ -17,7 +17,6 @@
 			{ value: 'player', label: 'Players' },
 			{ value: 'npc', label: 'NPCs' },
 			{ value: 'location', label: 'Locations' },
-			{ value: 'session', label: 'Sessions' },
 			{ value: 'item', label: 'Items' },
 			{ value: 'worldbuilding', label: 'Worldbuilding' },
 			{ value: 'event', label: 'Events' }

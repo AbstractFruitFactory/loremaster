@@ -1,14 +1,14 @@
 <script module lang="ts">
-	import type { DocumentType } from '#lib/document.js'
+	import type { ProposalDocumentType } from '#lib/document.js'
 
 	export type LoreProposalDraft = {
 		title: string
-		category: DocumentType
+		category: ProposalDocumentType
 		content: string
 	}
 
 	export type LoreProposalCategoryOption = {
-		value: DocumentType
+		value: ProposalDocumentType
 		label: string
 	}
 </script>
@@ -59,7 +59,7 @@
 <form class="proposal" onsubmit={handleSubmit} aria-labelledby={proposalHeadingId}>
 	<div class="proposal-heading">
 		<div>
-			<p class="eyebrow">Review before adding</p>
+			<p class="eyebrow">You decide what enters canon</p>
 			<h3 id={proposalHeadingId}>Lore proposal</h3>
 		</div>
 		<span>Draft</span>
@@ -115,7 +115,7 @@
 
 	<div class="proposal-actions">
 		<Button type="submit" disabled={isSubmitting}>
-			{isSubmitting ? 'Adding…' : 'Add to lore'}
+			{isSubmitting ? 'Adding to canon…' : 'Add to canon'}
 		</Button>
 		<Button type="button" variant="secondary" onclick={oncancel} disabled={isSubmitting}>
 			Cancel

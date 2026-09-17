@@ -5,7 +5,7 @@ import type {
 	ResponseStreamEvent
 } from 'openai/resources/responses/responses'
 import { z } from 'zod'
-import { documentTypes, isDocumentType } from '../../../document'
+import { documentTypes, isDocumentType, loreDocumentTypes } from '../../../document'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../../assistant/types'
 import { failure } from '../../failure'
 import {
@@ -482,23 +482,23 @@ const parseRelationshipLinks = (response: OpenAiResponse): RelationshipLink[] =>
 }
 
 const loreProposalSchema = z.object({
-	title: z.string().trim().min(1),
-	category: z.enum(documentTypes),
-	content: z.string().trim().min(1)
+	title: z.string().trim().min(1).max(200),
+	category: z.enum(loreDocumentTypes),
+	content: z.string().trim().min(1).max(1_000_000)
 })
 
-const loreProposalTool = {
+const newLoreProposalTool = {
 	type: 'function' as const,
-	name: 'propose_lore',
+	name: 'propose_new_lore',
 	description:
-		'Propose a new or changed canonical campaign entry when the Dungeon Master is establishing or changing campaign canon.',
+		'Draft one new non-session campaign lore entry for the Dungeon Master to edit and explicitly approve. This tool never saves, edits, or applies canon.',
 	strict: true,
 	parameters: {
 		type: 'object',
 		properties: {
-			title: { type: 'string' },
-			category: { type: 'string', enum: documentTypes },
-			content: { type: 'string' }
+			title: { type: 'string', minLength: 1, maxLength: 200 },
+			category: { type: 'string', enum: loreDocumentTypes },
+			content: { type: 'string', minLength: 1, maxLength: 1_000_000 }
 		},
 		required: ['title', 'category', 'content'],
 		additionalProperties: false
@@ -510,14 +510,16 @@ const requestInput = ({ system, prompt }: { system?: string; prompt: string }) =
 	input: prompt
 })
 
+const parseLoreProposalCall = (item: OpenAiResponse['output'][number]) =>
+	item.type === 'function_call' && item.name === newLoreProposalTool.name
+		? loreProposalSchema.parse(JSON.parse(item.arguments))
+		: undefined
+
+const responseLoreProposal = (response: OpenAiResponse) =>
+	response.output.map(parseLoreProposalCall).find((proposal) => proposal !== undefined)
+
 export const parseAssistantResponse = (response: OpenAiResponse): AssistantGeneration => {
-	const functionCall = response.output.find(
-		(item) => item.type === 'function_call' && item.name === loreProposalTool.name
-	)
-	const proposal =
-		functionCall?.type === 'function_call'
-			? loreProposalSchema.parse(JSON.parse(functionCall.arguments))
-			: undefined
+	const proposal = responseLoreProposal(response)
 
 	return {
 		message:
@@ -544,9 +546,19 @@ export const assistantEvents = async function* (
 
 		if (
 			event.type === 'response.function_call_arguments.done' &&
-			event.name === loreProposalTool.name
+			event.name === newLoreProposalTool.name
 		) {
 			proposal = loreProposalSchema.parse(JSON.parse(event.arguments))
+			continue
+		}
+
+		if (event.type === 'response.output_item.done') {
+			proposal = parseLoreProposalCall(event.item) ?? proposal
+			continue
+		}
+
+		if (event.type === 'response.completed') {
+			proposal = responseLoreProposal(event.response) ?? proposal
 			continue
 		}
 
@@ -559,11 +571,16 @@ export const assistantEvents = async function* (
 		}
 	}
 
-	if (proposal) {
-		if (!hasText) {
-			yield { type: 'text-delta', delta: 'I drafted a lore suggestion for your review.' }
+	if (!hasText) {
+		yield {
+			type: 'text-delta',
+			delta: proposal
+				? 'I drafted a lore suggestion for your review.'
+				: 'I could not generate a response.'
 		}
+	}
 
+	if (proposal) {
 		yield { type: 'proposal', proposal }
 	}
 }
@@ -589,7 +606,7 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 				const response = await client.responses.create({
 					model,
 					...requestInput({ system, prompt }),
-					tools: [loreProposalTool]
+					tools: [newLoreProposalTool]
 				})
 
 				return parseAssistantResponse(response)
@@ -604,7 +621,7 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 					{
 						model,
 						...requestInput({ system, prompt }),
-						tools: [loreProposalTool],
+						tools: [newLoreProposalTool],
 						stream: true
 					},
 					{ signal }

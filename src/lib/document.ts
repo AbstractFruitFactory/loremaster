@@ -10,5 +10,11 @@ export const documentTypes = [
 
 export type DocumentType = (typeof documentTypes)[number]
 
+export type ProposalDocumentType = Exclude<DocumentType, 'session'>
+
+export const loreDocumentTypes = documentTypes.filter(
+	(type): type is ProposalDocumentType => type !== 'session'
+)
+
 export const isDocumentType = (value: unknown): value is DocumentType =>
 	typeof value === 'string' && documentTypes.some((type) => type === value)

@@ -93,8 +93,7 @@
 			<div>
 				<h3>Shape your world through conversation</h3>
 				<p>
-					Ask questions, explore connections, or establish and change lore. You will review any
-					proposed canon before adding it.
+					Ask questions, explore connections, or establish new lore.
 				</p>
 			</div>
 		</div>
