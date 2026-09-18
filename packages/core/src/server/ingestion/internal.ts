@@ -67,8 +67,8 @@ export type ResolutionCandidate = {
 	title: string
 	type: IngestionDocumentType
 	context: string
-	provenance: CandidateProvenance
-	candidate: ProposalCandidate
+	provenance: CandidateProvenance | 'session-entity'
+	candidate: ProposalCandidate | SessionEntityCandidate
 }
 
 export type ModelResolutionRequest = {
