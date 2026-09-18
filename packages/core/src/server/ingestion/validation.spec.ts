@@ -15,7 +15,7 @@ const extractedClaim: ExtractedSessionClaim = {
 	certainty: 'explicit',
 	content: 'Mara opened the gate.',
 	evidence: [{ startLine: 1, endLine: 1 }],
-	entityReferences: [{ label: 'Mara', type: 'npc' }]
+	entityReferences: [{ label: 'Mara', type: 'npc', role: 'subject' }]
 }
 
 const acceptingValidator: ValidateSessionClaims = ({ prompt }) => {
@@ -99,9 +99,9 @@ describe('session claim validation', () => {
 			content: 'Ilyra Vey says the black key opens the Lower Gate.',
 			evidence: [{ startLine: 2, endLine: 2 }],
 			entityReferences: [
-				{ label: 'Ilyra Vey', type: 'npc' },
-				{ label: 'black key', type: 'item' },
-				{ label: 'Lower Gate', type: 'location' }
+				{ label: 'Ilyra Vey', type: 'npc', role: 'subject' },
+				{ label: 'black key', type: 'item', role: 'related' },
+				{ label: 'Lower Gate', type: 'location', role: 'related' }
 			]
 		}
 		let validationCall = 0
@@ -255,7 +255,7 @@ describe('session claim validation', () => {
 			certainty: 'explicit',
 			content: 'Ilyra says the black key opens the Lower Gate.',
 			evidence: [{ startLine: 1, endLine: 2 }],
-			entityReferences: [{ label: 'Ilyra Vey', type: 'npc' }]
+			entityReferences: [{ label: 'Ilyra Vey', type: 'npc', role: 'subject' }]
 		}
 		const draft = await analyze(
 			operationsWith(() => succeed([claim]), acceptingValidator, [ilyra]),
@@ -278,8 +278,8 @@ describe('session claim validation', () => {
 			content: 'The ledger says E. Vey retained the bell mechanism.',
 			evidence: [{ startLine: 1, endLine: 1 }],
 			entityReferences: [
-				{ label: 'Elias Vey', type: 'npc' },
-				{ label: 'bell mechanism', type: 'item' }
+				{ label: 'Elias Vey', type: 'npc', role: 'related' },
+				{ label: 'bell mechanism', type: 'item', role: 'subject' }
 			]
 		}
 		const validator: ValidateSessionClaims = ({ prompt }) => {
@@ -318,7 +318,7 @@ describe('session claim validation', () => {
 			'[session-ingestion] discarded entity reference',
 			expect.objectContaining({
 				reason: 'validator-rejected-reference',
-				entityReference: { label: 'Elias Vey', type: 'npc' }
+				entityReference: { label: 'Elias Vey', type: 'npc', role: 'related' }
 			})
 		)
 		warn.mockRestore()
@@ -332,7 +332,7 @@ describe('session claim validation', () => {
 				{ startLine: 1, endLine: 2 },
 				{ startLine: 4, endLine: 4 }
 			],
-			entityReferences: [{ label: 'Seraphine Vey', type: 'npc' as const }]
+			entityReferences: [{ label: 'Seraphine Vey', type: 'npc' as const, role: 'subject' as const }]
 		}
 		const draft = await analyze(
 			operationsWith(() => succeed([multiSpan])),
@@ -368,9 +368,11 @@ describe('session claim validation', () => {
 			certainty: 'explicit',
 			content: 'The wall gives a hollow note when Brakka taps it.',
 			evidence: [{ startLine: 1, endLine: 1 }],
-			entityReferences: [{ label: 'Wall', type: 'location' }]
+			entityReferences: [{ label: 'Wall', type: 'location', role: 'subject' }]
 		}
 		const analyzer: AnalyzeSessionChunk = vi.fn(({ system }) => {
+			expect(system ?? '').toContain('Assign every entity reference a role')
+			expect(system ?? '').toContain('one focused stable fact for each relic')
 			expect(system ?? '').toContain('Only emit entity references for durable campaign entities')
 			expect(system ?? '').toContain(
 				'A location reference must denote a distinct, persistent place'
@@ -381,6 +383,8 @@ describe('session claim validation', () => {
 			return succeed([claim])
 		})
 		const validator: ValidateSessionClaims = vi.fn(({ system, prompt }) => {
+			expect(system ?? '').toContain('Validate each supplied entity-reference role')
+			expect(system ?? '').toContain('participant references must be related')
 			expect(system ?? '').toContain('Reference validation checks entityhood and type')
 			expect(system ?? '').toContain('A Location must be a distinct, persistent place')
 			expect(system ?? '').toContain('Scene or section headings are editorial context')

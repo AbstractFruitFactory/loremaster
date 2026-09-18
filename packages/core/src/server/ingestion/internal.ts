@@ -1,4 +1,5 @@
 import type { VaultDocument } from '../vault/types.js'
+import type { CandidateProvenance } from './matching.js'
 import type {
 	EntityReference,
 	Evidence,
@@ -50,10 +51,12 @@ export type EntityResolution =
 
 export type ResolvedClaim = ValidatedClaim & {
 	entities: EntityResolution[]
+	event?: EntityResolution
 }
 
 export type EntityReferenceOccurrence = {
 	referenceId: string
+	purpose: 'entity-reference' | 'development-event'
 	claim: ValidatedClaim
 	reference: EntityReference
 	match: ProposalMatch
@@ -64,7 +67,8 @@ export type ResolutionCandidate = {
 	title: string
 	type: IngestionDocumentType
 	context: string
-	candidate: ProposalCandidate | SessionEntityCandidate
+	provenance: CandidateProvenance
+	candidate: ProposalCandidate
 }
 
 export type ModelResolutionRequest = {

@@ -41,7 +41,8 @@ const evidenceRangeSchema = z.object({
 
 const entityReferenceSchema = z.object({
 	label: z.string().trim().min(1),
-	type: z.enum(ingestionDocumentTypes)
+	type: z.enum(ingestionDocumentTypes),
+	role: z.enum(['subject', 'related'])
 })
 
 const sessionClaimSchema = z.object({
@@ -69,9 +70,10 @@ const entityReferenceJsonSchema = {
 	type: 'object' as const,
 	properties: {
 		label: { type: 'string' },
-		type: { type: 'string', enum: ingestionDocumentTypes }
+		type: { type: 'string', enum: ingestionDocumentTypes },
+		role: { type: 'string', enum: ['subject', 'related'] }
 	},
-	required: ['label', 'type'],
+	required: ['label', 'type', 'role'],
 	additionalProperties: false
 }
 
@@ -98,7 +100,7 @@ const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
 	description:
-		'Record atomic campaign claims with supporting transcript line ranges, semantic entity references, and concise factual titles for developments.',
+		'Record atomic campaign claims with supporting transcript line ranges, subject and related entity references, and concise factual titles for developments.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -143,7 +145,7 @@ const sessionClaimValidationsTool = {
 	type: 'function' as const,
 	name: 'validate_session_claims',
 	description:
-		'Validate claim content and semantic entity-reference associations independently without rewriting them.',
+		'Validate claim content and semantic entity-reference subject or related roles independently without rewriting them.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -240,20 +242,33 @@ const parseSessionClaimEvidenceRepairs = (
 		: []
 }
 
+const sessionEntityResolutionSchema = z.discriminatedUnion('kind', [
+	z.object({
+		referenceId: z.string().trim().min(1),
+		kind: z.literal('existing'),
+		targetId: z.string().trim().min(1)
+	}),
+	z.object({
+		referenceId: z.string().trim().min(1),
+		kind: z.literal('create')
+	}),
+	z.object({
+		referenceId: z.string().trim().min(1),
+		kind: z.literal('defer'),
+		candidateIds: z.array(z.string().trim().min(1)).min(2),
+		reason: z.string().trim().min(1).max(240)
+	})
+])
+
 const sessionEntityResolutionsSchema = z.object({
-	resolutions: z.array(
-		z.object({
-			referenceId: z.string().trim().min(1),
-			targetId: z.string().trim().min(1).nullable()
-		})
-	)
+	resolutions: z.array(sessionEntityResolutionSchema)
 })
 
 const sessionEntityResolutionsTool = {
 	type: 'function' as const,
 	name: 'resolve_session_entities',
 	description:
-		'Resolve ambiguous entity references by choosing only from the supplied candidate targets, or leave them unresolved.',
+		'Resolve entity references explicitly as an existing supplied target, a new entity, or a genuine ambiguity among supplied identity candidates.',
 	strict: true,
 	parameters: {
 		type: 'object',
@@ -261,13 +276,42 @@ const sessionEntityResolutionsTool = {
 			resolutions: {
 				type: 'array',
 				items: {
-					type: 'object',
-					properties: {
-						referenceId: { type: 'string' },
-						targetId: { type: ['string', 'null'] }
-					},
-					required: ['referenceId', 'targetId'],
-					additionalProperties: false
+					anyOf: [
+						{
+							type: 'object',
+							properties: {
+								referenceId: { type: 'string' },
+								kind: { type: 'string', enum: ['existing'] },
+								targetId: { type: 'string' }
+							},
+							required: ['referenceId', 'kind', 'targetId'],
+							additionalProperties: false
+						},
+						{
+							type: 'object',
+							properties: {
+								referenceId: { type: 'string' },
+								kind: { type: 'string', enum: ['create'] }
+							},
+							required: ['referenceId', 'kind'],
+							additionalProperties: false
+						},
+						{
+							type: 'object',
+							properties: {
+								referenceId: { type: 'string' },
+								kind: { type: 'string', enum: ['defer'] },
+								candidateIds: {
+									type: 'array',
+									items: { type: 'string' },
+									minItems: 2
+								},
+								reason: { type: 'string', minLength: 1, maxLength: 240 }
+							},
+							required: ['referenceId', 'kind', 'candidateIds', 'reason'],
+							additionalProperties: false
+						}
+					]
 				}
 			}
 		},

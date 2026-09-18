@@ -6,7 +6,7 @@ const normalizedClaimKey = (claim: ValidatedClaim) =>
 	JSON.stringify([
 		claim.kind,
 		normalize(claim.content),
-		claim.entityReferences.map(({ label, type }) => [type, normalize(label)])
+		claim.entityReferences.map(({ label, type, role }) => [type, normalize(label), role])
 	])
 
 export const mergeClaims = (claims: ValidatedClaim[]) => {

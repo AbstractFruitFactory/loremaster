@@ -21,6 +21,7 @@ export type EvidenceRange = {
 export type EntityReference = {
 	label: string
 	type: IngestionDocumentType
+	role: 'subject' | 'related'
 }
 
 export type ExtractedSessionClaim = {
@@ -81,10 +82,22 @@ export type SessionClaimEvidenceRepair = {
 	evidence: EvidenceRange[]
 }
 
-export type SessionEntityResolution = {
-	referenceId: string
-	targetId: string | null
-}
+export type SessionEntityResolution =
+	| {
+			referenceId: string
+			kind: 'existing'
+			targetId: string
+	  }
+	| {
+			referenceId: string
+			kind: 'create'
+	  }
+	| {
+			referenceId: string
+			kind: 'defer'
+			candidateIds: string[]
+			reason: string
+	  }
 
 export type SessionEventAudit = {
 	events: ExtractedSessionClaim[]

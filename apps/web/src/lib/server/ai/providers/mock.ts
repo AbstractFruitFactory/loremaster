@@ -222,7 +222,8 @@ const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
 	return succeed(
 		(input.references ?? []).map(({ referenceId, candidates }) => ({
 			referenceId,
-			targetId: candidates[0]?.targetId ?? null
+			kind: 'existing' as const,
+			targetId: candidates[0]!.targetId
 		}))
 	)
 }

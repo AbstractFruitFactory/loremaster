@@ -6,9 +6,17 @@ import type {
 	ProposalReference
 } from './types.js'
 
+export type CandidateProvenance = 'exact-name' | 'alias' | 'partial-name' | 'relational-context'
+
+export type IdentityCandidate = {
+	candidate: ProposalCandidate
+	provenance: Exclude<CandidateProvenance, 'relational-context'>
+}
+
 const normalize = (value: string) => value.trim().toLocaleLowerCase()
 const tokens = (value: string) => new Set(normalize(value).match(/[\p{L}\p{N}]+/gu) ?? [])
 const namesFor = (document: VaultDocument) => [document.title, ...(document.aliases ?? [])]
+const insignificantNameTokens = new Set(['a', 'an', 'of', 'the'])
 
 const tokenOverlap = (left: Set<string>, right: Set<string>) =>
 	[...left].filter((token) => right.has(token)).length
@@ -39,13 +47,47 @@ const asCandidate = (document: VaultDocument, score: number): ProposalCandidate 
 			}
 		: undefined
 
-const strongPartialMatch = (query: string, document: VaultDocument) => {
-	const queryTokens = tokens(query)
-	if (!queryTokens.size) return false
-	return namesFor(document).some((name) => {
-		const nameTokens = tokens(name)
-		return [...queryTokens].every((token) => nameTokens.has(token))
-	})
+const significantTokens = (value: string) =>
+	new Set([...tokens(value)].filter((token) => !insignificantNameTokens.has(token)))
+
+const partialNameScore = (query: string, name: string) => {
+	const queryTokens = significantTokens(query)
+	const nameTokens = significantTokens(name)
+	if (!queryTokens.size || !nameTokens.size) return 0
+	const overlap = tokenOverlap(queryTokens, nameTokens)
+	const smallerSize = Math.min(queryTokens.size, nameTokens.size)
+	if (overlap !== smallerSize) return 0
+	return overlap / Math.max(queryTokens.size, nameTokens.size)
+}
+
+export const identityCandidates = (
+	query: string,
+	documents: VaultDocument[],
+	expectedType?: IngestionDocumentType
+): IdentityCandidate[] => {
+	const normalized = normalize(query)
+	return documents
+		.filter((document) => typeMatches(document, expectedType))
+		.filter((document): document is VaultDocument & { currentRevisionId: string } =>
+			Boolean(document.currentRevisionId)
+		)
+		.flatMap((document): IdentityCandidate[] => {
+			const titleExact = normalize(document.title) === normalized
+			const aliasExact = (document.aliases ?? []).some((alias) => normalize(alias) === normalized)
+			const partialScore = Math.max(
+				...namesFor(document).map((name) => partialNameScore(query, name))
+			)
+			const provenance = titleExact ? 'exact-name' : aliasExact ? 'alias' : 'partial-name'
+			const score = titleExact ? 3 : aliasExact ? 2.75 : partialScore
+			const candidate = score > 0 ? asCandidate(document, score) : undefined
+			return candidate ? [{ candidate, provenance }] : []
+		})
+		.sort(
+			(left, right) =>
+				right.candidate.score - left.candidate.score ||
+				left.candidate.title.localeCompare(right.candidate.title)
+		)
+		.slice(0, 5)
 }
 
 export const matchDocument = (
@@ -53,49 +95,24 @@ export const matchDocument = (
 	documents: VaultDocument[],
 	expectedType?: IngestionDocumentType
 ): ProposalMatch => {
-	const normalized = normalize(query)
-	const eligible = documents.filter((document) => typeMatches(document, expectedType))
-	const exact = eligible.filter((document) =>
-		namesFor(document).some((name) => normalize(name) === normalized)
-	)
-
-	if (exact.length === 1) {
-		const [document] = exact
+	const identities = identityCandidates(query, documents, expectedType)
+	if (
+		identities.length === 1 &&
+		(identities[0]!.provenance === 'exact-name' || identities[0]!.provenance === 'alias')
+	) {
+		const { candidate } = identities[0]!
 		return {
 			kind: 'exact',
-			documentId: document.id,
-			title: document.title,
-			documentType: document.type
+			documentId: candidate.documentId,
+			title: candidate.title,
+			documentType: candidate.documentType
 		}
 	}
 
-	const partial = eligible.filter((document) => strongPartialMatch(query, document))
-	if (partial.length === 1) {
-		const [document] = partial
-		return {
-			kind: 'exact',
-			documentId: document.id,
-			title: document.title,
-			documentType: document.type
-		}
+	return {
+		kind: 'unresolved',
+		candidates: identities.map(({ candidate }) => candidate)
 	}
-
-	const candidates: ProposalCandidate[] = eligible
-		.filter((document): document is VaultDocument & { currentRevisionId: string } =>
-			Boolean(document.currentRevisionId)
-		)
-		.map((document) => ({
-			documentId: document.id,
-			revisionId: document.currentRevisionId,
-			title: document.title,
-			documentType: document.type,
-			score: candidateScore(query, document)
-		}))
-		.filter(({ score }) => score > 0)
-		.sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
-		.slice(0, 5)
-
-	return { kind: 'unresolved', candidates }
 }
 
 type WeightedCandidate = { document: VaultDocument; score: number }

@@ -302,8 +302,15 @@
 			.replace(/[.!?:;]+$/u, '')
 			.replace(/\s+/gu, ' ')
 
-	const hasPossibleMatches = (proposal: SessionProposal) =>
-		proposal.match.kind === 'unresolved' && proposal.match.candidates.length > 0
+	const hasDeferredIdentityDecision = (
+		proposal: SessionProposal
+	): proposal is SessionProposal & {
+		operation: 'create-entity' | 'create-event'
+		match: Extract<SessionProposal['match'], { kind: 'unresolved' }>
+	} =>
+		(proposal.operation === 'create-entity' || proposal.operation === 'create-event') &&
+		proposal.match.kind === 'unresolved' &&
+		proposal.match.candidates.length > 0
 
 	const isOtherDetail = (proposal: SessionProposal) =>
 		proposal.operation === 'mention-only' || proposal.operation === 'record-only'
@@ -311,7 +318,7 @@
 	const needsAttention = (proposal: SessionProposal) =>
 		proposal.documentType !== 'session' &&
 		!isOtherDetail(proposal) &&
-		(hasPossibleMatches(proposal) ||
+		(hasDeferredIdentityDecision(proposal) ||
 			proposal.certainty === 'inferred' ||
 			proposal.resolutionMethod === 'model')
 
@@ -327,12 +334,12 @@
 	const selected = (proposal: SessionProposal) => {
 		if (proposal.documentType === 'session') return true
 		if (proposal.operation === 'mention-only') return false
-		if (hasPossibleMatches(proposal) && !resolutions[proposal.proposalId]) return false
+		if (hasDeferredIdentityDecision(proposal) && !resolutions[proposal.proposalId]) return false
 		return reviewStatus(proposal) === 'approved'
 	}
 
 	const canApprove = (proposal: SessionProposal) =>
-		!hasPossibleMatches(proposal) || Boolean(resolutions[proposal.proposalId])
+		!hasDeferredIdentityDecision(proposal) || Boolean(resolutions[proposal.proposalId])
 
 	const approveProposal = (proposal: SessionProposal) => {
 		if (commitLocked || !canApprove(proposal)) return
@@ -659,9 +666,9 @@
 			<div class="badges">
 				{#if status === 'pending'}<span class="badge pending-badge">Review</span>{/if}
 				{#if proposal.certainty === 'inferred'}<span class="badge attention">Inferred</span>{/if}
-				{#if proposal.resolutionMethod === 'model'}<span class="badge attention"
-						>Suggested match</span
-					>{/if}
+				{#if proposal.match.kind === 'exact' && proposal.resolutionMethod === 'model'}
+					<span class="badge attention">Suggested match</span>
+				{/if}
 			</div>
 		</div>
 
@@ -682,22 +689,22 @@
 				Suggested match: <strong>{proposal.match.title}</strong>. Approve only if this is the same
 				entry.
 			</p>
-		{:else if proposal.match.kind === 'unresolved' && proposal.match.candidates.length}
+		{:else if hasDeferredIdentityDecision(proposal)}
 			<div class="resolution-panel">
 				<div>
-					<strong>Which campaign entry is this?</strong>
-					<p>Choose the destination before approving this change.</p>
+					<strong>Is this the same as an existing entry?</strong>
+					<p>Choose an existing entry only if both names refer to the same thing.</p>
 				</div>
 				<label class="resolution">
-					<span>Resolve match</span>
+					<span>Identity match</span>
 					<select
 						value={resolutions[proposal.proposalId] ?? ''}
 						disabled={commitLocked}
 						onchange={(event) => chooseResolution(proposal, event.currentTarget.value)}
 					>
-						<option value="">Choose an entry…</option>
+						<option value="">Choose whether these are the same…</option>
 						{#each proposal.match.candidates as candidate (candidate.documentId)}
-							<option value={candidate.documentId}>Update “{candidate.title}”</option>
+							<option value={candidate.documentId}>Same as “{candidate.title}”</option>
 						{/each}
 						{#if proposal.canCreate}
 							<option value="create">Create new “{proposal.title}”</option>

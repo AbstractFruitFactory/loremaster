@@ -10,6 +10,7 @@ import type {
 import type { VaultDocument } from '../vault/types.js'
 import { sessionIngestion } from './index.js'
 import type {
+	EntityReference,
 	ExtractedSessionClaim,
 	InferredSessionChronology,
 	SessionIngestionDraft,
@@ -71,18 +72,28 @@ const document = (
 
 const varek = document('varek', 'Varek', ['The Gatekeeper'])
 
-const claim = (
-	content: string,
-	overrides: Partial<ExtractedSessionClaim> = {}
-): ExtractedSessionClaim => ({
-	kind: 'stable-fact',
-	eventTitle: null,
-	certainty: 'explicit',
-	content,
-	evidence: [{ startLine: 1, endLine: 1 }],
-	entityReferences: [{ label: 'Varek', type: 'npc' }],
-	...overrides
-})
+type ClaimEntityReference = Omit<EntityReference, 'role'> & Partial<Pick<EntityReference, 'role'>>
+
+type ClaimOverrides = Omit<Partial<ExtractedSessionClaim>, 'entityReferences'> & {
+	entityReferences?: ClaimEntityReference[]
+}
+
+const claim = (content: string, overrides: ClaimOverrides = {}): ExtractedSessionClaim => {
+	const kind = overrides.kind ?? 'stable-fact'
+	const role: EntityReference['role'] = kind === 'development' ? 'related' : 'subject'
+	const entityReferences = (
+		overrides.entityReferences ?? [{ label: 'Varek', type: 'npc' as const }]
+	).map((reference) => ({ role, ...reference }))
+	return {
+		kind,
+		eventTitle: null,
+		certainty: 'explicit',
+		content,
+		evidence: [{ startLine: 1, endLine: 1 }],
+		...overrides,
+		entityReferences
+	}
+}
 
 const validatingAnalyzer =
 	(claims: ExtractedSessionClaim[]): AnalyzeSessionChunk =>
@@ -266,7 +277,7 @@ describe('session ingestion operations', () => {
 				expect.objectContaining({
 					content: 'Varek opened the western gate.',
 					eventTitle: 'Western gate opened',
-					entityReferences: [{ label: 'Varek', type: 'npc' }]
+					entityReferences: [{ label: 'Varek', type: 'npc', role: 'related' }]
 				})
 			])
 		)
@@ -330,8 +341,22 @@ describe('session ingestion operations', () => {
 		)
 	})
 
-	it('resolves a short unambiguous name to an existing full entity name', async () => {
+	it('uses the model to establish a short partial-name identity', async () => {
 		const mara = document('mara', 'Mara Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: { referenceId: string; candidates: { targetId: string }[] }[]
+				}
+			).references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'existing',
+					targetId: reference!.candidates[0]!.targetId
+				}
+			])
+		}
 		const harness = setup(
 			[
 				claim('Mara is about forty.', {
@@ -339,15 +364,54 @@ describe('session ingestion operations', () => {
 					entityReferences: [{ label: 'Mara', type: 'npc' }]
 				})
 			],
-			[mara]
+			[mara],
+			resolver
 		)
 		const draft = await runPromise(analyze(harness.operations, 'Mara is about forty.'))
 
 		expect(draft.proposals[1]).toMatchObject({
 			operation: 'update-canon',
 			title: 'Mara Vale',
-			selected: true,
+			selected: false,
+			resolutionMethod: 'model',
 			match: { kind: 'exact', documentId: 'mara' }
+		})
+	})
+
+	it('rejects model target IDs that were not supplied for the reference', async () => {
+		const mara = document('mara', 'Mara Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (JSON.parse(prompt) as { references: { referenceId: string }[] })
+				.references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'existing',
+					targetId: 'document:unrelated'
+				}
+			])
+		}
+		const draft = await runPromise(
+			analyze(
+				setup(
+					[
+						claim('Mara is about forty.', {
+							entityReferences: [{ label: 'Mara', type: 'npc' }]
+						})
+					],
+					[mara],
+					resolver
+				).operations,
+				'Mara is about forty.'
+			)
+		)
+
+		expect(draft.proposals[1]).toMatchObject({
+			operation: 'create-entity',
+			title: 'Mara',
+			selected: false,
+			resolutionMethod: 'model',
+			match: { kind: 'unresolved', candidates: [] }
 		})
 	})
 
@@ -366,14 +430,9 @@ describe('session ingestion operations', () => {
 		const proposal = draft.proposals[1]
 
 		expect(proposal).toMatchObject({
-			operation: 'create-entity',
-			title: "Mara's age",
-			selected: false,
-			canCreate: false,
-			match: {
-				kind: 'unresolved',
-				candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
-			}
+			operation: 'record-only',
+			content: 'Mara is about forty years old.',
+			match: { kind: 'unresolved', candidates: [] }
 		})
 	})
 
@@ -475,8 +534,8 @@ describe('session ingestion operations', () => {
 			return succeed(
 				input.references.map(({ referenceId, candidates }) => ({
 					referenceId,
-					targetId:
-						candidates.find(({ targetId }) => targetId === 'document:roger')?.targetId ?? null
+					kind: 'existing' as const,
+					targetId: candidates.find(({ targetId }) => targetId === 'document:roger')!.targetId
 				}))
 			)
 		})
@@ -501,6 +560,234 @@ describe('session ingestion operations', () => {
 			selected: false,
 			resolutionMethod: 'model',
 			match: { kind: 'exact', documentId: 'roger' }
+		})
+	})
+
+	it('routes the three relic reactions to focused item canon and one shared event', async () => {
+		const emptyBell = document('empty-bell', 'Empty Bell token', [], 'item')
+		const ninthFragment = document('ninth-fragment', 'Ninth Fragment', [], 'item')
+		const claims = [
+			claim("The Empty Bell token's crack filled with blue light when the tenth bell answered.", {
+				evidence: [{ startLine: 1, endLine: 1 }],
+				entityReferences: [
+					{ label: 'Empty Bell token', type: 'item', role: 'subject' },
+					{ label: 'Ninth Fragment', type: 'item', role: 'related' }
+				]
+			}),
+			claim(
+				'The eight-fragment crown struck the inside of its secured chest once when the tenth bell answered.',
+				{
+					evidence: [{ startLine: 2, endLine: 2 }],
+					entityReferences: [{ label: 'Eight-Fragment Crown', type: 'item', role: 'subject' }]
+				}
+			),
+			claim(
+				'The Ninth Fragment turned so its narrow point faced west when the tenth bell answered.',
+				{
+					evidence: [{ startLine: 3, endLine: 3 }],
+					entityReferences: [{ label: 'Ninth Fragment', type: 'item', role: 'subject' }]
+				}
+			),
+			claim('The three separated relics reacted simultaneously when the tenth bell answered.', {
+				kind: 'development',
+				eventTitle: 'Relics react to the tenth bell',
+				evidence: [{ startLine: 4, endLine: 4 }],
+				entityReferences: [
+					{ label: 'Empty Bell token', type: 'item', role: 'related' },
+					{ label: 'Eight-Fragment Crown', type: 'item', role: 'related' },
+					{ label: 'Ninth Fragment', type: 'item', role: 'related' }
+				]
+			})
+		]
+		const draft = await runPromise(
+			analyze(
+				setup(claims, [emptyBell, ninthFragment]).operations,
+				claims.map(({ content }) => content).join('\n')
+			)
+		)
+		const emptyBellUpdate = draft.proposals.find(({ base }) => base?.documentId === emptyBell.id)!
+		const ninthFragmentUpdate = draft.proposals.find(
+			({ base }) => base?.documentId === ninthFragment.id
+		)!
+		const crown = draft.proposals.find(({ title }) => title === 'Eight-Fragment Crown')!
+		const sharedEvent = draft.proposals.find(
+			({ title }) => title === 'Relics react to the tenth bell'
+		)!
+
+		expect(emptyBellUpdate.content).toBe(claims[0]!.content)
+		expect(emptyBellUpdate.references).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ label: 'Empty Bell token', documentId: emptyBell.id }),
+				expect.objectContaining({ label: 'Ninth Fragment', documentId: ninthFragment.id })
+			])
+		)
+		expect(ninthFragmentUpdate.content).toBe(claims[2]!.content)
+		expect(crown).toMatchObject({
+			operation: 'create-entity',
+			selected: true,
+			match: { kind: 'unresolved', candidates: [] }
+		})
+		expect(crown.content).toBe(claims[1]!.content)
+		expect(sharedEvent).toMatchObject({
+			operation: 'create-event',
+			content: claims[3]!.content,
+			references: expect.arrayContaining([
+				expect.objectContaining({ label: 'Empty Bell token', documentId: emptyBell.id }),
+				expect.objectContaining({ label: 'Eight-Fragment Crown' }),
+				expect.objectContaining({ label: 'Ninth Fragment', documentId: ninthFragment.id })
+			])
+		})
+		expect(
+			draft.proposals
+				.filter(({ documentType }) => documentType === 'item')
+				.some(({ content }) => content === claims[3]!.content)
+		).toBe(false)
+	})
+
+	it('creates a historical war independently of present-day event context', async () => {
+		const presentDay = document('party-reaches-wyrmfall', 'Party reaches Wyrmfall', [], 'event')
+		const claims = [
+			claim('The War of Nine Banners engulfed Wyrmfall.', {
+				kind: 'development',
+				eventTitle: 'War of Nine Banners',
+				evidence: [{ startLine: 1, endLine: 1 }],
+				entityReferences: []
+			}),
+			claim('Deep Harbor fell during the War of Nine Banners.', {
+				kind: 'development',
+				eventTitle: 'Deep Harbor falls',
+				evidence: [{ startLine: 2, endLine: 2 }],
+				entityReferences: []
+			}),
+			claim('The Bellmouth armistice ended the War of Nine Banners.', {
+				kind: 'development',
+				eventTitle: 'Bellmouth armistice',
+				evidence: [{ startLine: 3, endLine: 3 }],
+				entityReferences: []
+			})
+		]
+		const resolver = vi.fn<ResolveSessionEntities>(() => succeed([]))
+		const inferSessionChronology: InferSessionChronology = ({ prompt }) => {
+			const events = JSON.parse(prompt.split('## Candidate events\n').at(-1) ?? '[]') as {
+				eventId: string
+				title: string
+			}[]
+			const war = events.find(({ title }) => title === 'War of Nine Banners')!
+			const harbor = events.find(({ title }) => title === 'Deep Harbor falls')!
+			const armistice = events.find(({ title }) => title === 'Bellmouth armistice')!
+			return inferredChronology([
+				{
+					relation: 'during',
+					sourceEventId: harbor.eventId,
+					targetEventId: war.eventId,
+					certainty: 'explicit',
+					reason: 'Deep Harbor fell during the war.'
+				},
+				{
+					relation: 'during',
+					sourceEventId: armistice.eventId,
+					targetEventId: war.eventId,
+					certainty: 'explicit',
+					reason: 'The armistice occurred during the war.'
+				},
+				{
+					relation: 'before',
+					sourceEventId: harbor.eventId,
+					targetEventId: armistice.eventId,
+					certainty: 'explicit',
+					reason: 'The harbor fell before the ending armistice.'
+				}
+			])
+		}
+		const harness = setup(
+			claims,
+			[presentDay],
+			resolver,
+			acceptingValidator,
+			inferSessionChronology
+		)
+		const draft = await runPromise(
+			analyze(harness.operations, claims.map(({ content }) => content).join('\n'))
+		)
+		const war = draft.proposals.find(({ title }) => title === 'War of Nine Banners')!
+
+		expect(resolver).not.toHaveBeenCalled()
+		expect(war).toMatchObject({
+			operation: 'create-event',
+			selected: true,
+			match: { kind: 'unresolved', candidates: [] }
+		})
+		expect(
+			draft.proposals.some(
+				({ match }) =>
+					match.kind === 'unresolved' &&
+					match.candidates.some(({ documentId }) => documentId === presentDay.id)
+			)
+		).toBe(false)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: selectedIds(draft),
+				selectedChronologyIds: draft.chronology.map(({ chronologyId }) => chronologyId)
+			})
+		)
+
+		const createdEvents = harness.createDocument.mock.calls
+			.map(([, input]) => input)
+			.filter(({ type }) => type === 'event')
+		const createdWar = createdEvents.find(({ content }) =>
+			content.includes('# War of Nine Banners')
+		)!
+		const createdHarbor = createdEvents.find(({ content }) =>
+			content.includes('# Deep Harbor falls')
+		)!
+		expect(createdWar.eventForm).toBe('period')
+		expect(createdHarbor.during).toEqual([createdWar.documentId])
+		expect(harness.updateDocument).not.toHaveBeenCalledWith(
+			'campaign',
+			presentDay.id,
+			expect.anything()
+		)
+	})
+
+	it('considers an equivalent event name without treating context overlap as identity', async () => {
+		const equivalent = document('nine-banners-war', 'Nine Banners War', [], 'event')
+		const presentDay = document('party-reaches-wyrmfall', 'Party reaches Wyrmfall', [], 'event')
+		const resolver: ResolveSessionEntities = vi.fn(({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: {
+						referenceId: string
+						candidates: { targetId: string; provenance: string }[]
+					}[]
+				}
+			).references
+			expect(reference!.candidates).toEqual(
+				[{ targetId: `document:${equivalent.id}`, provenance: 'partial-name' }].map((candidate) =>
+					expect.objectContaining(candidate)
+				)
+			)
+			return succeed([{ referenceId: reference!.referenceId, kind: 'create' }])
+		})
+		const claimAboutWar = claim('The War of Nine Banners engulfed Wyrmfall.', {
+			kind: 'development',
+			eventTitle: 'War of Nine Banners',
+			entityReferences: []
+		})
+		const draft = await runPromise(
+			analyze(
+				setup([claimAboutWar], [equivalent, presentDay], resolver).operations,
+				claimAboutWar.content
+			)
+		)
+
+		expect(resolver).toHaveBeenCalledOnce()
+		expect(draft.proposals[1]).toMatchObject({
+			operation: 'create-event',
+			title: 'War of Nine Banners',
+			match: { kind: 'unresolved', candidates: [] }
 		})
 	})
 
@@ -1395,13 +1682,29 @@ describe('session ingestion operations', () => {
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {
 		const mara = document('mara', 'Mara Vale')
 		const edric = document('edric', 'Brother Edric Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: { referenceId: string; candidates: { targetId: string }[] }[]
+				}
+			).references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'defer',
+					candidateIds: reference!.candidates.map(({ targetId }) => targetId),
+					reason: 'Both existing surnames are plausible identities.'
+				}
+			])
+		}
 		const harness = setup(
 			[
 				claim('Vale carried the letter.', {
 					entityReferences: [{ label: 'Vale', type: 'npc' }]
 				})
 			],
-			[mara, edric]
+			[mara, edric, varek],
+			resolver
 		)
 		const draft = await runPromise(analyze(harness.operations, 'Vale carried the letter.'))
 		const session = draft.proposals[0]
@@ -1409,6 +1712,7 @@ describe('session ingestion operations', () => {
 
 		expect(proposal).toMatchObject({
 			selected: false,
+			canCreate: true,
 			match: {
 				kind: 'unresolved',
 				candidates: expect.arrayContaining([
@@ -1417,6 +1721,12 @@ describe('session ingestion operations', () => {
 				])
 			}
 		})
+		expect(
+			proposal.match.kind === 'unresolved'
+				? proposal.match.candidates.map(({ documentId }) => documentId)
+				: []
+		).toEqual(expect.arrayContaining(['mara', 'edric']))
+		expect(proposal.match.kind === 'unresolved' ? proposal.match.candidates : []).toHaveLength(2)
 
 		const missingResolution = await runPromise(
 			flip(
@@ -1445,6 +1755,20 @@ describe('session ingestion operations', () => {
 			'mara',
 			expect.objectContaining({ expectedRevisionId: 'revision-mara' })
 		)
+
+		await runPromise(
+			harness.operations.commit({
+				campaignId: draft.campaignId,
+				ingestionId: draft.ingestionId,
+				selectedProposalIds: [session.proposalId, proposal.proposalId],
+				resolutions: [{ proposalId: proposal.proposalId, kind: 'create' }]
+			})
+		)
+		expect(
+			harness.createDocument.mock.calls.some(
+				([, input]) => input.type === 'npc' && input.content.startsWith('# Vale\n')
+			)
+		).toBe(true)
 	})
 
 	it('allocates unique paths when selected documents have duplicate generated names', async () => {
