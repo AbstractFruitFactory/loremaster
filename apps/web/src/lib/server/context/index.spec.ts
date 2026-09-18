@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { LexicalFragmentMatch } from '../db/context'
 import type { LinkedDocument, RelationshipLinkedDocument } from '../db/vault'
 import type { TimelineContext } from '../timeline/types'
+import { candidateRetrieval } from '@loremaster/core/server/context/candidates'
 import { context } from '.'
 import type { ContextSource, SemanticSearchResult } from './types'
 
@@ -80,7 +81,8 @@ const createContext = ({
 		getCampaignContext: vi.fn(() => succeed({ ...timelineContext, scope: 'campaign' as const }))
 	}
 
-	return { ai, context: context({ ai, db, timeline }), db, timeline }
+	const candidates = candidateRetrieval({ ai, db })
+	return { ai, context: context({ candidates, timeline }), db, timeline }
 }
 
 describe('context operations', () => {

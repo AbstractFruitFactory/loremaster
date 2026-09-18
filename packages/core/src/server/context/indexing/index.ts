@@ -1,0 +1,179 @@
+import { all, flatMap, gen, map, succeed, type Effect } from 'effect/Effect'
+import { pipe } from 'effect/Function'
+import type { AiModel } from '../../ai/provider.js'
+import type * as ContextDb from '../../db/context.js'
+import type * as VectorDb from '../../db/vector.js'
+import { fail, type Failure } from '../../failure.js'
+import type { VaultDocument } from '../../vault/types.js'
+import { chunkDocument } from '../chunking/index.js'
+import { documentMentionNames } from '../mentions.js'
+import type { ContextSource, SemanticVectorRecord } from '../types.js'
+
+type ContextIndexDependencies = {
+	ai: AiModel<'embedTexts'>
+	db: {
+		deleteDocumentFragments: typeof ContextDb.deleteDocumentFragments
+		deleteDocumentNames: typeof ContextDb.deleteDocumentNames
+		getCachedEmbeddings: typeof ContextDb.getCachedEmbeddings
+		replaceCampaignFragments: typeof ContextDb.replaceCampaignFragments
+		replaceCampaignNames: typeof ContextDb.replaceCampaignNames
+		replaceDocumentFragments: typeof ContextDb.replaceDocumentFragments
+		replaceDocumentNames: typeof ContextDb.replaceDocumentNames
+		upsertCachedEmbeddings: typeof ContextDb.upsertCachedEmbeddings
+		deleteDocumentVectors: typeof VectorDb.deleteDocumentVectors
+		replaceCampaignVectors: typeof VectorDb.replaceCampaignVectors
+		replaceDocumentVectors: typeof VectorDb.replaceDocumentVectors
+	}
+}
+
+type ContentRecord = {
+	contentHash: string
+	content: string
+}
+
+type EmbeddingRecord = {
+	contentHash: string
+	embedding: number[]
+}
+
+const collectUniqueContent = (sources: ContextSource[]): ContentRecord[] => {
+	const contentByHash = new Map<string, string>()
+
+	for (const { fragment } of sources) {
+		if (!contentByHash.has(fragment.contentHash)) {
+			contentByHash.set(fragment.contentHash, fragment.content)
+		}
+	}
+
+	return [...contentByHash].map(([contentHash, content]) => ({ contentHash, content }))
+}
+
+const toEmbeddingLookup = (records: EmbeddingRecord[]) =>
+	new Map(records.map(({ contentHash, embedding }) => [contentHash, embedding]))
+
+const selectUncachedContent = (content: ContentRecord[], embeddingsByHash: Map<string, number[]>) =>
+	content.filter(({ contentHash }) => !embeddingsByHash.has(contentHash))
+
+const createVectorRecords = (
+	sources: ContextSource[],
+	embeddingsByHash: Map<string, number[]>,
+	model: string
+): Effect<SemanticVectorRecord[], Failure> => {
+	const records: SemanticVectorRecord[] = []
+
+	for (const { fragment } of sources) {
+		const embedding = embeddingsByHash.get(fragment.contentHash)
+
+		if (!embedding) {
+			return fail('context', 'vectorizeFragments', {
+				reason: 'missingEmbedding',
+				contentHash: fragment.contentHash
+			})
+		}
+
+		records.push({ fragment, embedding, model })
+	}
+
+	return succeed(records)
+}
+
+export const contextIndex = ({ ai, db }: ContextIndexDependencies) => {
+	const embedAndCacheContent = (
+		contentToEmbed: ContentRecord[]
+	): Effect<EmbeddingRecord[], Failure> => {
+		if (!contentToEmbed.length) return succeed([])
+
+		return gen(function* () {
+			const embeddings = yield* ai.embedTexts({
+				model: ai.model,
+				values: contentToEmbed.map(({ content }) => content)
+			})
+
+			if (embeddings.length !== contentToEmbed.length) {
+				return yield* fail('context', 'vectorizeFragments', {
+					expected: contentToEmbed.length,
+					actual: embeddings.length
+				})
+			}
+
+			const records = contentToEmbed.map(({ contentHash }, index) => ({
+				contentHash,
+				embedding: embeddings[index] ?? []
+			}))
+
+			yield* db.upsertCachedEmbeddings(ai.model, records)
+
+			return records
+		})
+	}
+
+	const resolveMissingEmbeddings = (
+		content: ContentRecord[],
+		embeddingsByHash: Map<string, number[]>
+	) =>
+		gen(function* () {
+			const uncachedContent = selectUncachedContent(content, embeddingsByHash)
+			const embedded = yield* embedAndCacheContent(uncachedContent)
+
+			return new Map([...embeddingsByHash, ...toEmbeddingLookup(embedded)])
+		})
+
+	const buildVectorRecords = (sources: ContextSource[]) => {
+		const content = collectUniqueContent(sources)
+
+		return pipe(
+			db.getCachedEmbeddings(
+				ai.model,
+				content.map(({ contentHash }) => contentHash)
+			),
+			map(toEmbeddingLookup),
+			flatMap((embeddingsByHash) => resolveMissingEmbeddings(content, embeddingsByHash)),
+			flatMap((embeddingsByHash) => createVectorRecords(sources, embeddingsByHash, ai.model))
+		)
+	}
+
+	const chunkDocuments = (campaignId: string, documents: VaultDocument[]) =>
+		pipe(
+			all(documents.map((document) => chunkDocument(campaignId, document))),
+			map((sources) => sources.flat())
+		)
+
+	const indexDocument = (campaignId: string, document: VaultDocument) =>
+		gen(function* () {
+			const sources = yield* chunkDocument(campaignId, document)
+			const records = yield* buildVectorRecords(sources)
+
+			yield* db.replaceDocumentFragments(campaignId, document.id, sources)
+			yield* db.replaceDocumentNames(
+				campaignId,
+				document.id,
+				documentMentionNames(document.title, document.aliases)
+			)
+			yield* db.replaceDocumentVectors(campaignId, document.id, records)
+		})
+
+	const deleteDocumentIndex = (campaignId: string, documentId: string) =>
+		gen(function* () {
+			yield* db.deleteDocumentFragments(campaignId, documentId)
+			yield* db.deleteDocumentNames(campaignId, documentId)
+			yield* db.deleteDocumentVectors(campaignId, documentId)
+		})
+
+	const reindexCampaign = (campaignId: string, documents: VaultDocument[]) =>
+		gen(function* () {
+			const sources = yield* chunkDocuments(campaignId, documents)
+			const records = yield* buildVectorRecords(sources)
+
+			yield* db.replaceCampaignFragments(campaignId, sources)
+			yield* db.replaceCampaignNames(
+				campaignId,
+				documents.map((document) => ({
+					documentId: document.id,
+					normalizedNames: documentMentionNames(document.title, document.aliases)
+				}))
+			)
+			yield* db.replaceCampaignVectors(campaignId, records)
+		})
+
+	return { deleteDocumentIndex, indexDocument, reindexCampaign }
+}

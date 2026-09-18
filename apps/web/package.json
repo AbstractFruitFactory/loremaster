@@ -55,6 +55,8 @@
 		"#lib/*": "./src/lib/*"
 	},
 	"dependencies": {
+		"@dbos-inc/dbos-sdk": "^5.0.2",
+		"@loremaster/core": "workspace:*",
 		"@fontsource/cormorant-garamond": "^5.3.0",
 		"@fontsource/source-sans-3": "^5.3.0",
 		"@iconify/svelte": "^5.2.2",

@@ -1,6 +1,10 @@
 <script lang="ts">
 	import Icon from '@iconify/svelte'
 	import { goto } from '$app/navigation'
+	import type {
+		WorkflowLifecycle,
+		WorkflowLifecycleStage
+	} from '@loremaster/core/workflows/contracts'
 	import type { PageProps } from './$types'
 	import { buildSessionRecap } from '#lib/ingestion.js'
 	import { documentTypeMetadata } from '#lib/document-metadata.js'
@@ -8,15 +12,29 @@
 	import type {
 		SessionChronologyCoverageProposal,
 		SessionChronologyProposal,
+		SessionIngestionResult,
 		SessionProposal,
 		SessionProposalResolution
 	} from '#lib/server/ingestion/types.js'
-	import { commitSessionIngestion, getSessionIngestion } from '../../../data.remote'
+	import {
+		commitSessionIngestion,
+		getSessionAnalysisStatus,
+		getSessionCommitStatus,
+		listDocuments,
+		retrySessionAnalysis,
+		retrySessionCommit
+	} from '../../../data.remote'
 
 	let { params }: PageProps = $props()
 
+	const statusInput = $derived({
+		campaignId: params.campaignId,
+		ingestionId: params.ingestionId
+	})
+	const analysisStatus = $derived(getSessionAnalysisStatus(statusInput))
+	const commitStatus = $derived(getSessionCommitStatus(statusInput))
 	const draft = $derived(
-		getSessionIngestion({ campaignId: params.campaignId, ingestionId: params.ingestionId })
+		analysisStatus.current?.lifecycle === 'succeeded' ? analysisStatus.current.result : undefined
 	)
 
 	type ReviewDocumentType = Exclude<DocumentType, 'session'>
@@ -40,13 +58,237 @@
 		worldbuilding: 'Worldbuilding entry',
 		event: 'Event'
 	}
+	const stageLabels: Record<WorkflowLifecycleStage, string> = {
+		queued: 'Waiting for an analysis worker',
+		'loading-transcript-data': 'Loading the session transcript',
+		'analyzing-transcript': 'Finding campaign changes',
+		'auditing-events': 'Checking session events',
+		'resolving-entities': 'Matching campaign entries',
+		'inferring-chronology': 'Ordering session events',
+		'persisting-draft': 'Preparing your review',
+		'planning-commit': 'Preparing campaign updates',
+		'applying-mutations': 'Updating campaign documents',
+		completed: 'Finishing up'
+	}
+	const terminalLifecycles = new Set<WorkflowLifecycle>(['succeeded', 'failed', 'cancelled'])
+	const initialPollDelay = 1_500
+	const maximumPollDelay = 6_000
 
 	let activeView = $state<ReviewView>('summary')
 	let decisions = $state<Record<string, ReviewDecision>>({})
 	let chronologyDecisions = $state<Record<string, ReviewDecision>>({})
 	let resolutions = $state<Record<string, string>>({})
-	let committing = $state(false)
-	let commitError = $state('')
+	let analysisRetryPollingEnabled = $state(false)
+	let analysisRetryPending = $state(false)
+	let analysisRetryError = $state('')
+	let commitRequested = $state(false)
+	let commitPollingEnabled = $state(false)
+	let commitRetryPollingEnabled = $state(false)
+	let commitStartPending = $state(false)
+	let commitStartError = $state('')
+	let commitConflict = $state(false)
+	let commitRetryPending = $state(false)
+	let commitRetryError = $state('')
+	let navigationPending = $state(false)
+	let navigationError = $state('')
+	let pendingCommitResult = $state.raw<SessionIngestionResult>()
+	let commitNavigationStarted = false
+
+	const analysisLifecycle = $derived(analysisStatus.current?.lifecycle)
+	const analysisProgress = $derived(analysisStatus.current?.progress)
+	const commitLifecycle = $derived(commitStatus.current?.lifecycle)
+	const commitProgress = $derived(commitStatus.current?.progress)
+	const commitLocked = $derived(commitConflict || commitRequested || Boolean(commitLifecycle))
+	const commitTransportError = $derived(
+		commitStatus.error?.status === 404 ? undefined : commitStatus.error
+	)
+
+	const isTerminal = (lifecycle: WorkflowLifecycle | undefined) =>
+		lifecycle ? terminalLifecycles.has(lifecycle) : false
+
+	const nextPollDelay = (delay: number, failed: boolean) =>
+		failed ? Math.min(Math.round(delay * 1.5), maximumPollDelay) : initialPollDelay
+
+	const httpStatus = (error: unknown) => {
+		if (typeof error !== 'object' || error === null || !('status' in error)) return undefined
+		return typeof error.status === 'number' ? error.status : undefined
+	}
+
+	const isUncertainTransportError = (error: unknown) => {
+		const status = httpStatus(error)
+		return status === undefined || status >= 500
+	}
+
+	const completeCommit = async (result: SessionIngestionResult) => {
+		if (commitNavigationStarted) return
+		pendingCommitResult = result
+		commitNavigationStarted = true
+		navigationPending = true
+		navigationError = ''
+		try {
+			await listDocuments(params.campaignId).refresh()
+		} catch {}
+		try {
+			await goto(`/campaigns/${params.campaignId}/session/${result.sessionDocumentId}`)
+		} catch {
+			commitNavigationStarted = false
+			navigationError =
+				'The session was saved, but its page could not be opened. Try opening the saved session again.'
+		} finally {
+			navigationPending = false
+		}
+	}
+
+	$effect(() => {
+		const query = analysisStatus
+		const observedLifecycle = analysisLifecycle
+		const retryPollingEnabled = analysisRetryPollingEnabled
+		let disposed = false
+		let timer: ReturnType<typeof setTimeout> | undefined
+		let delay = initialPollDelay
+
+		const schedule = () => {
+			timer = setTimeout(poll, delay)
+		}
+
+		const poll = async () => {
+			let failed = false
+			try {
+				await query.refresh()
+			} catch {
+				failed = true
+			}
+			const lifecycle = query.current?.lifecycle
+			const waitingForRetryStart = retryPollingEnabled && lifecycle === 'not-started'
+			delay = nextPollDelay(delay, failed || waitingForRetryStart)
+			if (disposed || isTerminal(lifecycle)) return
+			if (lifecycle === 'not-started' && !retryPollingEnabled) return
+			schedule()
+		}
+
+		const start = async () => {
+			try {
+				await query
+			} catch {}
+			const lifecycle = query.current?.lifecycle ?? observedLifecycle
+			if (disposed || isTerminal(lifecycle)) return
+			if (lifecycle === 'not-started' && !retryPollingEnabled) return
+			schedule()
+		}
+
+		void start()
+
+		return () => {
+			disposed = true
+			if (timer) clearTimeout(timer)
+		}
+	})
+
+	$effect(() => {
+		const query = commitStatus
+		const pollingEnabled = commitPollingEnabled
+		const retryPollingEnabled = commitRetryPollingEnabled
+		const observedLifecycle = commitLifecycle
+		const conflicted = commitConflict
+		const awaitingStartDisposition = commitRequested && !commitPollingEnabled
+		let disposed = false
+		let timer: ReturnType<typeof setTimeout> | undefined
+		let delay = initialPollDelay
+
+		const finishIfTerminal = async () => {
+			const status = query.current
+			if (!status || !isTerminal(status.lifecycle)) return false
+			if (status.lifecycle === 'succeeded' && status.result) {
+				await completeCommit(status.result)
+			}
+			return true
+		}
+
+		const schedule = () => {
+			timer = setTimeout(poll, delay)
+		}
+
+		const poll = async () => {
+			let failed = false
+			try {
+				await query.refresh()
+			} catch {
+				failed = true
+			}
+			const lifecycle = query.current?.lifecycle
+			const waitingForRetryStart = retryPollingEnabled && lifecycle === 'not-started'
+			delay = nextPollDelay(delay, failed || waitingForRetryStart)
+			if (disposed || (await finishIfTerminal())) return
+			if (lifecycle === 'not-started' && !retryPollingEnabled) return
+			schedule()
+		}
+
+		const start = async () => {
+			try {
+				await query
+			} catch {}
+			if (disposed || conflicted || awaitingStartDisposition || (await finishIfTerminal())) return
+			const lifecycle = query.current?.lifecycle ?? observedLifecycle
+			if (lifecycle === 'not-started' && !retryPollingEnabled) return
+			if (
+				!pollingEnabled &&
+				!retryPollingEnabled &&
+				lifecycle !== 'queued' &&
+				lifecycle !== 'running'
+			)
+				return
+			schedule()
+		}
+
+		void start()
+
+		return () => {
+			disposed = true
+			if (timer) clearTimeout(timer)
+		}
+	})
+
+	const retryAnalysis = async () => {
+		if (analysisRetryPending || !analysisStatus.current?.retryable) return
+		analysisRetryPending = true
+		analysisRetryError = ''
+		try {
+			await retrySessionAnalysis(statusInput)
+		} catch {
+			analysisRetryError = 'The analysis could not be restarted. Try again.'
+			analysisRetryPending = false
+			return
+		}
+		try {
+			await analysisStatus.refresh()
+		} catch {}
+		analysisRetryPollingEnabled = true
+		analysisRetryPending = false
+	}
+
+	const retryCommit = async () => {
+		if (commitRetryPending || !commitStatus.current?.retryable) return
+		commitRetryPending = true
+		commitRetryError = ''
+		try {
+			await retrySessionCommit(statusInput)
+		} catch {
+			commitRetryError = 'The save could not be restarted. Try again.'
+			commitRetryPending = false
+			return
+		}
+		try {
+			await commitStatus.refresh()
+		} catch {}
+		commitRetryPollingEnabled = true
+		commitStartError = ''
+		commitRetryPending = false
+	}
+
+	const retryNavigation = () => {
+		if (!pendingCommitResult || navigationPending) return
+		void completeCommit(pendingCommitResult)
+	}
 
 	const normalizeComparable = (value: string) =>
 		value
@@ -89,15 +331,17 @@
 		!hasPossibleMatches(proposal) || Boolean(resolutions[proposal.proposalId])
 
 	const approveProposal = (proposal: SessionProposal) => {
-		if (!canApprove(proposal)) return
+		if (commitLocked || !canApprove(proposal)) return
 		decisions[proposal.proposalId] = 'approved'
 	}
 
 	const rejectProposal = (proposal: SessionProposal) => {
+		if (commitLocked) return
 		decisions[proposal.proposalId] = 'rejected'
 	}
 
 	const chooseResolution = (proposal: SessionProposal, value: string) => {
+		if (commitLocked) return
 		resolutions[proposal.proposalId] = value
 		delete decisions[proposal.proposalId]
 	}
@@ -111,14 +355,14 @@
 	}
 
 	const canonProposals = () =>
-		draft.current?.proposals.filter(
+		draft?.proposals.filter(
 			(proposal) => proposal.documentType !== 'session' && !isOtherDetail(proposal)
 		) ?? []
 
 	const attentionProposals = () => canonProposals().filter(needsAttention)
 	const eventProposalById = () =>
 		new Map(
-			(draft.current?.proposals ?? [])
+			(draft?.proposals ?? [])
 				.filter(({ operation }) => operation === 'create-event')
 				.map((proposal) => [proposal.proposalId, proposal])
 		)
@@ -131,15 +375,17 @@
 	}
 
 	const attentionChronology = () =>
-		(draft.current?.chronology ?? []).filter(
+		(draft?.chronology ?? []).filter(
 			(relation) => relation.certainty === 'inferred' || chronologyStatus(relation) === 'pending'
 		)
 
 	const approveChronology = (relation: SessionChronologyProposal) => {
+		if (commitLocked) return
 		chronologyDecisions[relation.chronologyId] = 'approved'
 	}
 
 	const rejectChronology = (relation: SessionChronologyProposal) => {
+		if (commitLocked) return
 		chronologyDecisions[relation.chronologyId] = 'rejected'
 	}
 
@@ -150,21 +396,21 @@
 	}
 
 	const selectedChronology = () =>
-		(draft.current?.chronology ?? []).filter(
+		(draft?.chronology ?? []).filter(
 			(relation) =>
 				chronologyStatus(relation) === 'approved' &&
 				chronologyEndpointSelected(relation.source) &&
 				chronologyEndpointSelected(relation.target)
 		)
 	const unplacedChronology = () =>
-		(draft.current?.chronologyCoverage ?? []).filter(({ event, status }) => {
+		(draft?.chronologyCoverage ?? []).filter(({ event, status }) => {
 			if (status === 'connected') return false
 			const proposal = eventProposalById().get(event.eventId)
 			return proposal ? selected(proposal) : false
 		})
 	const typeProposals = (type: ReviewDocumentType) =>
 		canonProposals().filter((proposal) => proposal.documentType === type)
-	const otherDetails = () => draft.current?.proposals.filter(isOtherDetail) ?? []
+	const otherDetails = () => draft?.proposals.filter(isOtherDetail) ?? []
 
 	const statusCount = (proposals: SessionProposal[], status: ReviewStatus) =>
 		proposals.filter((proposal) => reviewStatus(proposal) === status).length
@@ -176,6 +422,7 @@
 		attentionChronology().filter((relation) => chronologyStatus(relation) === 'pending').length
 
 	const setGroupDecision = (proposals: SessionProposal[], decision: ReviewDecision) => {
+		if (commitLocked) return
 		for (const proposal of proposals) {
 			if (decision === 'approved' && !canApprove(proposal)) continue
 			decisions[proposal.proposalId] = decision
@@ -183,8 +430,8 @@
 	}
 
 	const recapContent = () => {
-		if (!draft.current) return ''
-		return buildSessionRecap(draft.current.title, draft.current.proposals.filter(selected))
+		if (!draft) return ''
+		return buildSessionRecap(draft.title, draft.proposals.filter(selected))
 			.replace(/^#\s+[^\r\n]*(?:\r?\n+|$)/u, '')
 			.trim()
 	}
@@ -225,18 +472,20 @@
 		return typeProposals(activeView)
 	}
 
-	const previewTitles = (type: ReviewDocumentType) =>
-		typeProposals(type)
-			.slice(0, 2)
-			.map(({ title }) => title)
+	const previewTitles = (type: ReviewDocumentType) => typeProposals(type).slice(0, 2)
 
 	const approve = async () => {
-		if (!draft.current || committing) return
-		committing = true
-		commitError = ''
+		if (!draft || commitLocked) return
+		commitRequested = true
+		commitPollingEnabled = false
+		commitRetryPollingEnabled = false
+		commitStartPending = true
+		commitStartError = ''
+		commitConflict = false
+		navigationError = ''
 		try {
-			const selectedProposals = draft.current.proposals.filter(selected)
-			const result = await commitSessionIngestion({
+			const selectedProposals = draft.proposals.filter(selected)
+			await commitSessionIngestion({
 				campaignId: params.campaignId,
 				ingestionId: params.ingestionId,
 				selectedProposalIds: selectedProposals.map(({ proposalId }) => proposalId),
@@ -245,11 +494,23 @@
 					.map(resolutionFor)
 					.filter((resolution): resolution is SessionProposalResolution => Boolean(resolution))
 			})
-			await goto(`/campaigns/${params.campaignId}/session/${result.sessionDocumentId}`)
-		} catch {
-			commitError = 'The session could not be saved. Refresh the analysis and try again.'
+			commitPollingEnabled = true
+		} catch (error) {
+			const status = httpStatus(error)
+			if (status === 409) {
+				commitRequested = false
+				commitConflict = true
+				commitStartError = ''
+			} else if (isUncertainTransportError(error)) {
+				commitPollingEnabled = true
+				commitStartError =
+					'The save request could not be confirmed. Loremaster will keep checking its status.'
+			} else {
+				commitRequested = false
+				commitStartError = 'The save request was not accepted. Review your choices and try again.'
+			}
 		} finally {
-			committing = false
+			commitStartPending = false
 		}
 	}
 </script>
@@ -264,7 +525,7 @@
 				{proposal.evidence.length === 1 ? 'View source' : `${proposal.evidence.length} sources`}
 			</summary>
 			<div class="source-list">
-				{#each proposal.evidence as evidence}
+				{#each proposal.evidence as evidence (`${evidence.chunkId}:${evidence.startStringIndex}:${evidence.endStringIndex}`)}
 					<blockquote>
 						{evidence.excerpt}
 						<footer>Transcript lines {evidence.startLine}–{evidence.endLine}</footer>
@@ -298,6 +559,7 @@
 			class="reject-action"
 			class:active={status === 'rejected'}
 			aria-pressed={status === 'rejected'}
+			disabled={commitLocked}
 			onclick={() => rejectProposal(proposal)}
 		>
 			<Icon icon="lucide:x" aria-hidden="true" />
@@ -308,7 +570,7 @@
 			class="approve-action"
 			class:active={status === 'approved'}
 			aria-pressed={status === 'approved'}
-			disabled={!canApprove(proposal)}
+			disabled={commitLocked || !canApprove(proposal)}
 			title={!canApprove(proposal)
 				? 'Choose which campaign entry this refers to first.'
 				: undefined}
@@ -348,6 +610,7 @@
 					class="reject-action"
 					class:active={status === 'rejected'}
 					aria-pressed={status === 'rejected'}
+					disabled={commitLocked}
 					onclick={() => rejectChronology(relation)}
 				>
 					<Icon icon="lucide:x" aria-hidden="true" />
@@ -358,6 +621,7 @@
 					class="approve-action"
 					class:active={status === 'approved'}
 					aria-pressed={status === 'approved'}
+					disabled={commitLocked}
 					onclick={() => approveChronology(relation)}
 				>
 					<Icon icon="lucide:check" aria-hidden="true" />
@@ -424,10 +688,11 @@
 					<span>Resolve match</span>
 					<select
 						value={resolutions[proposal.proposalId] ?? ''}
+						disabled={commitLocked}
 						onchange={(event) => chooseResolution(proposal, event.currentTarget.value)}
 					>
 						<option value="">Choose an entry…</option>
-						{#each proposal.match.candidates as candidate}
+						{#each proposal.match.candidates as candidate (candidate.documentId)}
 							<option value={candidate.documentId}>Update “{candidate.title}”</option>
 						{/each}
 						{#if proposal.canCreate}
@@ -481,17 +746,96 @@
 	<a class="back-link" href={`/campaigns/${params.campaignId}/session`}>← Back to sessions</a>
 	<header class="page-heading">
 		<p class="eyebrow">Session review</p>
-		<h2 id="review-heading">{draft.current?.title ?? 'Review session'}</h2>
+		<h2 id="review-heading">{draft?.title ?? 'Review session'}</h2>
 		<p>
 			Review what Loremaster learned before saving the session and updating your campaign canon.
 		</p>
 	</header>
 
-	{#if draft.error}
-		<p class="state error" role="alert">Unable to load this analysis.</p>
-	{:else if !draft.current}
-		<p class="state" role="status">Loading analysis…</p>
-	{:else}
+	{#if analysisLifecycle === 'not-started'}
+		<div class="state workflow-retry" role="alert">
+			<strong>Analysis needs to be restarted</strong>
+			<p>
+				The transcript request is safe, but its analysis worker did not start. Retry the existing
+				request to continue.
+			</p>
+			{#if analysisStatus.current?.retryable}
+				<button
+					class="retry-action"
+					type="button"
+					disabled={analysisRetryPending || analysisRetryPollingEnabled}
+					onclick={retryAnalysis}
+				>
+					<Icon icon="lucide:rotate-cw" aria-hidden="true" />
+					{analysisRetryPending
+						? 'Restarting analysis…'
+						: analysisRetryPollingEnabled
+							? 'Waiting for analysis…'
+							: 'Retry analysis'}
+				</button>
+			{/if}
+			{#if analysisStatus.error}
+				<p class="error" role="alert">Unable to confirm the analysis status right now.</p>
+			{/if}
+			{#if analysisRetryError}<p class="error" role="alert">{analysisRetryError}</p>{/if}
+		</div>
+	{:else if analysisLifecycle === 'failed' || analysisLifecycle === 'cancelled'}
+		<div class="state workflow-failure" role="alert">
+			<strong>
+				{analysisLifecycle === 'cancelled' ? 'Analysis was cancelled' : 'Analysis could not finish'}
+			</strong>
+			<p>No campaign changes were made. You can start a new analysis or return to your sessions.</p>
+			<div class="state-actions">
+				<a href={`/campaigns/${params.campaignId}/session/ingest`}>Try another transcript</a>
+				<a href={`/campaigns/${params.campaignId}/session`}>Back to sessions</a>
+			</div>
+		</div>
+	{:else if analysisLifecycle === 'succeeded' && !draft}
+		<div class="state workflow-failure" role="alert">
+			<strong>Analysis finished without a review</strong>
+			<p>Please start the analysis again. No campaign changes were made.</p>
+			<div class="state-actions">
+				<a href={`/campaigns/${params.campaignId}/session/ingest`}>Try another transcript</a>
+				<a href={`/campaigns/${params.campaignId}/session`}>Back to sessions</a>
+			</div>
+		</div>
+	{:else if analysisLifecycle !== 'succeeded'}
+		<div class="state workflow-state" role="status" aria-live="polite" aria-atomic="true">
+			<Icon
+				icon={analysisLifecycle === 'queued' ? 'lucide:clock-3' : 'lucide:scan-search'}
+				aria-hidden="true"
+			/>
+			<div>
+				<strong>
+					{analysisLifecycle === 'queued'
+						? 'Analysis queued'
+						: analysisLifecycle === 'running'
+							? 'Analyzing session'
+							: 'Connecting to analysis'}
+				</strong>
+				<p>
+					{analysisProgress
+						? stageLabels[analysisProgress.stage]
+						: analysisLifecycle === 'queued'
+							? stageLabels.queued
+							: 'This review will appear here when it is ready.'}
+				</p>
+				{#if analysisProgress && analysisProgress.total > 0}
+					<div class="workflow-progress">
+						<progress value={analysisProgress.completed} max={analysisProgress.total}>
+							{analysisProgress.completed} of {analysisProgress.total}
+						</progress>
+						<span>{analysisProgress.completed} of {analysisProgress.total}</span>
+					</div>
+				{/if}
+			</div>
+		</div>
+		{#if analysisStatus.error}
+			<p class="state transport-error" role="alert">
+				The analysis status connection was interrupted. Loremaster will keep trying.
+			</p>
+		{/if}
+	{:else if draft}
 		<div class="review-shell">
 			<main class="review-content">
 				<header class="content-heading">
@@ -551,19 +895,17 @@
 						</details>
 					{/if}
 
-					{#if draft.current.warnings.length}
+					{#if draft.warnings.length}
 						<details class="analysis-notes">
 							<summary>
-								{draft.current.warnings.length} analysis {draft.current.warnings.length === 1
-									? 'note'
-									: 'notes'}
+								{draft.warnings.length} analysis {draft.warnings.length === 1 ? 'note' : 'notes'}
 							</summary>
 							<p>
 								Some source details could not be confidently included. These notes are mainly useful
 								for troubleshooting.
 							</p>
 							<ul>
-								{#each draft.current.warnings as warning}<li>{warning}</li>{/each}
+								{#each draft.warnings as warning}<li>{warning}</li>{/each}
 							</ul>
 						</details>
 					{/if}
@@ -599,15 +941,23 @@
 							{proposals.length === 1 ? 'change' : 'changes'} found in this session.
 						</p>
 						<div>
-							<button type="button" onclick={() => setGroupDecision(proposals, 'approved')}>
+							<button
+								type="button"
+								disabled={commitLocked}
+								onclick={() => setGroupDecision(proposals, 'approved')}
+							>
 								Approve all ready
 							</button>
-							<button type="button" onclick={() => setGroupDecision(proposals, 'rejected')}>
+							<button
+								type="button"
+								disabled={commitLocked}
+								onclick={() => setGroupDecision(proposals, 'rejected')}
+							>
 								Reject all
 							</button>
 						</div>
 					</div>
-					{#if activeView === 'event' && (draft.current.chronology.length || unplacedChronology().length)}
+					{#if activeView === 'event' && (draft.chronology.length || unplacedChronology().length)}
 						<section class="chronology-review" aria-labelledby="chronology-heading">
 							<div class="section-kicker">
 								<Icon icon="lucide:git-commit-horizontal" aria-hidden="true" />
@@ -619,7 +969,7 @@
 								unknown.
 							</p>
 							<div class="chronology-list">
-								{#each draft.current.chronology as relation (relation.chronologyId)}
+								{#each draft.chronology as relation (relation.chronologyId)}
 									{@render chronologyCard(relation)}
 								{/each}
 								{#each unplacedChronology() as coverage (coverage.event.eventId)}
@@ -670,7 +1020,7 @@
 					<span class="nav-subline">Session recap</span>
 				</button>
 
-				{#each reviewTypes as type}
+				{#each reviewTypes as type (type)}
 					{@const proposals = typeProposals(type)}
 					{#if proposals.length}
 						<button
@@ -697,8 +1047,8 @@
 							</span>
 							{#if previewTitles(type).length}
 								<span class="preview-row">
-									{#each previewTitles(type) as title}
-										<span>{title}</span>
+									{#each previewTitles(type) as proposal (proposal.proposalId)}
+										<span>{proposal.title}</span>
 									{/each}
 									{#if proposals.length > 2}<span>+{proposals.length - 2}</span>{/if}
 								</span>
@@ -721,11 +1071,99 @@
 						? `${pendingAttentionCount()} undecided ${pendingAttentionCount() === 1 ? 'change' : 'changes'} will not be added unless you approve them.`
 						: 'Your review is ready to save.'}
 				</p>
-				{#if commitError}<p class="error" role="alert">{commitError}</p>{/if}
+				{#if commitConflict}
+					<div class="commit-failure" role="alert">
+						<strong>Another proposal selection is already being saved.</strong>
+						<span>
+							Your current choices were not accepted. Reload to follow the selection that was
+							accepted first.
+						</span>
+						<button class="retry-action" type="button" onclick={() => location.reload()}>
+							<Icon icon="lucide:refresh-cw" aria-hidden="true" />
+							Reload accepted selection
+						</button>
+					</div>
+				{:else if commitLifecycle === 'not-started'}
+					<div class="commit-retry" role="alert">
+						<strong>The saved selection needs to be restarted.</strong>
+						<span>Your accepted choices remain locked while Loremaster retries the save.</span>
+						{#if commitStatus.current?.retryable}
+							<button
+								class="retry-action"
+								type="button"
+								disabled={commitRetryPending || commitRetryPollingEnabled}
+								onclick={retryCommit}
+							>
+								<Icon icon="lucide:rotate-cw" aria-hidden="true" />
+								{commitRetryPending
+									? 'Restarting save…'
+									: commitRetryPollingEnabled
+										? 'Waiting for save…'
+										: 'Retry save'}
+							</button>
+						{/if}
+						{#if commitRetryError}<span class="error">{commitRetryError}</span>{/if}
+					</div>
+				{:else if commitLifecycle === 'failed' || commitLifecycle === 'cancelled'}
+					<div class="commit-failure" role="alert">
+						<strong>
+							{commitLifecycle === 'cancelled'
+								? 'The save was cancelled.'
+								: 'The session could not be saved.'}
+						</strong>
+						<span>Your review is still shown above. Return to sessions when you are ready.</span>
+					</div>
+				{:else if commitLifecycle === 'queued' || commitLifecycle === 'running'}
+					<p class="commit-status" role="status" aria-live="polite" aria-atomic="true">
+						{commitProgress ? stageLabels[commitProgress.stage] : 'Waiting for the save workflow'}
+						{#if commitProgress && commitProgress.total > 0}
+							· {commitProgress.completed} of {commitProgress.total}
+						{/if}
+					</p>
+				{/if}
+				{#if !commitConflict && commitTransportError}
+					<p class="error" role="alert">
+						Unable to check the save status right now. Loremaster will keep trying after a save
+						request.
+					</p>
+				{/if}
+				{#if commitStartError}<p class="error" role="alert">{commitStartError}</p>{/if}
+				{#if navigationError}
+					<div class="navigation-failure" role="alert">
+						<span>{navigationError}</span>
+						<button
+							class="retry-action"
+							type="button"
+							disabled={navigationPending}
+							onclick={retryNavigation}
+						>
+							<Icon icon="lucide:external-link" aria-hidden="true" />
+							{navigationPending ? 'Opening session…' : 'Open saved session'}
+						</button>
+					</div>
+				{/if}
 			</div>
-			<button type="button" disabled={committing} onclick={approve}>
+			<button type="button" disabled={commitLocked} onclick={approve}>
 				<Icon icon="lucide:save" aria-hidden="true" />
-				{committing ? 'Saving…' : 'Save session & update canon'}
+				{commitStartPending
+					? 'Starting save…'
+					: navigationPending
+						? 'Opening session…'
+						: commitConflict
+							? 'Reload required'
+							: commitLifecycle === 'queued'
+								? 'Save queued…'
+								: commitLifecycle === 'running'
+									? 'Saving…'
+									: commitLifecycle === 'succeeded'
+										? 'Session saved'
+										: commitLifecycle === 'not-started'
+											? 'Save needs restart'
+											: commitLifecycle === 'failed' || commitLifecycle === 'cancelled'
+												? 'Save not completed'
+												: commitRequested
+													? 'Waiting for save status…'
+													: 'Save session & update canon'}
 			</button>
 		</footer>
 	{/if}
@@ -799,6 +1237,94 @@
 		padding: 1rem;
 		border: 1px solid rgb(154 120 67 / 40%);
 		background: rgb(250 241 222 / 55%);
+	}
+
+	.workflow-state {
+		display: flex;
+		gap: 0.85rem;
+		align-items: start;
+	}
+
+	.workflow-state > :global(svg) {
+		flex: 0 0 auto;
+		width: 1.35rem;
+		height: 1.35rem;
+		color: var(--gold);
+	}
+
+	.workflow-state p,
+	.workflow-failure p {
+		margin: 0.3rem 0 0;
+		color: var(--ink-soft);
+	}
+
+	.workflow-progress {
+		display: flex;
+		gap: 0.65rem;
+		align-items: center;
+		margin-top: 0.75rem;
+		color: var(--ink-soft);
+		font-size: 0.75rem;
+	}
+
+	.workflow-progress progress {
+		width: min(20rem, 65vw);
+		accent-color: var(--gold);
+	}
+
+	.workflow-failure {
+		border-color: rgb(154 68 57 / 35%);
+		background: rgb(154 68 57 / 8%);
+	}
+
+	.workflow-retry {
+		border-color: rgb(155 100 47 / 42%);
+		background: rgb(255 248 232 / 72%);
+	}
+
+	.state-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.85rem;
+		margin-top: 0.9rem;
+	}
+
+	.state-actions a {
+		color: var(--gold);
+		font-weight: 750;
+	}
+
+	.retry-action {
+		display: inline-flex;
+		width: fit-content;
+		gap: 0.4rem;
+		align-items: center;
+		margin-top: 0.75rem;
+		padding: 0.45rem 0.65rem;
+		border: 1px solid rgb(154 120 67 / 48%);
+		border-radius: 0.35rem;
+		background: #fffaf0;
+		color: var(--ink);
+		font: inherit;
+		font-size: 0.75rem;
+		font-weight: 750;
+		cursor: pointer;
+	}
+
+	.retry-action :global(svg) {
+		width: 0.9rem;
+		height: 0.9rem;
+	}
+
+	.retry-action:disabled {
+		opacity: 0.55;
+		cursor: wait;
+	}
+
+	.transport-error {
+		margin-top: 0.75rem;
+		border-color: rgb(154 68 57 / 28%);
+		color: var(--red);
 	}
 
 	.review-shell {
@@ -1057,9 +1583,14 @@
 		cursor: pointer;
 	}
 
-	.group-toolbar button:hover {
+	.group-toolbar button:not(:disabled):hover {
 		color: var(--ink);
 		text-decoration: underline;
+	}
+
+	.group-toolbar button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
 	}
 
 	.proposal-list {
@@ -1147,6 +1678,7 @@
 	}
 
 	.proposal-card {
+		container-type: inline-size;
 		padding: 1rem 1.05rem;
 		border: 1px solid rgb(154 120 67 / 30%);
 		border-radius: var(--border-radius-md);
@@ -1331,6 +1863,11 @@
 		font: inherit;
 	}
 
+	.resolution select:disabled {
+		opacity: 0.65;
+		cursor: not-allowed;
+	}
+
 	.proposal-footer {
 		display: flex;
 		gap: 0.75rem;
@@ -1416,7 +1953,7 @@
 		color: var(--red);
 	}
 
-	.reject-action:hover,
+	.reject-action:not(:disabled):hover,
 	.reject-action.active {
 		border-color: var(--red);
 		background: var(--red);
@@ -1428,19 +1965,19 @@
 		color: var(--green);
 	}
 
-	.approve-action:hover,
+	.approve-action:not(:disabled):hover,
 	.approve-action.active {
 		border-color: var(--green);
 		background: var(--green);
 		color: #fff;
 	}
 
-	.approve-action:disabled {
-		opacity: 0.4;
+	.decision-actions button:disabled {
+		opacity: 0.55;
 		cursor: not-allowed;
 	}
 
-	.approve-action:disabled:hover {
+	.approve-action:disabled:not(.active):hover {
 		background: transparent;
 		color: var(--green);
 	}
@@ -1552,6 +2089,41 @@
 		color: #8b2f27;
 	}
 
+	.commit-status,
+	.commit-failure,
+	.commit-retry,
+	.navigation-failure {
+		margin-top: 0.55rem;
+	}
+
+	.commit-status {
+		color: var(--gold);
+		font-weight: 700;
+	}
+
+	.commit-failure,
+	.commit-retry,
+	.navigation-failure {
+		display: grid;
+		gap: 0.2rem;
+	}
+
+	.commit-failure,
+	.navigation-failure {
+		color: var(--red);
+	}
+
+	.commit-retry {
+		color: var(--amber);
+	}
+
+	.commit-failure span,
+	.commit-retry span,
+	.navigation-failure span {
+		color: var(--ink-soft);
+		font-size: 0.76rem;
+	}
+
 	.approval {
 		position: sticky;
 		z-index: 10;
@@ -1597,6 +2169,13 @@
 	.approval > button:disabled {
 		opacity: 0.55;
 		cursor: wait;
+	}
+
+	@container (max-width: 32rem) {
+		.resolution-panel {
+			grid-template-columns: minmax(0, 1fr);
+			margin-left: 0;
+		}
 	}
 
 	@media (max-width: 900px) {

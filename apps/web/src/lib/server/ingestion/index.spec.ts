@@ -165,6 +165,7 @@ const setup = (
 			read: () => succeed(saved!),
 			readTranscript: () => succeed(savedTranscript)
 		},
+		retrieveAnalysisDocuments: () => succeed(documents),
 		vault: {
 			getDocuments: () => succeed(documents),
 			createDocument,

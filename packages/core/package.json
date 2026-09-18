@@ -1,0 +1,42 @@
+{
+	"name": "@loremaster/core",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		},
+		"./server/ingestion": {
+			"types": "./dist/server/ingestion/index.d.ts",
+			"default": "./dist/server/ingestion/index.js"
+		},
+		"./*": {
+			"types": "./dist/*.d.ts",
+			"default": "./dist/*.js"
+		}
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"dev": "tsc -p tsconfig.json --watch",
+		"prepare": "pnpm build",
+		"test": "vitest --run"
+	},
+	"dependencies": {
+		"@mastra/pg": "^1.22.2",
+		"@mastra/rag": "^2.6.0",
+		"drizzle-orm": "^0.45.2",
+		"effect": "^3.22.1",
+		"openai": "^7.8.0",
+		"postgres": "^3.4.9",
+		"yaml": "^2.9.0",
+		"zod": "^4.4.3"
+	},
+	"devDependencies": {
+		"@types/node": "^24",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.8"
+	}
+}

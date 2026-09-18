@@ -8,9 +8,9 @@
 		"node": ">=20"
 	},
 	"scripts": {
-		"dev": "pnpm --parallel --filter @loremaster/web --filter @loremaster/workflows dev",
-		"dev:web": "pnpm --filter @loremaster/web dev",
-		"dev:workflows": "pnpm --filter @loremaster/workflows dev",
+		"dev": "pnpm --filter @loremaster/core build && pnpm --parallel --filter @loremaster/core --filter @loremaster/web --filter @loremaster/workflows dev",
+		"dev:web": "pnpm --filter @loremaster/core build && pnpm --filter @loremaster/web dev",
+		"dev:workflows": "pnpm --filter @loremaster/core build && pnpm --filter @loremaster/workflows dev",
 		"preview": "pnpm --filter @loremaster/web preview",
 		"build": "pnpm -r build",
 		"check": "pnpm -r check",

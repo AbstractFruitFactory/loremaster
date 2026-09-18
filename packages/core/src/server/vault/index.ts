@@ -1,0 +1,766 @@
+import { randomUUID } from 'node:crypto'
+import {
+	all,
+	catchAll,
+	fail as failEffect,
+	flatMap,
+	gen,
+	map,
+	succeed,
+	type Effect
+} from 'effect/Effect'
+import { pipe } from 'effect/Function'
+import { withDocumentTitle } from '../../document.js'
+import type { AiProvider } from '../ai/provider.js'
+import type * as CampaignDb from '../db/campaign.js'
+import type * as VaultDb from '../db/vault.js'
+import { fail, type Failure } from '../failure.js'
+import type { timeline as createTimeline } from '../timeline/index.js'
+import {
+	parseVaultDocument,
+	serializeVaultDocument,
+	updateDocumentFrontmatter,
+	updateVaultDocumentSource
+} from './markdown.js'
+import type { vaultRevision } from './revisions/index.js'
+import type { RevisionSource } from './revisions/types.js'
+import {
+	canHaveRelationshipLinks,
+	relationshipCandidates,
+	relationshipPrompt,
+	relationshipSystemPrompt,
+	validateRelationshipLinks
+} from './relationships.js'
+import { documentSummaryPrompt } from './summary.js'
+import type { VaultStorage } from './storage/storage.js'
+import type {
+	ParsedVaultDocument,
+	VaultDocument,
+	VaultDocumentIndex,
+	VaultDocumentSummary
+} from './types.js'
+
+const isValidDocumentPath = (path: string) => {
+	const segments = path.split('/')
+
+	return (
+		!!path &&
+		!path.startsWith('/') &&
+		!path.includes('\\') &&
+		path.toLowerCase().endsWith('.md') &&
+		segments.every((segment) => !!segment && segment !== '.' && segment !== '..')
+	)
+}
+
+const toDocumentIndex = ({
+	content: _content,
+	aliases: _aliases,
+	transcript: _transcript,
+	ingestionId: _ingestionId,
+	currentRevisionId: _currentRevisionId,
+	...index
+}: VaultDocument): VaultDocumentIndex => index
+
+const toDocumentSummary = ({
+	content: _content,
+	transcript: _transcript,
+	...summary
+}: VaultDocument): VaultDocumentSummary => summary
+
+const checkDuplicateIds = (campaignId: string, documents: VaultDocument[]) => {
+	const ids = new Set<string>()
+	const duplicateIds = new Set<string>()
+
+	for (const { id } of documents) {
+		if (ids.has(id)) duplicateIds.add(id)
+		ids.add(id)
+	}
+
+	return duplicateIds.size
+		? fail('vault', 'listDocuments', { campaignId, duplicateIds: [...duplicateIds] })
+		: succeed(documents)
+}
+
+export const vault = ({
+	ai,
+	db,
+	contextIndex,
+	revisions,
+	storage,
+	timeline
+}: {
+	ai: Pick<AiProvider, 'inferDocumentType' | 'generateText' | 'generateRelationshipLinks'> & {
+		documentTypeModel: string
+		summaryModel: string
+		relationshipModel: string
+	}
+	db: {
+		getCampaignById: typeof CampaignDb.getById
+		getDocumentPath: typeof VaultDb.getDocumentPath
+		getDocumentSummaries: typeof VaultDb.getDocumentSummaries
+		getOutgoingLinks: typeof VaultDb.getOutgoingLinks
+		getBacklinks: typeof VaultDb.getBacklinks
+		indexDocument: typeof VaultDb.indexDocument
+		deleteDocumentIndex: typeof VaultDb.deleteDocumentIndex
+		replaceCampaignIndex: typeof VaultDb.replaceCampaignIndex
+		replaceRelationshipLinks: typeof VaultDb.replaceRelationshipLinks
+	}
+	contextIndex: {
+		deleteDocumentIndex: (campaignId: string, documentId: string) => Effect<void, Failure>
+		indexDocument: (campaignId: string, document: VaultDocument) => Effect<void, Failure>
+		reindexCampaign: (campaignId: string, documents: VaultDocument[]) => Effect<void, Failure>
+	}
+	revisions: ReturnType<typeof vaultRevision>
+	storage: VaultStorage
+	timeline: Pick<ReturnType<typeof createTimeline>, 'validateDocuments'>
+}) => {
+	type RevisionContext = {
+		source?: RevisionSource
+		relatedSessionId?: string
+		ingestionId?: string
+		changeSummary?: string
+		revisionId?: string
+	}
+
+	const readOptionalSource = (campaignId: string, path: string) =>
+		catchAll(
+			map(storage.read(campaignId, path), (source): string | null => source),
+			(failure) =>
+				failure.cause instanceof Error &&
+				'code' in failure.cause &&
+				(failure.cause as NodeJS.ErrnoException).code === 'ENOENT'
+					? succeed(null)
+					: failEffect(failure)
+		)
+
+	const generateDocumentSummary = (document: VaultDocument) =>
+		pipe(
+			ai.generateText({
+				...documentSummaryPrompt(document),
+				model: ai.summaryModel
+			}),
+			map((summary) => summary.trim())
+		)
+
+	const replaceDerivedRelationshipLinks = (
+		campaignId: string,
+		document: VaultDocument,
+		documents: VaultDocument[]
+	) => {
+		if (!canHaveRelationshipLinks(document)) {
+			return db.replaceRelationshipLinks(campaignId, document.id, [])
+		}
+
+		const candidates = relationshipCandidates(document, documents)
+		if (!candidates.length) {
+			return db.replaceRelationshipLinks(campaignId, document.id, [])
+		}
+
+		return pipe(
+			ai.generateRelationshipLinks({
+				model: ai.relationshipModel,
+				system: relationshipSystemPrompt,
+				prompt: relationshipPrompt(document, candidates)
+			}),
+			map((links) => validateRelationshipLinks(links, candidates)),
+			flatMap((links) => db.replaceRelationshipLinks(campaignId, document.id, links))
+		)
+	}
+
+	const attachDocumentSummaries = (campaignId: string) => (documents: VaultDocument[]) => {
+		if (!documents.length) return succeed(documents)
+
+		return pipe(
+			db.getDocumentSummaries(
+				campaignId,
+				documents.map(({ id }) => id)
+			),
+			map((summaries) =>
+				documents.map((document) => ({
+					...document,
+					summary: summaries.get(document.id) ?? document.summary
+				}))
+			)
+		)
+	}
+
+	const indexDocumentWithSummary = (campaignId: string, document: VaultDocument) =>
+		pipe(
+			generateDocumentSummary(document),
+			map((summary) => ({ ...document, summary })),
+			flatMap((documentWithSummary) =>
+				pipe(
+					db.indexDocument(campaignId, toDocumentIndex(documentWithSummary)),
+					flatMap(() => contextIndex.indexDocument(campaignId, documentWithSummary)),
+					flatMap(() => loadDocuments(campaignId)),
+					flatMap((documents) =>
+						pipe(
+							replaceDerivedRelationshipLinks(campaignId, documentWithSummary, documents),
+							map(() => documentWithSummary)
+						)
+					)
+				)
+			)
+		)
+
+	const ensureCampaignExists = (campaignId: string) =>
+		pipe(
+			db.getCampaignById(campaignId),
+			flatMap((campaign) =>
+				campaign ? succeed(undefined) : fail('campaign', 'getCampaign', { campaignId })
+			)
+		)
+
+	const ensureCampaign = ensureCampaignExists
+
+	const ensureDocumentMetadata = (
+		campaignId: string,
+		source: string,
+		document: ParsedVaultDocument,
+		importDocument: boolean
+	) =>
+		gen(function* () {
+			if ((!document.id || !document.type) && !importDocument) {
+				return yield* fail('vault', 'parseDocument', {
+					path: document.path,
+					reason: 'missingRequiredMetadata'
+				})
+			}
+			const type = yield* document.type
+				? succeed(document.type)
+				: ai.inferDocumentType({
+						model: ai.documentTypeModel,
+						path: document.path,
+						title: document.title,
+						content: document.content
+					})
+			if (document.after.length && type !== 'event') {
+				return yield* fail('vault', 'parseDocument', {
+					path: document.path,
+					reason: 'eventPredecessorsOnNonEvent',
+					type
+				})
+			}
+			if ((document.during.length || document.eventForm) && type !== 'event') {
+				return yield* fail('vault', 'parseDocument', {
+					path: document.path,
+					reason: 'eventChronologyOnNonEvent',
+					type
+				})
+			}
+
+			const normalizedDocument: VaultDocument = {
+				...document,
+				id: document.id ?? randomUUID(),
+				type,
+				summary: document.summary
+			}
+
+			if (document.id && document.type) {
+				const head = importDocument
+					? yield* revisions.importSnapshot(
+							campaignId,
+							normalizedDocument.id,
+							document.path,
+							source
+						)
+					: yield* revisions.verifyCurrentRevision(
+							campaignId,
+							normalizedDocument.id,
+							document.path,
+							source
+						)
+				return {
+					...normalizedDocument,
+					currentRevisionId: head.revisionId
+				}
+			}
+			const normalizedSource = yield* updateDocumentFrontmatter(source, {
+				id: normalizedDocument.id,
+				type: normalizedDocument.type
+			})
+			const revision = yield* revisions.importSnapshot(
+				campaignId,
+				normalizedDocument.id,
+				document.path,
+				source,
+				normalizedSource
+			)
+			return {
+				...normalizedDocument,
+				currentRevisionId: revision.revisionId
+			}
+		})
+
+	const loadDocumentAtPath = (campaignId: string, path: string, importDocument = false) =>
+		pipe(
+			storage.read(campaignId, path),
+			flatMap((source) =>
+				pipe(
+					parseVaultDocument(path, source),
+					flatMap((document) =>
+						ensureDocumentMetadata(campaignId, source, document, importDocument)
+					)
+				)
+			)
+		)
+
+	const loadDocuments = (campaignId: string, importDocuments = false) =>
+		pipe(
+			storage.list(campaignId),
+			flatMap((paths) =>
+				all(paths.map((path) => loadDocumentAtPath(campaignId, path, importDocuments)))
+			),
+			flatMap((documents) => checkDuplicateIds(campaignId, documents)),
+			map((documents) => [...documents].sort((left, right) => left.path.localeCompare(right.path))),
+			flatMap((documents) =>
+				pipe(
+					timeline.validateDocuments(documents),
+					map(() => documents)
+				)
+			)
+		)
+
+	const findDocument = (campaignId: string, documentId: string) =>
+		pipe(
+			db.getDocumentPath(campaignId, documentId),
+			flatMap((path) =>
+				path ? succeed(path) : fail('vault', 'getDocument', { campaignId, documentId })
+			),
+			flatMap((path) => loadDocumentAtPath(campaignId, path)),
+			flatMap((document) =>
+				document.id === documentId
+					? succeed(document)
+					: fail('vault', 'getDocument', { campaignId, documentId })
+			)
+		)
+
+	const findOptionalDocument = (campaignId: string, documentId: string) =>
+		gen(function* () {
+			const path = yield* db.getDocumentPath(campaignId, documentId)
+			if (!path) return null
+			const source = yield* readOptionalSource(campaignId, path)
+			if (source === null) return null
+			const parsed = yield* parseVaultDocument(path, source)
+			const document = yield* ensureDocumentMetadata(campaignId, source, parsed, false)
+			return document.id === documentId ? document : null
+		})
+
+	const indexDocument = (campaignId: string, path: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => loadDocuments(campaignId, true)),
+			flatMap((documents) => {
+				const document = documents.find((candidate) => candidate.path === path)
+				return document ? succeed(document) : fail('vault', 'getDocument', { campaignId, path })
+			}),
+			flatMap((document) => indexDocumentWithSummary(campaignId, document))
+		)
+
+	const createDocument = (
+		campaignId: string,
+		input: {
+			documentId?: string
+			path: string
+			type: VaultDocument['type']
+			aliases?: string[]
+			after?: string[]
+			during?: string[]
+			eventForm?: VaultDocument['eventForm']
+			content: string
+			revision?: RevisionContext
+			ingestionId?: string
+			transcript?: string
+		}
+	) =>
+		gen(function* () {
+			if (!isValidDocumentPath(input.path)) {
+				return yield* fail('vault', 'createDocument', {
+					campaignId,
+					path: input.path,
+					reason: 'invalidPath'
+				})
+			}
+
+			const documentId = input.documentId ?? randomUUID()
+			const source = serializeVaultDocument(
+				{
+					id: documentId,
+					type: input.type,
+					aliases: input.aliases,
+					after: input.after,
+					during: input.during,
+					eventForm: input.type === 'event' ? (input.eventForm ?? 'occurrence') : undefined,
+					ingestionId: input.ingestionId
+				},
+				input.content,
+				input.transcript
+			)
+			const proposedDocument: VaultDocument = {
+				id: documentId,
+				path: input.path,
+				title: input.path,
+				type: input.type,
+				aliases: input.aliases,
+				after: input.after ?? [],
+				during: input.during ?? [],
+				eventForm: input.type === 'event' ? (input.eventForm ?? 'occurrence') : undefined,
+				summary: '',
+				content: input.content,
+				transcript: input.transcript,
+				ingestionId: input.ingestionId,
+				links: []
+			}
+
+			yield* ensureCampaign(campaignId)
+			const existingSource = input.revision?.revisionId
+				? yield* readOptionalSource(campaignId, input.path)
+				: null
+			if (existingSource !== null) {
+				if (existingSource !== source) {
+					return yield* fail('vault', 'createDocument', {
+						campaignId,
+						path: input.path,
+						reason: 'deterministicCreateMismatch'
+					})
+				}
+				yield* revisions.create(campaignId, documentId, input.path, source, input.revision)
+				const document = yield* loadDocumentAtPath(campaignId, input.path)
+				yield* validateDocumentUpdate(campaignId)(document)
+				return yield* indexDocumentWithSummary(campaignId, document)
+			}
+			const documents = yield* loadDocuments(campaignId)
+
+			if (documents.some(({ path }) => path === input.path)) {
+				return yield* fail('vault', 'createDocument', {
+					campaignId,
+					path: input.path,
+					reason: 'pathExists'
+				})
+			}
+
+			yield* timeline.validateDocuments([...documents, proposedDocument])
+			yield* revisions.create(campaignId, documentId, input.path, source, input.revision)
+
+			const document = yield* loadDocumentAtPath(campaignId, input.path)
+
+			return yield* indexDocumentWithSummary(campaignId, document)
+		})
+
+	const getDocument = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => findDocument(campaignId, documentId)),
+			flatMap((document) =>
+				pipe(
+					attachDocumentSummaries(campaignId)([document]),
+					map(([documentWithSummary]) => documentWithSummary)
+				)
+			)
+		)
+
+	const getDocumentsByIds = (campaignId: string, documentIds: string[]) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const uniqueDocumentIds = [...new Set(documentIds)]
+			const documents = yield* all(
+				uniqueDocumentIds.map((documentId) => findOptionalDocument(campaignId, documentId)),
+				{ concurrency: 'unbounded' }
+			)
+			return yield* attachDocumentSummaries(campaignId)(
+				documents.flatMap((document) => (document === null ? [] : [document]))
+			)
+		})
+
+	type UpdateDocumentInput = {
+		type: VaultDocument['type']
+		aliases?: string[]
+		after?: string[]
+		during?: string[]
+		eventForm?: VaultDocument['eventForm']
+		content: string
+		expectedRevisionId?: string
+		expectedPath?: string
+		revision?: RevisionContext
+	}
+
+	const applyDocumentUpdate =
+		(input: UpdateDocumentInput) =>
+		(existing: VaultDocument): VaultDocument => ({
+			...existing,
+			type: input.type,
+			aliases: input.aliases,
+			after: input.after ?? existing.after,
+			during: input.during ?? existing.during,
+			eventForm:
+				input.type === 'event'
+					? existing.eventForm === 'period'
+						? 'period'
+						: (input.eventForm ?? existing.eventForm ?? 'occurrence')
+					: undefined,
+			content: input.content
+		})
+
+	const validateDocumentUpdate = (campaignId: string) => (updated: VaultDocument) =>
+		pipe(
+			loadDocuments(campaignId),
+			map((documents) =>
+				documents.map((document) => (document.id === updated.id ? updated : document))
+			),
+			flatMap(timeline.validateDocuments),
+			map(() => updated)
+		)
+
+	const updateDocumentIndexes = (campaignId: string) => (document: VaultDocument) =>
+		indexDocumentWithSummary(campaignId, document)
+
+	const updateDocument = (campaignId: string, documentId: string, input: UpdateDocumentInput) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			if (!input.expectedRevisionId) {
+				return yield* fail('vaultRevision', 'verifyBase', { reason: 'missingBase' })
+			}
+			if (input.revision?.revisionId) {
+				const base = yield* revisions.getRevision(campaignId, documentId, input.expectedRevisionId)
+				if (
+					base.snapshot === null ||
+					(input.expectedPath !== undefined && input.expectedPath !== base.path)
+				) {
+					return yield* fail('vaultRevision', 'verifyBase', {
+						reason: 'deterministicBaseMismatch'
+					})
+				}
+				const parsed = yield* parseVaultDocument(base.path, base.snapshot)
+				if (!parsed.id || !parsed.type || parsed.id !== documentId) {
+					return yield* fail('vaultRevision', 'verifyBase', {
+						reason: 'invalidBaseSnapshot'
+					})
+				}
+				const updated = applyDocumentUpdate(input)({
+					...parsed,
+					id: parsed.id,
+					type: parsed.type
+				})
+				const afterSource = yield* updateVaultDocumentSource(
+					base.snapshot,
+					{
+						id: updated.id,
+						type: updated.type,
+						aliases: updated.aliases,
+						after: updated.after,
+						during: updated.during,
+						eventForm: updated.eventForm,
+						ingestionId: updated.ingestionId
+					},
+					updated.content
+				)
+				const currentSource = yield* storage.read(campaignId, base.path)
+				if (currentSource === base.snapshot) {
+					yield* validateDocumentUpdate(campaignId)(updated)
+				} else if (currentSource !== afterSource) {
+					return yield* fail('vaultRevision', 'verifyBase', {
+						reason: 'canonicalHashMismatch'
+					})
+				}
+				yield* revisions.update(campaignId, documentId, base.path, base.snapshot, afterSource, {
+					expectedRevisionId: input.expectedRevisionId,
+					...input.revision
+				})
+				const document = yield* loadDocumentAtPath(campaignId, base.path)
+				yield* validateDocumentUpdate(campaignId)(document)
+				return yield* updateDocumentIndexes(campaignId)(document)
+			}
+			const existing = yield* findDocument(campaignId, documentId)
+			const updated = yield* validateDocumentUpdate(campaignId)(
+				applyDocumentUpdate(input)(existing)
+			)
+			const beforeSource = yield* storage.read(campaignId, existing.path)
+			const afterSource = yield* updateVaultDocumentSource(
+				beforeSource,
+				{
+					id: updated.id,
+					type: updated.type,
+					aliases: updated.aliases,
+					after: updated.after,
+					during: updated.during,
+					eventForm: updated.eventForm,
+					ingestionId: updated.ingestionId
+				},
+				updated.content
+			)
+			yield* revisions.update(campaignId, documentId, existing.path, beforeSource, afterSource, {
+				expectedRevisionId: input.expectedRevisionId,
+				...input.revision
+			})
+			const document = yield* findDocument(campaignId, documentId)
+			return yield* updateDocumentIndexes(campaignId)(document)
+		})
+
+	const editDocument = (
+		campaignId: string,
+		documentId: string,
+		input: {
+			title: string
+			content: string
+			expectedRevisionId?: string
+		}
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const existing = yield* findDocument(campaignId, documentId)
+			return yield* updateDocument(campaignId, documentId, {
+				type: existing.type,
+				aliases: existing.aliases,
+				after: existing.after,
+				during: existing.during,
+				eventForm: existing.eventForm,
+				content: withDocumentTitle(input.title, input.content),
+				expectedRevisionId: input.expectedRevisionId
+			})
+		})
+
+	const deleteDocument = (
+		campaignId: string,
+		documentId: string,
+		options: { expectedRevisionId?: string } = {}
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			if (!options.expectedRevisionId) {
+				return yield* fail('vaultRevision', 'verifyBase', { reason: 'missingBase' })
+			}
+			const document = yield* findDocument(campaignId, documentId)
+			const beforeSource = yield* storage.read(campaignId, document.path)
+			yield* revisions.delete(campaignId, document.id, document.path, beforeSource, {
+				expectedRevisionId: options.expectedRevisionId
+			})
+			yield* db.deleteDocumentIndex(campaignId, document.id)
+			yield* contextIndex.deleteDocumentIndex(campaignId, document.id)
+		})
+
+	const listDocuments = (campaignId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => loadDocuments(campaignId)),
+			flatMap(attachDocumentSummaries(campaignId)),
+			map((documents) => documents.map(toDocumentSummary))
+		)
+
+	const getDocuments = (campaignId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => loadDocuments(campaignId)),
+			flatMap(attachDocumentSummaries(campaignId))
+		)
+
+	const getOutgoingLinks = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => db.getOutgoingLinks(campaignId, documentId))
+		)
+
+	const getBacklinks = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => db.getBacklinks(campaignId, documentId))
+		)
+
+	const listDocumentRevisions = (campaignId: string, documentId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.listRevisions(campaignId, documentId))
+		)
+
+	const getDocumentRevision = (campaignId: string, documentId: string, revisionId: string) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.getRevision(campaignId, documentId, revisionId))
+		)
+
+	const diffDocumentRevisions = (
+		campaignId: string,
+		documentId: string,
+		toRevisionId: string,
+		fromRevisionId?: string
+	) =>
+		pipe(
+			ensureCampaign(campaignId),
+			flatMap(() => revisions.diffRevisions(campaignId, documentId, toRevisionId, fromRevisionId))
+		)
+
+	const restoreDocumentRevision = (
+		campaignId: string,
+		documentId: string,
+		revisionId: string,
+		options: { expectedRevisionId: string }
+	) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			const selected = yield* revisions.getRevision(campaignId, documentId, revisionId)
+			if (selected.snapshot === null) {
+				return yield* fail('vaultRevision', 'restoreRevision', { reason: 'deletedSnapshot' })
+			}
+			const restored = yield* parseVaultDocument(selected.path, selected.snapshot)
+			if (!restored.id || !restored.type || restored.id !== documentId) {
+				return yield* fail('vaultRevision', 'restoreRevision', {
+					reason: 'invalidSnapshot',
+					revisionId
+				})
+			}
+			const documents = yield* loadDocuments(campaignId)
+			const projected: VaultDocument = {
+				...restored,
+				id: restored.id,
+				type: restored.type
+			}
+			yield* timeline.validateDocuments([
+				...documents.filter((document) => document.id !== documentId),
+				projected
+			])
+			const restoreRevision = yield* revisions.restore(campaignId, documentId, revisionId, options)
+			const document = yield* loadDocumentAtPath(campaignId, restoreRevision.path)
+			return yield* indexDocumentWithSummary(campaignId, document)
+		})
+
+	const reindexCampaign = (campaignId: string) =>
+		gen(function* () {
+			yield* ensureCampaign(campaignId)
+			yield* revisions.rebuildIndex(campaignId)
+			const documents = yield* loadDocuments(campaignId, true)
+			const documentsWithSummaries = yield* all(
+				documents.map((document) =>
+					pipe(
+						generateDocumentSummary(document),
+						map((summary) => ({ ...document, summary }))
+					)
+				)
+			)
+
+			yield* db.replaceCampaignIndex(campaignId, documentsWithSummaries.map(toDocumentIndex))
+			yield* contextIndex.reindexCampaign(campaignId, documentsWithSummaries)
+			for (const document of documentsWithSummaries) {
+				yield* replaceDerivedRelationshipLinks(campaignId, document, documentsWithSummaries)
+			}
+
+			return documentsWithSummaries
+		})
+
+	return {
+		createDocument,
+		deleteDocument,
+		diffDocumentRevisions,
+		editDocument,
+		getBacklinks,
+		getDocument,
+		getDocumentRevision,
+		getDocumentsByIds,
+		getDocuments,
+		getOutgoingLinks,
+		indexDocument,
+		listDocumentRevisions,
+		listDocuments,
+		reindexCampaign,
+		restoreDocumentRevision,
+		updateDocument
+	}
+}

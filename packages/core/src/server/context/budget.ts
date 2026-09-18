@@ -1,0 +1,24 @@
+import type { AssistantContext, ContextItem } from './types.js'
+
+export const DEFAULT_CONTEXT_TOKEN_BUDGET = 12_000
+
+export const estimateTokens = (content: string) => Math.ceil(content.length / 4)
+
+export const selectWithinBudget = (
+	items: ContextItem[],
+	maxTokens = DEFAULT_CONTEXT_TOKEN_BUDGET
+): Pick<AssistantContext, 'items' | 'estimatedTokens'> => {
+	const selected: ContextItem[] = []
+	let estimatedTokens = 0
+
+	for (const item of items) {
+		const itemTokens = estimateTokens(item.fragment.content)
+
+		if (!selected.length || estimatedTokens + itemTokens <= maxTokens) {
+			selected.push(item)
+			estimatedTokens += itemTokens
+		}
+	}
+
+	return { items: selected, estimatedTokens }
+}

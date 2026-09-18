@@ -58,6 +58,7 @@ const operationsWith = (
 			read: () => succeed({} as SessionIngestionDraft),
 			readTranscript: () => succeed('')
 		},
+		retrieveAnalysisDocuments: () => succeed(documents),
 		vault: {
 			getDocuments: () => succeed(documents),
 			createDocument: () => succeed({} as VaultDocument),

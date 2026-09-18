@@ -9,20 +9,53 @@
 	let { params }: PageProps = $props()
 	let title = $state('')
 	let transcript = $state('')
-	let isAnalyzing = $state(false)
+	let isStarting = $state(false)
 	let analysisError = $state('')
+
+	type AnalysisAttempt = {
+		ingestionId: string
+		title: string
+		transcript: string
+	}
+
+	let retryAttempt: AnalysisAttempt | undefined
+
+	const httpStatus = (error: unknown) => {
+		if (typeof error !== 'object' || error === null || !('status' in error)) return undefined
+		return typeof error.status === 'number' ? error.status : undefined
+	}
+
+	const isUncertainTransportError = (error: unknown) => {
+		const status = httpStatus(error)
+		return status === undefined || status >= 500
+	}
 
 	const handleAnalyze = async (event: SubmitEvent) => {
 		event.preventDefault()
-		isAnalyzing = true
+		isStarting = true
 		analysisError = ''
+		const submittedTitle = title
+		const submittedTranscript = transcript
+		const ingestionId =
+			retryAttempt?.title === submittedTitle && retryAttempt.transcript === submittedTranscript
+				? retryAttempt.ingestionId
+				: crypto.randomUUID()
+		retryAttempt = undefined
 		try {
-			const draft = await analyzeSession({ campaignId: params.campaignId, title, transcript })
-			await goto(`/campaigns/${params.campaignId}/session/ingest/${draft.ingestionId}`)
+			const reference = await analyzeSession({
+				campaignId: params.campaignId,
+				ingestionId,
+				title: submittedTitle,
+				transcript: submittedTranscript
+			})
+			await goto(`/campaigns/${params.campaignId}/session/ingest/${reference.ingestionId}`)
 		} catch (error) {
+			if (isUncertainTransportError(error)) {
+				retryAttempt = { ingestionId, title: submittedTitle, transcript: submittedTranscript }
+			}
 			analysisError = error instanceof Error ? error.message : 'Unable to analyze this session'
 		} finally {
-			isAnalyzing = false
+			isStarting = false
 		}
 	}
 </script>
@@ -37,7 +70,11 @@
 		<p>Paste the transcript. Loremaster will extract evidence-backed changes for review.</p>
 	</header>
 
-	<form onsubmit={handleAnalyze} aria-busy={isAnalyzing}>
+	<form
+		onsubmit={handleAnalyze}
+		aria-busy={isStarting}
+		aria-describedby={analysisError ? 'analysis-error' : undefined}
+	>
 		<label for="session-title">
 			<span>Session title</span>
 			<TextInput id="session-title" bind:value={title} required maxlength={200} />
@@ -46,12 +83,15 @@
 			<span>Raw transcript</span>
 			<Textarea id="session-transcript" bind:value={transcript} required rows={18} />
 		</label>
-		<Button type="submit" disabled={isAnalyzing}>
-			{isAnalyzing ? 'Analyzing…' : 'Analyze session'}
+		<Button type="submit" disabled={isStarting}>
+			{isStarting ? 'Starting analysis…' : 'Analyze session'}
 		</Button>
+		<p class="submit-status" role="status" aria-live="polite" aria-atomic="true">
+			{isStarting ? 'Starting analysis…' : ''}
+		</p>
 	</form>
 
-	{#if analysisError}<p class="error" role="alert">{analysisError}</p>{/if}
+	{#if analysisError}<p id="analysis-error" class="error" role="alert">{analysisError}</p>{/if}
 </section>
 
 <style>
@@ -102,5 +142,11 @@
 	}
 	.error {
 		color: #8b2f27;
+	}
+	.submit-status {
+		min-height: 1.2em;
+		margin: 0;
+		color: var(--ink-soft);
+		font-size: 0.8rem;
 	}
 </style>

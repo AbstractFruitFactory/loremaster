@@ -1,9 +1,11 @@
 # Loremaster
 
-Loremaster is a pnpm workspace with two applications:
+Loremaster is a pnpm workspace with two applications and a shared core package:
 
-- `apps/web`: the SvelteKit web application, database schema, and campaign vault services.
-- `apps/workflows`: the unbundled Node.js DBOS runtime for durable background workflows.
+- `apps/web`: the SvelteKit web application and DBOS client.
+- `apps/workflows`: the unbundled Node.js DBOS worker for session analysis and commit workflows.
+- `packages/core`: shared Effect-based domain services, ingestion pipeline, AI, vault, and database
+  adapters.
 
 The repository requires Node.js 20 or later.
 
@@ -24,6 +26,15 @@ The local DBOS runtime uses `DBOS_SYSTEM_DATABASE_URL`, falling back to `DATABAS
 its system tables in the `dbos` schema. The web and workflows applications resolve
 `LOREMASTER_DATA_ROOT` from their package directories, so the campaign vault remains in the
 repository-level `data/campaigns` directory.
+
+Production deployments must set `LOREMASTER_DATA_ROOT` to an absolute path. The web and workflows
+processes must use the same value and mount the same durable directory. Set
+`DBOS_APPLICATION_VERSION` only to an immutable deployment identifier; leave it unset to use DBOS
+versioning.
+
+Session ingestion is asynchronous. The web app persists an ingestion request and enqueues it in
+DBOS. The workflows app checkpoints transcript analysis, event auditing, entity resolution,
+chronology, and commit mutations while publishing progress for the review page.
 
 ## Development
 
@@ -82,7 +93,9 @@ pnpm test:server
 
 `apps/workflows` is compiled with `tsc` and started with Node.js because DBOS applications and
 workflows must not be bundled. Its `dbos-config.yaml` provides the DBOS CLI and DBOS Cloud runtime
-configuration.
+configuration. Both compiled worker launch paths set `NODE_ENV=production`, which enforces an
+absolute `LOREMASTER_DATA_ROOT`; the TypeScript development command retains the local relative
+default.
 
 The web application still uses `adapter-auto`. Select a concrete SvelteKit adapter before deploying
 it to a specific platform.

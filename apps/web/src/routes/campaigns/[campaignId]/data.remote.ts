@@ -4,9 +4,21 @@ import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import { documentTypes } from '#lib/document.js'
-import { ingestion, lore, vault } from '#lib/server/app.js'
+import { campaign, ingestion, lore, vault } from '#lib/server/app.js'
+import { getIngestionDbosAdapter } from '#lib/server/dbos/client.js'
+import { mapIngestionWorkflowStatus } from '#lib/server/dbos/status.js'
 import { logFailure } from '#lib/server/failure.js'
+import { ingestionDocumentId } from '@loremaster/core/server/ingestion/ids'
+import { isImmutableIngestionConflict } from '@loremaster/core/server/ingestion/storage'
 import type { SessionIngestionDraft, SessionIngestionResult } from '#lib/server/ingestion/types.js'
+import {
+	analysisWorkflowId,
+	commitWorkflowId,
+	type AnalysisStartReference,
+	type AnalysisWorkflowStatus,
+	type CommitStartReference,
+	type CommitWorkflowStatus
+} from '@loremaster/core/workflows/contracts'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 import type {
 	RevisionDiff,
@@ -112,6 +124,7 @@ const createLoreInput = z
 const analyzeSessionInput = z
 	.object({
 		campaignId,
+		ingestionId: ingestionId.optional(),
 		title: z.string().trim().min(1).max(200),
 		transcript: z
 			.string()
@@ -203,22 +216,119 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 
 export const analyzeSession = command(
 	analyzeSessionInput,
-	(input): Promise<SessionIngestionDraft> =>
-		runPromise(
+	async (input): Promise<AnalysisStartReference> => {
+		const allocatedIngestionId = input.ingestionId ?? ingestion.allocateIngestionId()
+		await runPromise(
 			pipe(
-				ingestion.analyze(input),
+				campaign.getCampaign(input.campaignId),
 				match({
 					onFailure: (failure) => {
 						if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
 							error(404, `Campaign "${input.campaignId}" was not found`)
 						}
 						logFailure(failure)
-						error(500, 'Unable to analyze this session')
+						error(500, 'Unable to start this session analysis')
 					},
-					onSuccess: (draft) => draft
+					onSuccess: () => undefined
 				})
 			)
 		)
+		await runPromise(
+			pipe(
+				ingestion.persistTranscriptData({
+					schemaVersion: 1,
+					campaignId: input.campaignId,
+					ingestionId: allocatedIngestionId,
+					title: input.title,
+					transcript: input.transcript
+				}),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						if (isImmutableIngestionConflict(failure.cause)) {
+							error(409, 'This ingestion ID is already used by a different request')
+						}
+						error(500, 'Unable to start this session analysis')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const workflowId = analysisWorkflowId(input.campaignId, allocatedIngestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			await dbos.enqueueAnalysis(workflowId, {
+				campaignId: input.campaignId,
+				ingestionId: allocatedIngestionId
+			})
+		} catch (cause) {
+			console.error('[session-analysis.enqueue]', cause)
+			error(503, 'Session analysis is temporarily unavailable')
+		}
+		return {
+			campaignId: input.campaignId,
+			ingestionId: allocatedIngestionId,
+			workflowId
+		}
+	}
+)
+
+export const retrySessionAnalysis = command(
+	ingestionReference,
+	async ({ campaignId, ingestionId }): Promise<AnalysisStartReference> => {
+		await runPromise(
+			pipe(
+				ingestion.getTranscriptData(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session analysis was not found')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const workflowId = analysisWorkflowId(campaignId, ingestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			await dbos.enqueueAnalysis(workflowId, { campaignId, ingestionId })
+		} catch (cause) {
+			console.error('[session-analysis.retry]', cause)
+			error(503, 'Session analysis is temporarily unavailable')
+		}
+		return { campaignId, ingestionId, workflowId }
+	}
+)
+
+export const getSessionAnalysisStatus = query(
+	ingestionReference,
+	async ({ campaignId, ingestionId }): Promise<AnalysisWorkflowStatus> => {
+		await runPromise(
+			pipe(
+				ingestion.getTranscriptData(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session analysis was not found')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const workflowId = analysisWorkflowId(campaignId, ingestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			const state = await dbos.getWorkflowState(workflowId)
+			return mapIngestionWorkflowStatus<SessionIngestionDraft>({
+				kind: 'analysis',
+				reference: { campaignId, ingestionId, workflowId },
+				...state
+			})
+		} catch (cause) {
+			console.error('[session-analysis.status]', cause)
+			error(503, 'Session analysis status is temporarily unavailable')
+		}
+	}
 )
 
 export const getSessionIngestion = query(
@@ -240,25 +350,134 @@ export const getSessionIngestion = query(
 
 export const commitSessionIngestion = command(
 	commitIngestionInput,
-	(input): Promise<SessionIngestionResult> =>
-		runPromise(
+	async (input): Promise<CommitStartReference> => {
+		const draft = await runPromise(
 			pipe(
-				ingestion.commit(input),
+				ingestion.getDraft(input.campaignId, input.ingestionId),
 				match({
 					onFailure: (failure) => {
 						logFailure(failure)
-						if (failure.domain === 'ingestion' && failure.operation === 'commit') {
-							error(409, 'This proposal selection cannot be committed.')
-						}
-						error(500, 'Unable to commit this session')
+						error(404, 'Session analysis was not found')
 					},
-					onSuccess: (result) => {
-						void listDocuments(input.campaignId).refresh()
-						return result
-					}
+					onSuccess: (result) => result
 				})
 			)
 		)
+		const sessionProposal = draft.proposals.find((proposal) => proposal.documentType === 'session')
+		if (!sessionProposal) error(409, 'This proposal selection cannot be committed.')
+		await runPromise(
+			pipe(
+				ingestion.persistCommitData({
+					schemaVersion: 1,
+					...input
+				}),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						if (isImmutableIngestionConflict(failure.cause)) {
+							error(409, 'A different proposal selection is already being committed.')
+						}
+						error(500, 'Unable to persist this proposal selection')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const workflowId = commitWorkflowId(input.campaignId, input.ingestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			await dbos.enqueueCommit(workflowId, {
+				campaignId: input.campaignId,
+				ingestionId: input.ingestionId
+			})
+		} catch (cause) {
+			console.error('[session-commit.enqueue]', cause)
+			error(503, 'Session commit is temporarily unavailable')
+		}
+		return {
+			campaignId: input.campaignId,
+			ingestionId: input.ingestionId,
+			workflowId,
+			sessionDocumentId: ingestionDocumentId(input.ingestionId, sessionProposal.proposalId)
+		}
+	}
+)
+
+export const retrySessionCommit = command(
+	ingestionReference,
+	async ({ campaignId, ingestionId }): Promise<CommitStartReference> => {
+		await runPromise(
+			pipe(
+				ingestion.getCommitData(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session commit was not found')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const draft = await runPromise(
+			pipe(
+				ingestion.getDraft(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session analysis was not found')
+					},
+					onSuccess: (result) => result
+				})
+			)
+		)
+		const sessionProposal = draft.proposals.find((proposal) => proposal.documentType === 'session')
+		if (!sessionProposal) error(409, 'This proposal selection cannot be committed.')
+		const workflowId = commitWorkflowId(campaignId, ingestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			await dbos.enqueueCommit(workflowId, { campaignId, ingestionId })
+		} catch (cause) {
+			console.error('[session-commit.retry]', cause)
+			error(503, 'Session commit is temporarily unavailable')
+		}
+		return {
+			campaignId,
+			ingestionId,
+			workflowId,
+			sessionDocumentId: ingestionDocumentId(ingestionId, sessionProposal.proposalId)
+		}
+	}
+)
+
+export const getSessionCommitStatus = query(
+	ingestionReference,
+	async ({ campaignId, ingestionId }): Promise<CommitWorkflowStatus> => {
+		await runPromise(
+			pipe(
+				ingestion.getCommitData(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						error(404, 'Session commit was not found')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		const workflowId = commitWorkflowId(campaignId, ingestionId)
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			const state = await dbos.getWorkflowState(workflowId)
+			return mapIngestionWorkflowStatus<SessionIngestionResult>({
+				kind: 'commit',
+				reference: { campaignId, ingestionId, workflowId },
+				...state
+			})
+		} catch (cause) {
+			console.error('[session-commit.status]', cause)
+			error(503, 'Session commit status is temporarily unavailable')
+		}
+	}
 )
 
 const loadVaultDocuments = (id: string): Promise<VaultDocumentSummary[]> =>
