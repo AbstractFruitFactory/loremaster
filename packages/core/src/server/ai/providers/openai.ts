@@ -255,7 +255,7 @@ const sessionEntityResolutionSchema = z.discriminatedUnion('kind', [
 	z.object({
 		referenceId: z.string().trim().min(1),
 		kind: z.literal('defer'),
-		candidateIds: z.array(z.string().trim().min(1)).min(2),
+		candidateIds: z.array(z.string().trim().min(1)).min(1),
 		reason: z.string().trim().min(1).max(240)
 	})
 ])
@@ -304,7 +304,7 @@ const sessionEntityResolutionsTool = {
 								candidateIds: {
 									type: 'array',
 									items: { type: 'string' },
-									minItems: 2
+									minItems: 1
 								},
 								reason: { type: 'string', minLength: 1, maxLength: 240 }
 							},

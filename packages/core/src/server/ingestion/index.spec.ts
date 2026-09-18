@@ -378,7 +378,7 @@ describe('session ingestion operations', () => {
 		})
 	})
 
-	it('rejects model target IDs that were not supplied for the reference', async () => {
+	it('preserves identity candidates when the model returns an invalid target', async () => {
 		const mara = document('mara', 'Mara Vale')
 		const resolver: ResolveSessionEntities = ({ prompt }) => {
 			const [reference] = (JSON.parse(prompt) as { references: { referenceId: string }[] })
@@ -410,8 +410,55 @@ describe('session ingestion operations', () => {
 			operation: 'create-entity',
 			title: 'Mara',
 			selected: false,
-			resolutionMethod: 'model',
-			match: { kind: 'unresolved', candidates: [] }
+			canCreate: true,
+			match: {
+				kind: 'unresolved',
+				candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
+			}
+		})
+	})
+
+	it('allows one existing identity candidate to be deferred against creating a new entity', async () => {
+		const mara = document('mara', 'Mara Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: { referenceId: string; candidates: { targetId: string }[] }[]
+				}
+			).references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'defer',
+					candidateIds: [reference!.candidates[0]!.targetId],
+					reason: 'The transcript does not establish whether this is the existing Mara.'
+				}
+			])
+		}
+		const draft = await runPromise(
+			analyze(
+				setup(
+					[
+						claim('Mara carried the sealed letter.', {
+							entityReferences: [{ label: 'Mara', type: 'npc' }]
+						})
+					],
+					[mara],
+					resolver
+				).operations,
+				'Mara carried the sealed letter.'
+			)
+		)
+
+		expect(draft.proposals[1]).toMatchObject({
+			operation: 'create-entity',
+			title: 'Mara',
+			selected: false,
+			canCreate: true,
+			match: {
+				kind: 'unresolved',
+				candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
+			}
 		})
 	})
 
@@ -481,6 +528,59 @@ describe('session ingestion operations', () => {
 			path: 'NPCs/mara-vale.md',
 			content: '# Mara Vale\n\nMara Vale knows the old road.\n\nMara Vale carries a blue lantern.'
 		})
+	})
+
+	it('resolves a relational reference to an entity introduced in the same session', async () => {
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const references = (
+				JSON.parse(prompt) as {
+					references: {
+						referenceId: string
+						reference: string
+						candidates: { targetId: string; title: string; provenance: string }[]
+					}[]
+				}
+			).references
+			return succeed(
+				references.map((reference) => {
+					const ysra = reference.candidates.find(
+						({ title, provenance }) => title === 'Ysra Pell' && provenance === 'session-entity'
+					)
+					expect(reference.reference).toBe("Merrow's mother")
+					expect(ysra).toBeDefined()
+					return {
+						referenceId: reference.referenceId,
+						kind: 'existing' as const,
+						targetId: ysra!.targetId
+					}
+				})
+			)
+		}
+		const claims = [
+			claim('Ysra Pell was once a Mourning Rook.', {
+				entityReferences: [{ label: 'Ysra Pell', type: 'npc' }]
+			}),
+			claim("Merrow's mother was injured in the Deep Harbor.", {
+				entityReferences: [{ label: "Merrow's mother", type: 'npc' }]
+			})
+		]
+		const draft = await runPromise(
+			analyze(
+				setup(claims, [], resolver).operations,
+				claims.map(({ content }) => content).join('\n')
+			)
+		)
+		const npcs = draft.proposals.filter(({ documentType }) => documentType === 'npc')
+
+		expect(npcs).toHaveLength(1)
+		expect(npcs[0]).toMatchObject({
+			operation: 'create-entity',
+			title: 'Ysra Pell',
+			selected: false,
+			resolutionMethod: 'model'
+		})
+		expect(npcs[0]!.content).toContain('Ysra Pell was once a Mourning Rook.')
+		expect(npcs[0]!.content).toContain("Merrow's mother was injured in the Deep Harbor.")
 	})
 
 	it('normalizes malformed new entity labels into display-ready document titles', async () => {
