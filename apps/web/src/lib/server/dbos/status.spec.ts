@@ -23,7 +23,8 @@ describe('ingestion DBOS adapter', () => {
 		const adapter = createIngestionDbosAdapter({
 			enqueuePortable,
 			getWorkflow: vi.fn(),
-			getEvent: vi.fn()
+			getEvent: vi.fn(),
+			cancelWorkflow: vi.fn()
 		} as unknown as IngestionDbosClient)
 
 		await adapter.enqueueAnalysis(reference.workflowId, {
@@ -58,6 +59,26 @@ describe('ingestion DBOS adapter', () => {
 			}),
 			expect.any(Array)
 		)
+	})
+
+	it('cancels active analyses and leaves terminal analyses unchanged', async () => {
+		const cancelWorkflow = vi.fn()
+		const getWorkflow = vi
+			.fn()
+			.mockResolvedValueOnce({ status: 'ENQUEUED' } as WorkflowStatus)
+			.mockResolvedValueOnce({ status: 'SUCCESS' } as WorkflowStatus)
+		const adapter = createIngestionDbosAdapter({
+			enqueuePortable: vi.fn(),
+			getWorkflow,
+			getEvent: vi.fn(),
+			cancelWorkflow
+		} as unknown as IngestionDbosClient)
+
+		await adapter.cancelAnalysis(reference.workflowId)
+		await adapter.cancelAnalysis(reference.workflowId)
+
+		expect(cancelWorkflow).toHaveBeenCalledOnce()
+		expect(cancelWorkflow).toHaveBeenCalledWith(reference.workflowId)
 	})
 })
 

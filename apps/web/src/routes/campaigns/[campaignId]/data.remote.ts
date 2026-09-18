@@ -9,8 +9,15 @@ import { getIngestionDbosAdapter } from '#lib/server/dbos/client.js'
 import { mapIngestionWorkflowStatus } from '#lib/server/dbos/status.js'
 import { logFailure } from '#lib/server/failure.js'
 import { ingestionDocumentId } from '@loremaster/core/server/ingestion/ids'
-import { isImmutableIngestionConflict } from '@loremaster/core/server/ingestion/storage'
-import type { SessionIngestionDraft, SessionIngestionResult } from '#lib/server/ingestion/types.js'
+import {
+	isCommitStartedIngestionDiscard,
+	isImmutableIngestionConflict
+} from '@loremaster/core/server/ingestion/storage'
+import type {
+	SessionIngestionDraft,
+	SessionIngestionResult,
+	SessionIngestionSummary
+} from '#lib/server/ingestion/types.js'
 import {
 	analysisWorkflowId,
 	commitWorkflowId,
@@ -394,6 +401,7 @@ export const commitSessionIngestion = command(
 			console.error('[session-commit.enqueue]', cause)
 			error(503, 'Session commit is temporarily unavailable')
 		}
+		void listUncommittedSessionIngestions(input.campaignId).refresh()
 		return {
 			campaignId: input.campaignId,
 			ingestionId: input.ingestionId,
@@ -477,6 +485,61 @@ export const getSessionCommitStatus = query(
 			console.error('[session-commit.status]', cause)
 			error(503, 'Session commit status is temporarily unavailable')
 		}
+	}
+)
+
+const loadUncommittedSessionIngestions = (id: string): Promise<SessionIngestionSummary[]> =>
+	runPromise(
+		pipe(
+			ingestion.listUncommitted(id),
+			match({
+				onFailure: (failure) => {
+					if (failure.domain === 'campaign' && failure.operation === 'getCampaign') {
+						error(404, `Campaign "${id}" was not found`)
+					}
+					logFailure(failure)
+					error(500, 'Unable to list uncommitted sessions')
+				},
+				onSuccess: (summaries) => summaries
+			})
+		)
+	)
+
+export const listUncommittedSessionIngestions = query(campaignId, loadUncommittedSessionIngestions)
+
+export const discardSessionIngestion = command(
+	ingestionReference,
+	async ({ campaignId, ingestionId }) => {
+		const summary = (await loadUncommittedSessionIngestions(campaignId)).find(
+			(candidate) => candidate.ingestionId === ingestionId
+		)
+		if (!summary) error(404, 'Uncommitted session was not found')
+		if (!summary.canDiscard) error(409, 'A session cannot be discarded after saving has started')
+
+		try {
+			const dbos = await getIngestionDbosAdapter()
+			await dbos.cancelAnalysis(analysisWorkflowId(campaignId, ingestionId))
+		} catch (cause) {
+			console.error('[session-analysis.discard-cancel]', cause)
+			error(503, 'The session analysis could not be stopped')
+		}
+
+		await runPromise(
+			pipe(
+				ingestion.discard(campaignId, ingestionId),
+				match({
+					onFailure: (failure) => {
+						logFailure(failure)
+						if (isCommitStartedIngestionDiscard(failure.cause)) {
+							error(409, 'A session cannot be discarded after saving has started')
+						}
+						error(500, 'Unable to discard this session')
+					},
+					onSuccess: () => undefined
+				})
+			)
+		)
+		void listUncommittedSessionIngestions(campaignId).refresh()
 	}
 )
 

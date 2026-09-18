@@ -15,6 +15,7 @@ import type {
 	SessionCommitData,
 	SessionIngestionDraft,
 	SessionIngestionResult,
+	SessionIngestionSummary,
 	SessionProposal,
 	SessionTranscriptData
 } from './types.js'
@@ -200,6 +201,36 @@ export const sessionIngestion = ({
 					cause: { reason: 'unsupported' }
 				})
 
+	const listUncommitted = (campaignId: string): Effect<SessionIngestionSummary[], Failure> => {
+		const list = storage.list
+		if (!list) {
+			return failEffect({
+				domain: 'ingestionStorage',
+				operation: 'list',
+				cause: { reason: 'unsupported' }
+			})
+		}
+		return gen(function* () {
+			const summaries = yield* list(campaignId)
+			const documents = yield* vault.getDocuments(campaignId)
+			const committedIngestionIds = new Set(
+				documents.flatMap(({ type, ingestionId }) =>
+					type === 'session' && ingestionId ? [ingestionId] : []
+				)
+			)
+			return summaries.filter(({ ingestionId }) => !committedIngestionIds.has(ingestionId))
+		})
+	}
+
+	const discard = (campaignId: string, ingestionId: string): Effect<void, Failure> =>
+		storage.discard
+			? storage.discard(campaignId, ingestionId)
+			: failEffect({
+					domain: 'ingestionStorage',
+					operation: 'discard',
+					cause: { reason: 'unsupported' }
+				})
+
 	const applyCommitMutation = (
 		input: CommitInput,
 		prepared: Parameters<typeof applyCommitPlan>[1],
@@ -234,6 +265,8 @@ export const sessionIngestion = ({
 		getTranscriptData,
 		getCommitData,
 		getDraft: storage.read,
+		listUncommitted,
+		discard,
 		persistTranscriptData,
 		persistCommitData,
 		planCommit

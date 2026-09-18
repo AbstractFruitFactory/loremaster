@@ -131,6 +131,63 @@ describe('durable ingestion storage', () => {
 		).toEqual(journal)
 	})
 
+	it('lists ingestion phases and discards sessions before commit starts', async () => {
+		const storage = filesystemIngestionStorage(root)
+
+		await runPromise(storage.writeTranscriptData!(transcriptData))
+		expect(await runPromise(storage.list!(transcriptData.campaignId))).toEqual([
+			expect.objectContaining({
+				ingestionId: transcriptData.ingestionId,
+				title: transcriptData.title,
+				phase: 'analyzing',
+				canDiscard: true
+			})
+		])
+
+		await runPromise(storage.writeDraft!(draft))
+		expect(await runPromise(storage.list!(transcriptData.campaignId))).toEqual([
+			expect.objectContaining({
+				ingestionId: transcriptData.ingestionId,
+				createdAt: draft.createdAt,
+				phase: 'review',
+				canDiscard: true
+			})
+		])
+
+		await runPromise(storage.discard!(transcriptData.campaignId, transcriptData.ingestionId))
+		expect(await runPromise(storage.list!(transcriptData.campaignId))).toEqual([])
+	})
+
+	it('does not discard an ingestion after commit starts', async () => {
+		const storage = filesystemIngestionStorage(root)
+		const commitData: SessionCommitData = {
+			schemaVersion: 1,
+			campaignId: transcriptData.campaignId,
+			ingestionId: transcriptData.ingestionId,
+			selectedProposalIds: ['proposal-1']
+		}
+
+		await runPromise(storage.writeTranscriptData!(transcriptData))
+		await runPromise(storage.writeDraft!(draft))
+		await runPromise(storage.writeCommitData!(commitData))
+
+		expect(await runPromise(storage.list!(transcriptData.campaignId))).toEqual([
+			expect.objectContaining({
+				ingestionId: transcriptData.ingestionId,
+				phase: 'committing',
+				canDiscard: false
+			})
+		])
+		expect(
+			await runPromise(
+				flip(storage.discard!(transcriptData.campaignId, transcriptData.ingestionId))
+			)
+		).toMatchObject({
+			operation: 'discard',
+			cause: { name: 'CommitStartedIngestionDiscardError' }
+		})
+	})
+
 	it('derives stable document and mutation IDs', () => {
 		expect(ingestionDocumentId('ingestion-1', 'proposal-1')).toBe(
 			ingestionDocumentId('ingestion-1', 'proposal-1')

@@ -10,7 +10,8 @@ import {
 	WORKFLOW_SYSTEM_SCHEMA,
 	type AnalysisWorkflowInput,
 	type CommitWorkflowInput,
-	type WorkflowProgress
+	type WorkflowProgress,
+	workflowLifecycleFromStatus
 } from '@loremaster/core/workflows/contracts'
 
 type EnqueueHandle = { workflowID: string }
@@ -32,6 +33,7 @@ export type IngestionDbosClient = {
 		key: string,
 		options: { timeoutSeconds: number }
 	): Promise<Result | null>
+	cancelWorkflow(workflowId: string): Promise<void>
 }
 
 let clientPromise: Promise<DBOSClient> | undefined
@@ -79,6 +81,13 @@ export const createIngestionDbosAdapter = (client: IngestionDbosClient) => ({
 			[input]
 		)
 		return handle.workflowID
+	},
+	cancelAnalysis: async (workflowId: string) => {
+		const status = await client.getWorkflow(workflowId)
+		if (!status) return
+		const lifecycle = workflowLifecycleFromStatus(status.status)
+		if (lifecycle === 'succeeded' || lifecycle === 'failed' || lifecycle === 'cancelled') return
+		await client.cancelWorkflow(workflowId)
 	},
 	getWorkflowState: async (workflowId: string) => ({
 		status: await client.getWorkflow(workflowId),

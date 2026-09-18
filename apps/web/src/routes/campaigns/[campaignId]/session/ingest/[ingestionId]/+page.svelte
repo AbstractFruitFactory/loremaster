@@ -21,6 +21,7 @@
 		getSessionAnalysisStatus,
 		getSessionCommitStatus,
 		listDocuments,
+		listUncommittedSessionIngestions,
 		retrySessionAnalysis,
 		retrySessionCommit
 	} from '../../../data.remote'
@@ -126,7 +127,10 @@
 		navigationPending = true
 		navigationError = ''
 		try {
-			await listDocuments(params.campaignId).refresh()
+			await Promise.all([
+				listDocuments(params.campaignId).refresh(),
+				listUncommittedSessionIngestions(params.campaignId).refresh()
+			])
 		} catch {}
 		try {
 			await goto(`/campaigns/${params.campaignId}/session/${result.sessionDocumentId}`)

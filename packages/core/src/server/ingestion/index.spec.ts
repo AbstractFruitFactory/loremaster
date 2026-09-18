@@ -13,6 +13,7 @@ import type {
 	ExtractedSessionClaim,
 	InferredSessionChronology,
 	SessionIngestionDraft,
+	SessionIngestionSummary,
 	SessionProposalResolution
 } from './types.js'
 
@@ -119,7 +120,8 @@ const setup = (
 	validateSessionClaims: ValidateSessionClaims = acceptingValidator,
 	inferSessionChronology: InferSessionChronology = () => inferredChronology([]),
 	auditSessionEvents: AuditSessionEvents = () =>
-		succeed({ events: [], discardedEventIds: [], duplicateGroups: [] })
+		succeed({ events: [], discardedEventIds: [], duplicateGroups: [] }),
+	ingestionSummaries: SessionIngestionSummary[] = []
 ) => {
 	let saved: SessionIngestionDraft | undefined
 	let savedTranscript = ''
@@ -165,7 +167,8 @@ const setup = (
 		storage: {
 			write,
 			read: () => succeed(saved!),
-			readTranscript: () => succeed(savedTranscript)
+			readTranscript: () => succeed(savedTranscript),
+			list: () => succeed(ingestionSummaries)
 		},
 		retrieveAnalysisDocuments,
 		vault: {
@@ -207,6 +210,36 @@ describe('session ingestion operations', () => {
 		)
 
 		expect(draft.ingestionId).toBe('preallocated-ingestion')
+	})
+
+	it('lists only ingestions without a committed session document', async () => {
+		const pending = {
+			ingestionId: 'pending-ingestion',
+			campaignId: 'campaign',
+			title: 'Pending session',
+			createdAt: '2026-09-18T09:00:00.000Z',
+			phase: 'review',
+			canDiscard: true
+		} satisfies SessionIngestionSummary
+		const completed = {
+			...pending,
+			ingestionId: 'completed-ingestion',
+			title: 'Completed session'
+		} satisfies SessionIngestionSummary
+		const completedDocument = document('completed-session', 'Completed session', [], 'session', {
+			ingestionId: completed.ingestionId
+		})
+		const harness = setup(
+			[],
+			[varek, completedDocument],
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			[pending, completed]
+		)
+
+		expect(await runPromise(harness.operations.listUncommitted('campaign'))).toEqual([pending])
 	})
 
 	it('retrieves bounded analysis documents only after audited claims exist', async () => {

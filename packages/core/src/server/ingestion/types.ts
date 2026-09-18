@@ -227,6 +227,17 @@ export type SessionIngestionDraft = {
 	chronologyCoverage: SessionChronologyCoverageProposal[]
 }
 
+export type SessionIngestionPhase = 'analyzing' | 'review' | 'committing'
+
+export type SessionIngestionSummary = {
+	ingestionId: string
+	campaignId: string
+	title: string
+	createdAt: string
+	phase: SessionIngestionPhase
+	canDiscard: boolean
+}
+
 export type SessionIngestionResult = {
 	sessionDocumentId: string
 	documents: { proposalId: string; documentId: string; documentType: DocumentType }[]

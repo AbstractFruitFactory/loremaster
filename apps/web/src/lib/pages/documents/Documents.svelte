@@ -22,12 +22,6 @@
 </svelte:head>
 
 <section class="documents-page" aria-label={heading}>
-	{#if selectedType === 'session'}
-		<div class="page-actions">
-			<a class="ingest-link" href={`/campaigns/${campaignId}/session/ingest`}>Ingest session</a>
-		</div>
-	{/if}
-
 	{#if hasLoadError}
 		<div class="state-panel error" role="alert">
 			<strong>Unable to load {heading.toLowerCase()}.</strong>
@@ -85,29 +79,6 @@
 		font-family: var(--font-sans);
 	}
 
-	.ingest-link {
-		padding: 0.55rem 0.75rem;
-		border: 1.5px solid #353129;
-		border-radius: 2px;
-		background: #f1c278;
-		box-shadow: 0.16rem 0.16rem 0 #353129;
-		color: var(--ink);
-		font-size: 0.78rem;
-		font-weight: 700;
-		letter-spacing: 0.06em;
-		text-decoration: none;
-		text-transform: uppercase;
-	}
-
-	.ingest-link:hover {
-		background: rgb(250 241 222 / 95%);
-	}
-
-	.ingest-link:focus-visible {
-		outline: 2px solid var(--gold-light);
-		outline-offset: 3px;
-	}
-
 	h3,
 	p {
 		margin: 0;
@@ -115,12 +86,6 @@
 
 	h3 {
 		font-family: var(--font-display);
-	}
-
-	.page-actions {
-		display: flex;
-		justify-content: flex-end;
-		margin-bottom: 1.5rem;
 	}
 
 	.document-list {

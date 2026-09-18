@@ -1,5 +1,17 @@
 import { randomUUID } from 'node:crypto'
-import { link, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import type { Dirent } from 'node:fs'
+import {
+	access,
+	link,
+	mkdir,
+	readFile,
+	readdir,
+	rename,
+	rm,
+	stat,
+	unlink,
+	writeFile
+} from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { tryPromise, type Effect } from 'effect/Effect'
 import { failure, type Failure } from '../failure.js'
@@ -7,6 +19,7 @@ import type {
 	SessionCommitJournal,
 	SessionCommitData,
 	SessionIngestionDraft,
+	SessionIngestionSummary,
 	SessionTranscriptData
 } from './types.js'
 
@@ -47,10 +60,20 @@ export type IngestionStorage = {
 	writeCommitJournal?: (
 		journal: SessionCommitJournal
 	) => Effect<void, Failure<'ingestionStorage', 'writeCommitJournal'>>
+	list?: (
+		campaignId: string
+	) => Effect<SessionIngestionSummary[], Failure<'ingestionStorage', 'list'>>
+	discard?: (
+		campaignId: string,
+		ingestionId: string
+	) => Effect<void, Failure<'ingestionStorage', 'discard'>>
 }
 
+const ingestionsRoot = (rootPath: string, campaignId: string) =>
+	resolve(rootPath, campaignId, '.loremaster', 'ingestions')
+
 const ingestionRoot = (rootPath: string, campaignId: string, ingestionId: string) =>
-	resolve(rootPath, campaignId, '.loremaster', 'ingestions', ingestionId)
+	resolve(ingestionsRoot(rootPath, campaignId), ingestionId)
 
 const isFileError = (cause: unknown, code: string) =>
 	typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === code
@@ -70,6 +93,22 @@ export const isImmutableIngestionConflict = (
 		cause !== null &&
 		'name' in cause &&
 		cause.name === 'ImmutableIngestionConflictError')
+
+export class CommitStartedIngestionDiscardError extends Error {
+	constructor() {
+		super('An ingestion cannot be discarded after its commit has started')
+		this.name = 'CommitStartedIngestionDiscardError'
+	}
+}
+
+export const isCommitStartedIngestionDiscard = (
+	cause: unknown
+): cause is CommitStartedIngestionDiscardError =>
+	cause instanceof CommitStartedIngestionDiscardError ||
+	(typeof cause === 'object' &&
+		cause !== null &&
+		'name' in cause &&
+		cause.name === 'CommitStartedIngestionDiscardError')
 
 const writeImmutable = async (path: string, content: string) => {
 	const temporaryPath = `${path}.${randomUUID()}.tmp`
@@ -133,6 +172,25 @@ export const filesystemIngestionStorage = (rootPath: string): IngestionStorage =
 			},
 			catch: (cause) => failure('ingestionStorage', 'writeDraft', cause)
 		})
+
+	const fileExists = async (path: string) => {
+		try {
+			await access(path)
+			return true
+		} catch (cause) {
+			if (isFileError(cause, 'ENOENT')) return false
+			throw cause
+		}
+	}
+
+	const readOptionalJson = async <Value>(path: string): Promise<Value | undefined> => {
+		try {
+			return JSON.parse(await readFile(path, 'utf8')) as Value
+		} catch (cause) {
+			if (isFileError(cause, 'ENOENT')) return undefined
+			throw cause
+		}
+	}
 
 	return {
 		write: (draft, transcript) =>
@@ -201,6 +259,67 @@ export const filesystemIngestionStorage = (rootPath: string): IngestionStorage =
 					await writeAtomic(resolve(root, 'commit-journal.json'), json(journal))
 				},
 				catch: (cause) => failure('ingestionStorage', 'writeCommitJournal', cause)
+			}),
+		list: (campaignId) =>
+			tryPromise({
+				try: async () => {
+					let entries: Dirent[]
+					try {
+						entries = await readdir(ingestionsRoot(rootPath, campaignId), {
+							withFileTypes: true
+						})
+					} catch (cause) {
+						if (isFileError(cause, 'ENOENT')) return []
+						throw cause
+					}
+					const summaries = await Promise.all(
+						entries
+							.filter((entry) => entry.isDirectory())
+							.map(async (entry): Promise<SessionIngestionSummary | undefined> => {
+								const root = rootFor(campaignId, entry.name)
+								const requestPath = resolve(root, 'request.json')
+								const transcriptData = await readOptionalJson<SessionTranscriptData>(requestPath)
+								if (
+									!transcriptData ||
+									transcriptData.campaignId !== campaignId ||
+									transcriptData.ingestionId !== entry.name
+								)
+									return undefined
+								const [draft, commitStarted, requestStat] = await Promise.all([
+									readOptionalJson<SessionIngestionDraft>(resolve(root, 'analysis.json')),
+									fileExists(resolve(root, 'commit-request.json')),
+									stat(requestPath)
+								])
+								return {
+									ingestionId: transcriptData.ingestionId,
+									campaignId,
+									title: transcriptData.title,
+									createdAt: draft?.createdAt ?? requestStat.mtime.toISOString(),
+									phase: commitStarted ? 'committing' : draft ? 'review' : 'analyzing',
+									canDiscard: !commitStarted
+								}
+							})
+					)
+					return summaries
+						.filter((summary): summary is SessionIngestionSummary => Boolean(summary))
+						.sort(
+							(left, right) =>
+								right.createdAt.localeCompare(left.createdAt) ||
+								left.ingestionId.localeCompare(right.ingestionId)
+						)
+				},
+				catch: (cause) => failure('ingestionStorage', 'list', cause)
+			}),
+		discard: (campaignId, ingestionId) =>
+			tryPromise({
+				try: async () => {
+					const root = rootFor(campaignId, ingestionId)
+					if (await fileExists(resolve(root, 'commit-request.json'))) {
+						throw new CommitStartedIngestionDiscardError()
+					}
+					await rm(root, { recursive: true, force: true })
+				},
+				catch: (cause) => failure('ingestionStorage', 'discard', cause)
 			})
 	}
 }
