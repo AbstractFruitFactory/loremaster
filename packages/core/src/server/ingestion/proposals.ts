@@ -22,7 +22,7 @@ export const canCreateEntityFromReference = (reference: EntityReference) => {
 	if (reference.type === 'event') return false
 	const value = reference.label.trim()
 	if (!value || value.length > 80) return false
-	if (/['’]s\b/iu.test(value)) return false
+	if (/\p{L}['’](?:s\b|\s)/iu.test(value)) return false
 	if (/^(?:his|her|their|its|my|your|our|someone|somebody|something)\b/iu.test(value)) return false
 	return true
 }
@@ -91,7 +91,8 @@ const mentionProposal = (
 	claim: ResolvedClaim,
 	references: SessionProposal['references']
 ): SessionProposal => {
-	const first = claim.entities[0]
+	const first =
+		claim.entities.find(({ reference }) => reference.role === 'subject') ?? claim.entities[0]
 	const match: ProposalMatch =
 		first?.kind === 'existing'
 			? matchForExisting(first.document)
@@ -112,23 +113,6 @@ const mentionProposal = (
 		content: claim.content
 	}
 }
-
-const developmentProposal = (
-	claim: ResolvedClaim,
-	references: SessionProposal['references']
-): SessionProposal => ({
-	proposalId: randomUUID(),
-	claimIds: [claim.claimId],
-	operation: 'create-event',
-	documentType: 'event',
-	title: eventTitle(claim),
-	certainty: claim.certainty,
-	selected: claim.certainty === 'explicit',
-	evidence: claim.evidence,
-	match: { kind: 'unresolved', candidates: [] },
-	references,
-	content: claim.content
-})
 
 const updateEntityProposal = (
 	claim: ResolvedClaim,
@@ -196,6 +180,36 @@ const unresolvedEntityProposal = (
 			}
 		: undefined
 
+const developmentProposal = (
+	claim: ResolvedClaim,
+	references: SessionProposal['references']
+): SessionProposal => {
+	const event = claim.event
+	if (event?.kind === 'existing') return updateEntityProposal(claim, event, references)
+	const title = event?.kind === 'session' ? event.candidate.title : eventTitle(claim)
+	const match =
+		event?.kind === 'unresolved' ? event.match : { kind: 'unresolved' as const, candidates: [] }
+	const resolutionMethod = event?.kind === 'session' ? event.method : undefined
+	return {
+		proposalId: randomUUID(),
+		claimIds: [claim.claimId],
+		operation: 'create-event',
+		documentType: 'event',
+		title,
+		certainty: claim.certainty,
+		selected:
+			claim.certainty === 'explicit' &&
+			match.candidates.length === 0 &&
+			resolutionMethod !== 'model',
+		evidence: claim.evidence,
+		match,
+		references,
+		content: claim.content,
+		resolutionMethod,
+		canCreate: true
+	}
+}
+
 const recordOnlyProposal = (
 	claim: ResolvedClaim,
 	references: SessionProposal['references']
@@ -217,16 +231,18 @@ const stableFactProposals = (
 	claim: ResolvedClaim,
 	references: SessionProposal['references']
 ): SessionProposal[] => {
-	const proposals = claim.entities.flatMap((entity) => {
-		if (entity.kind === 'existing') {
-			return [updateEntityProposal(claim, entity, references)]
-		}
-		if (entity.kind === 'session') {
-			return [createSessionEntityProposal(claim, entity, references)]
-		}
-		const proposal = unresolvedEntityProposal(claim, entity, references)
-		return proposal ? [proposal] : []
-	})
+	const proposals = claim.entities
+		.filter(({ reference }) => reference.role === 'subject')
+		.flatMap((entity) => {
+			if (entity.kind === 'existing') {
+				return [updateEntityProposal(claim, entity, references)]
+			}
+			if (entity.kind === 'session') {
+				return [createSessionEntityProposal(claim, entity, references)]
+			}
+			const proposal = unresolvedEntityProposal(claim, entity, references)
+			return proposal ? [proposal] : []
+		})
 	return proposals.length ? proposals : [recordOnlyProposal(claim, references)]
 }
 
@@ -261,9 +277,9 @@ const mergedMatch = (left: ProposalMatch, right: ProposalMatch): ProposalMatch =
 	}
 	return {
 		kind: 'unresolved',
-		candidates: [...candidates.values()].sort(
-			(a, b) => b.score - a.score || a.title.localeCompare(b.title)
-		)
+		candidates: [...candidates.values()]
+			.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+			.slice(0, 8)
 	}
 }
 

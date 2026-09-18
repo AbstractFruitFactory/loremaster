@@ -26,7 +26,7 @@ const claim: SessionValidatedClaim = {
 	eventTitle: 'Western gate opened',
 	certainty: 'explicit',
 	content: 'Varek opened the western gate.',
-	entityReferences: [{ label: 'Varek', type: 'npc' }],
+	entityReferences: [{ label: 'Varek', type: 'npc', role: 'subject' }],
 	evidence: [
 		{
 			excerpt: 'Unaudited transcript-only chatter.',

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { VaultDocument } from '../vault/types'
-import { contextualCandidates, matchDocument } from './matching'
+import { contextualCandidates, identityCandidates, matchDocument } from './matching'
 
 const document = (
 	id: string,
@@ -38,11 +38,10 @@ describe('session entity matching', () => {
 		).toBe('unresolved')
 	})
 
-	it('resolves an unambiguous partial name but leaves ambiguous names unresolved', () => {
+	it('keeps partial names as identity candidates rather than deterministic matches', () => {
 		expect(matchDocument('Mara', [document('mara', 'Mara Vale')], 'npc')).toMatchObject({
-			kind: 'exact',
-			documentId: 'mara',
-			title: 'Mara Vale'
+			kind: 'unresolved',
+			candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
 		})
 
 		const match = matchDocument(
@@ -57,6 +56,27 @@ describe('session entity matching', () => {
 				expect.objectContaining({ documentId: 'edric' })
 			])
 		})
+	})
+
+	it('tracks credible name provenance without accepting incidental overlap', () => {
+		const crown = document('crown', 'Eight-Fragment Crown', [], { type: 'item' })
+		const fragment = document('fragment', 'Ninth Fragment', [], { type: 'item' })
+		const war = document('war', 'Nine Banners War', [], { type: 'event' })
+		const present = document('wyrmfall', 'Party reaches Wyrmfall', [], { type: 'event' })
+
+		expect(identityCandidates('Eight-Fragment Crown', [crown, fragment], 'item')).toEqual([
+			expect.objectContaining({
+				provenance: 'exact-name',
+				candidate: expect.objectContaining({ documentId: 'crown' })
+			})
+		])
+		expect(identityCandidates('Eight-Fragment Crown', [fragment], 'item')).toEqual([])
+		expect(identityCandidates('War of Nine Banners', [war, present], 'event')).toEqual([
+			expect.objectContaining({
+				provenance: 'partial-name',
+				candidate: expect.objectContaining({ documentId: 'war' })
+			})
+		])
 	})
 
 	it('finds relationship candidates around a resolved anchor', () => {

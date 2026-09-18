@@ -3,7 +3,7 @@ import { map, succeed } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import type { AiProvider } from '../ai/provider.js'
 import type { VaultDocument } from '../vault/types.js'
-import { contextualCandidates, matchDocument } from './matching.js'
+import { contextualCandidates, identityCandidates, matchDocument } from './matching.js'
 import type {
 	EntityReferenceOccurrence,
 	EntityResolution,
@@ -28,14 +28,30 @@ export const entityResolution = (
 		claims: ValidatedClaim[],
 		documents: VaultDocument[]
 	): EntityReferenceOccurrence[] =>
-		claims.flatMap((claim) =>
-			claim.entityReferences.map((reference) => ({
+		claims.flatMap((claim) => [
+			...claim.entityReferences.map((reference) => ({
 				referenceId: randomUUID(),
+				purpose: 'entity-reference' as const,
 				claim,
 				reference,
 				match: matchDocument(reference.label, documents, reference.type)
-			}))
-		)
+			})),
+			...(claim.kind === 'development' && claim.eventTitle
+				? [
+						{
+							referenceId: randomUUID(),
+							purpose: 'development-event' as const,
+							claim,
+							reference: {
+								label: claim.eventTitle,
+								type: 'event' as const,
+								role: 'subject' as const
+							},
+							match: matchDocument(claim.eventTitle, documents, 'event')
+						}
+					]
+				: [])
+		])
 
 	const resolveExactOccurrences = (
 		occurrences: EntityReferenceOccurrence[],
@@ -62,12 +78,12 @@ export const entityResolution = (
 		resolutions: Map<string, EntityResolution>
 	) => occurrences.filter(({ referenceId }) => !resolutions.has(referenceId))
 
-	const provisionalSessionOccurrences = (occurrences: EntityReferenceOccurrence[]) =>
+	const canCreateOccurrence = (occurrence: EntityReferenceOccurrence) =>
+		occurrence.purpose === 'development-event' || canCreateEntityFromReference(occurrence.reference)
+
+	const creatableSessionOccurrences = (occurrences: EntityReferenceOccurrence[]) =>
 		occurrences.filter(
-			(occurrence) =>
-				occurrence.match.kind === 'unresolved' &&
-				occurrence.match.candidates.length === 0 &&
-				canCreateEntityFromReference(occurrence.reference)
+			(occurrence) => occurrence.match.kind === 'unresolved' && canCreateOccurrence(occurrence)
 		)
 
 	const buildSessionCandidates = (provisional: EntityReferenceOccurrence[]) => {
@@ -118,46 +134,52 @@ export const entityResolution = (
 		occurrence: EntityReferenceOccurrence,
 		context: string,
 		documents: VaultDocument[]
-	): ResolutionCandidate[] =>
-		contextualCandidates(
+	): ResolutionCandidate[] => {
+		const candidates = new Map<string, ResolutionCandidate>()
+		for (const identity of identityCandidates(
 			occurrence.reference.label,
-			context,
 			documents,
 			occurrence.reference.type
-		).flatMap((candidate) => {
+		)) {
+			const { candidate, provenance } = identity
 			const document = documents.find(({ id }) => id === candidate.documentId)
-			return document
-				? [
-						{
-							targetId: `document:${candidate.documentId}`,
-							title: candidate.title,
-							type: occurrence.reference.type,
-							context: candidateContext(document),
-							candidate
-						}
-					]
-				: []
-		})
-
-	const sessionResolutionCandidates = (
-		occurrence: EntityReferenceOccurrence,
-		sessionCandidates: Map<string, SessionEntityCandidate>
-	): ResolutionCandidate[] =>
-		[...sessionCandidates.values()]
-			.filter(({ type }) => type === occurrence.reference.type)
-			.map((candidate) => ({
-				targetId: candidate.targetId,
+			if (!document) continue
+			candidates.set(candidate.documentId, {
+				targetId: `document:${candidate.documentId}`,
 				title: candidate.title,
-				type: candidate.type,
-				context: candidate.contexts.join('\n\n').slice(0, 1_600),
+				type: occurrence.reference.type,
+				context: candidateContext(document),
+				provenance,
 				candidate
-			}))
+			})
+		}
+		if (!canCreateOccurrence(occurrence)) {
+			for (const candidate of contextualCandidates(
+				occurrence.reference.label,
+				context,
+				documents,
+				occurrence.reference.type
+			)) {
+				if (candidates.has(candidate.documentId)) continue
+				const document = documents.find(({ id }) => id === candidate.documentId)
+				if (!document) continue
+				candidates.set(candidate.documentId, {
+					targetId: `document:${candidate.documentId}`,
+					title: candidate.title,
+					type: occurrence.reference.type,
+					context: candidateContext(document),
+					provenance: 'relational-context',
+					candidate
+				})
+			}
+		}
+		return [...candidates.values()].slice(0, 10)
+	}
 
 	const buildModelResolutionRequests = (
 		occurrences: EntityReferenceOccurrence[],
 		resolutions: Map<string, EntityResolution>,
-		documents: VaultDocument[],
-		sessionCandidates: Map<string, SessionEntityCandidate>
+		documents: VaultDocument[]
 	): ModelResolutionRequest[] =>
 		unresolvedOccurrences(occurrences, resolutions).map((occurrence) => {
 			const context = combineContent([
@@ -167,10 +189,7 @@ export const entityResolution = (
 			return {
 				occurrence,
 				context,
-				candidates: [
-					...existingResolutionCandidates(occurrence, context, documents),
-					...sessionResolutionCandidates(occurrence, sessionCandidates)
-				].slice(0, 10)
+				candidates: existingResolutionCandidates(occurrence, context, documents)
 			}
 		})
 
@@ -182,12 +201,15 @@ export const entityResolution = (
 					reference: occurrence.reference.label,
 					type: occurrence.reference.type,
 					evidence: context,
-					candidates: candidates.map(({ targetId, title, type, context: candidateText }) => ({
-						targetId,
-						title,
-						type,
-						context: candidateText
-					}))
+					candidates: candidates.map(
+						({ targetId, title, type, context: candidateText, provenance }) => ({
+							targetId,
+							title,
+							type,
+							provenance,
+							context: candidateText
+						})
+					)
 				}))
 			},
 			null,
@@ -198,19 +220,25 @@ export const entityResolution = (
 		requests: ModelResolutionRequest[],
 		decisions: SessionEntityResolution[],
 		documents: VaultDocument[],
+		sessionCandidatesByReference: Map<string, SessionEntityCandidate>,
 		resolutions: Map<string, EntityResolution>
 	) => {
-		const decisionByReference = new Map(
-			decisions.map((decision) => [decision.referenceId, decision.targetId])
-		)
+		const decisionsByReference = new Map<string, SessionEntityResolution[]>()
+		for (const decision of decisions) {
+			const existing = decisionsByReference.get(decision.referenceId) ?? []
+			existing.push(decision)
+			decisionsByReference.set(decision.referenceId, existing)
+		}
 		for (const request of requests) {
-			const targetId = decisionByReference.get(request.occurrence.referenceId)
-			if (!targetId) continue
-			const chosen = request.candidates.find((candidate) => candidate.targetId === targetId)
-			if (!chosen) continue
-			const candidate = chosen.candidate
-			if ('documentId' in candidate) {
-				const document = documents.find(({ id }) => id === candidate.documentId)
+			const matchingDecisions = decisionsByReference.get(request.occurrence.referenceId)
+			if (matchingDecisions?.length !== 1) continue
+			const [decision] = matchingDecisions
+			if (decision.kind === 'existing') {
+				const chosen = request.candidates.find(
+					(candidate) => candidate.targetId === decision.targetId
+				)
+				if (!chosen) continue
+				const document = documents.find(({ id }) => id === chosen.candidate.documentId)
 				if (!document?.currentRevisionId) continue
 				resolutions.set(request.occurrence.referenceId, {
 					kind: 'existing',
@@ -220,29 +248,58 @@ export const entityResolution = (
 				})
 				continue
 			}
+			if (decision.kind === 'create') {
+				if (!canCreateOccurrence(request.occurrence)) continue
+				const candidate = sessionCandidatesByReference.get(request.occurrence.referenceId)
+				if (!candidate) continue
+				resolutions.set(request.occurrence.referenceId, {
+					kind: 'session',
+					reference: request.occurrence.reference,
+					candidate,
+					method: 'model'
+				})
+				continue
+			}
+			const candidateIds = uniqueStrings(decision.candidateIds)
+			const deferred = candidateIds.flatMap((targetId) => {
+				const candidate = request.candidates.find(
+					(candidate) =>
+						candidate.targetId === targetId && candidate.provenance !== 'relational-context'
+				)
+				return candidate ? [candidate.candidate] : []
+			})
+			if (deferred.length < 2 || deferred.length !== candidateIds.length) continue
 			resolutions.set(request.occurrence.referenceId, {
-				kind: 'session',
+				kind: 'unresolved',
 				reference: request.occurrence.reference,
-				candidate,
-				method: 'model'
+				match: { kind: 'unresolved', candidates: deferred },
+				canCreate: canCreateOccurrence(request.occurrence)
 			})
 		}
 	}
 
 	const applyUnresolvedResolutions = (
 		requests: ModelResolutionRequest[],
+		sessionCandidatesByReference: Map<string, SessionEntityCandidate>,
 		resolutions: Map<string, EntityResolution>
 	) => {
 		for (const request of requests) {
 			if (resolutions.has(request.occurrence.referenceId)) continue
-			const candidates = request.candidates.flatMap(({ candidate }) =>
-				'documentId' in candidate ? [candidate] : []
-			)
+			const candidate = sessionCandidatesByReference.get(request.occurrence.referenceId)
+			if (canCreateOccurrence(request.occurrence) && candidate) {
+				resolutions.set(request.occurrence.referenceId, {
+					kind: 'session',
+					reference: request.occurrence.reference,
+					candidate,
+					method: request.candidates.length ? 'model' : 'deterministic'
+				})
+				continue
+			}
 			resolutions.set(request.occurrence.referenceId, {
 				kind: 'unresolved',
 				reference: request.occurrence.reference,
-				match: { kind: 'unresolved', candidates },
-				canCreate: canCreateEntityFromReference(request.occurrence.reference)
+				match: { kind: 'unresolved', candidates: [] },
+				canCreate: false
 			})
 		}
 	}
@@ -255,31 +312,38 @@ export const entityResolution = (
 		claims.map((claim) => ({
 			...claim,
 			entities: occurrences
-				.filter((occurrence) => occurrence.claim.claimId === claim.claimId)
+				.filter(
+					(occurrence) =>
+						occurrence.claim.claimId === claim.claimId && occurrence.purpose === 'entity-reference'
+				)
 				.map((occurrence) => resolutions.get(occurrence.referenceId))
-				.filter((entity): entity is EntityResolution => Boolean(entity))
+				.filter((entity): entity is EntityResolution => Boolean(entity)),
+			event: occurrences
+				.filter(
+					(occurrence) =>
+						occurrence.claim.claimId === claim.claimId && occurrence.purpose === 'development-event'
+				)
+				.map((occurrence) => resolutions.get(occurrence.referenceId))
+				.find((entity): entity is EntityResolution => Boolean(entity))
 		}))
 
 	const resolveClaims = (claims: ValidatedClaim[], documents: VaultDocument[]) => {
 		const occurrences = createEntityReferenceOccurrences(claims, documents)
 		const resolutions = resolveExactOccurrences(occurrences, documents)
-		const provisional = provisionalSessionOccurrences(
-			unresolvedOccurrences(occurrences, resolutions)
+		const creatable = creatableSessionOccurrences(unresolvedOccurrences(occurrences, resolutions))
+		const sessionCandidates = buildSessionCandidates(creatable)
+		const automaticCreates = creatable.filter(
+			(occurrence) =>
+				occurrence.match.kind === 'unresolved' && occurrence.match.candidates.length === 0
 		)
-		const sessionCandidates = buildSessionCandidates(provisional)
-		applySessionCandidateResolutions(provisional, sessionCandidates.byReference, resolutions)
-		const modelRequests = buildModelResolutionRequests(
-			occurrences,
-			resolutions,
-			documents,
-			sessionCandidates.candidates
-		)
+		applySessionCandidateResolutions(automaticCreates, sessionCandidates.byReference, resolutions)
+		const modelRequests = buildModelResolutionRequests(occurrences, resolutions, documents)
 		const requestsWithCandidates = modelRequests.filter(({ candidates }) => candidates.length > 0)
 		const decisions = requestsWithCandidates.length
 			? ai.resolveSessionEntities({
 					model: ai.analysisModel,
 					system:
-						'Resolve entity references conservatively. For each reference, choose a targetId only when the supplied evidence and candidate context establish that they are the same campaign entity. A relational phrase such as "Elias\' father" may resolve through an established relationship. Do not choose by plausibility alone. Never invent a target or return an ID that was not supplied. Return null when identity is not established.',
+						'Resolve entity identity conservatively and return exactly one explicit outcome per reference. Use existing only when the supplied evidence and candidate context establish that the reference is the same campaign entity as that supplied target. A relational-context candidate may establish an existing target for a phrase such as "Elias\' father", but relational context alone is never a reason to defer to the user. Use create when the evidence describes a new named entity or event and none of the supplied identity candidates is the same thing. Use defer only when at least two supplied exact-name, alias, or partial-name candidates remain genuinely plausible identities; include only their supplied IDs and explain the ambiguity. Never defer relational-context candidates, invent a target, or return an ID that was not supplied.',
 					prompt: resolutionPrompt(requestsWithCandidates)
 				})
 			: succeed([])
@@ -287,8 +351,14 @@ export const entityResolution = (
 		return pipe(
 			decisions,
 			map((modelDecisions) => {
-				applyModelResolutions(requestsWithCandidates, modelDecisions, documents, resolutions)
-				applyUnresolvedResolutions(modelRequests, resolutions)
+				applyModelResolutions(
+					requestsWithCandidates,
+					modelDecisions,
+					documents,
+					sessionCandidates.byReference,
+					resolutions
+				)
+				applyUnresolvedResolutions(modelRequests, sessionCandidates.byReference, resolutions)
 				return attachResolutionsToClaims(claims, occurrences, resolutions)
 			})
 		)

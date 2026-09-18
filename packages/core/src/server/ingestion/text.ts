@@ -42,11 +42,15 @@ export const uniqueEvidence = (evidence: Evidence[]) => [
 	).values()
 ]
 
-export const uniqueEntityReferences = (references: EntityReference[]) => [
-	...new Map(
-		references.map((reference) => [`${reference.type}:${normalize(reference.label)}`, reference])
-	).values()
-]
+export const uniqueEntityReferences = (references: EntityReference[]) => {
+	const unique = new Map<string, EntityReference>()
+	for (const reference of references) {
+		const key = `${reference.type}:${normalize(reference.label)}`
+		const existing = unique.get(key)
+		if (!existing || reference.role === 'subject') unique.set(key, reference)
+	}
+	return [...unique.values()]
+}
 
 export const entityReferenceId = (candidateId: string, index: number) =>
 	`${candidateId}:reference-${index + 1}`

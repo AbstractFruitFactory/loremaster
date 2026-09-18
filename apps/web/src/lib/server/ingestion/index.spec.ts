@@ -10,6 +10,7 @@ import type {
 import type { VaultDocument } from '../vault/types'
 import { sessionIngestion } from '.'
 import type {
+	EntityReference,
 	ExtractedSessionClaim,
 	InferredSessionChronology,
 	SessionIngestionDraft,
@@ -70,18 +71,28 @@ const document = (
 
 const varek = document('varek', 'Varek', ['The Gatekeeper'])
 
-const claim = (
-	content: string,
-	overrides: Partial<ExtractedSessionClaim> = {}
-): ExtractedSessionClaim => ({
-	kind: 'stable-fact',
-	eventTitle: null,
-	certainty: 'explicit',
-	content,
-	evidence: [{ startLine: 1, endLine: 1 }],
-	entityReferences: [{ label: 'Varek', type: 'npc' }],
-	...overrides
-})
+type ClaimEntityReference = Omit<EntityReference, 'role'> & Partial<Pick<EntityReference, 'role'>>
+
+type ClaimOverrides = Omit<Partial<ExtractedSessionClaim>, 'entityReferences'> & {
+	entityReferences?: ClaimEntityReference[]
+}
+
+const claim = (content: string, overrides: ClaimOverrides = {}): ExtractedSessionClaim => {
+	const kind = overrides.kind ?? 'stable-fact'
+	const role: EntityReference['role'] = kind === 'development' ? 'related' : 'subject'
+	const entityReferences = (
+		overrides.entityReferences ?? [{ label: 'Varek', type: 'npc' as const }]
+	).map((reference) => ({ role, ...reference }))
+	return {
+		kind,
+		eventTitle: null,
+		certainty: 'explicit',
+		content,
+		evidence: [{ startLine: 1, endLine: 1 }],
+		...overrides,
+		entityReferences
+	}
+}
 
 const validatingAnalyzer =
 	(claims: ExtractedSessionClaim[]): AnalyzeSessionChunk =>
@@ -241,8 +252,22 @@ describe('session ingestion operations', () => {
 		)
 	})
 
-	it('resolves a short unambiguous name to an existing full entity name', async () => {
+	it('uses the model to establish a short partial-name identity', async () => {
 		const mara = document('mara', 'Mara Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: { referenceId: string; candidates: { targetId: string }[] }[]
+				}
+			).references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'existing',
+					targetId: reference!.candidates[0]!.targetId
+				}
+			])
+		}
 		const harness = setup(
 			[
 				claim('Mara is about forty.', {
@@ -250,14 +275,16 @@ describe('session ingestion operations', () => {
 					entityReferences: [{ label: 'Mara', type: 'npc' }]
 				})
 			],
-			[mara]
+			[mara],
+			resolver
 		)
 		const draft = await runPromise(analyze(harness.operations, 'Mara is about forty.'))
 
 		expect(draft.proposals[1]).toMatchObject({
 			operation: 'update-canon',
 			title: 'Mara Vale',
-			selected: true,
+			selected: false,
+			resolutionMethod: 'model',
 			match: { kind: 'exact', documentId: 'mara' }
 		})
 	})
@@ -277,14 +304,9 @@ describe('session ingestion operations', () => {
 		const proposal = draft.proposals[1]
 
 		expect(proposal).toMatchObject({
-			operation: 'create-entity',
-			title: "Mara's age",
-			selected: false,
-			canCreate: false,
-			match: {
-				kind: 'unresolved',
-				candidates: [expect.objectContaining({ documentId: 'mara', title: 'Mara Vale' })]
-			}
+			operation: 'record-only',
+			content: 'Mara is about forty years old.',
+			match: { kind: 'unresolved', candidates: [] }
 		})
 	})
 
@@ -386,8 +408,8 @@ describe('session ingestion operations', () => {
 			return succeed(
 				input.references.map(({ referenceId, candidates }) => ({
 					referenceId,
-					targetId:
-						candidates.find(({ targetId }) => targetId === 'document:roger')?.targetId ?? null
+					kind: 'existing' as const,
+					targetId: candidates.find(({ targetId }) => targetId === 'document:roger')!.targetId
 				}))
 			)
 		})
@@ -1306,13 +1328,29 @@ describe('session ingestion operations', () => {
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {
 		const mara = document('mara', 'Mara Vale')
 		const edric = document('edric', 'Brother Edric Vale')
+		const resolver: ResolveSessionEntities = ({ prompt }) => {
+			const [reference] = (
+				JSON.parse(prompt) as {
+					references: { referenceId: string; candidates: { targetId: string }[] }[]
+				}
+			).references
+			return succeed([
+				{
+					referenceId: reference!.referenceId,
+					kind: 'defer',
+					candidateIds: reference!.candidates.map(({ targetId }) => targetId),
+					reason: 'Both existing surnames are plausible identities.'
+				}
+			])
+		}
 		const harness = setup(
 			[
 				claim('Vale carried the letter.', {
 					entityReferences: [{ label: 'Vale', type: 'npc' }]
 				})
 			],
-			[mara, edric]
+			[mara, edric],
+			resolver
 		)
 		const draft = await runPromise(analyze(harness.operations, 'Vale carried the letter.'))
 		const session = draft.proposals[0]
@@ -1320,6 +1358,7 @@ describe('session ingestion operations', () => {
 
 		expect(proposal).toMatchObject({
 			selected: false,
+			canCreate: true,
 			match: {
 				kind: 'unresolved',
 				candidates: expect.arrayContaining([
