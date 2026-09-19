@@ -2,10 +2,9 @@ import { fail, flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../../vault/types.js'
 import type { CommitInput, MutationPlan } from '../internal.js'
-import type { IngestionStorage } from '../storage.js'
 import type { SessionCommitJournal, SessionIngestionDraft, SessionProposal } from '../types.js'
 import { commitRevisionId } from '../ids.js'
-import { commitApplication } from './application.js'
+import { commitApplication, type CommitJournalStorage } from './application.js'
 
 const input: CommitInput = {
 	campaignId: 'campaign-1',
@@ -58,10 +57,7 @@ const proposal = (overrides: Partial<SessionProposal> = {}): SessionProposal => 
 
 const storageHarness = () => {
 	let journal: SessionCommitJournal | undefined
-	const storage: IngestionStorage = {
-		write: () => succeed(undefined),
-		read: () => succeed(draft),
-		readTranscript: () => succeed('Transcript'),
+	const storage: CommitJournalStorage = {
 		readCommitJournal: () => succeed(journal),
 		writeCommitJournal: (next) => {
 			journal = structuredClone(next)
@@ -75,9 +71,19 @@ const planFor = (values: Partial<MutationPlan>): MutationPlan => ({
 	planned: [],
 	chronologyUpdates: [],
 	documentIdByProposal: {},
-	existingById: {},
 	sessionDocumentId: 'session-document',
 	...values
+})
+
+const updateFor = (base: VaultDocument, content = base.content) => ({
+	type: base.type,
+	aliases: base.aliases,
+	after: base.after,
+	during: base.during,
+	eventForm: base.eventForm,
+	content,
+	expectedRevisionId: base.currentRevisionId!,
+	expectedPath: base.path
 })
 
 describe('commit mutation application', () => {
@@ -129,10 +135,20 @@ describe('commit mutation application', () => {
 		)
 
 		const first = await runPromise(
-			applyMutationPlan(input, draft, 'Transcript', [sessionProposal], plan)
+			applyMutationPlan(
+				input,
+				{ kind: 'session', draft, transcript: 'Transcript' },
+				[sessionProposal],
+				plan
+			)
 		)
 		const second = await runPromise(
-			applyMutationPlan(input, draft, 'Transcript', [sessionProposal], plan)
+			applyMutationPlan(
+				input,
+				{ kind: 'session', draft, transcript: 'Transcript' },
+				[sessionProposal],
+				plan
+			)
 		)
 
 		expect(createDocument).toHaveBeenCalledTimes(1)
@@ -180,7 +196,14 @@ describe('commit mutation application', () => {
 			storage
 		)
 
-		await runPromise(applyMutationPlan(input, draft, 'Transcript', [sessionProposal], plan))
+		await runPromise(
+			applyMutationPlan(
+				input,
+				{ kind: 'session', draft, transcript: 'Transcript' },
+				[sessionProposal],
+				plan
+			)
+		)
 
 		expect(createDocument).toHaveBeenCalledWith(
 			input.campaignId,
@@ -209,11 +232,9 @@ describe('commit mutation application', () => {
 					mutationId: 'update-mutation',
 					proposal: updateProposal,
 					documentId: base.id,
-					after: [],
-					during: []
+					update: updateFor(base, '# Varek\n\nNew fact.\n')
 				}
-			],
-			existingById: { [base.id]: base }
+			]
 		})
 		const { storage, getJournal } = storageHarness()
 		const updateDocument = vi.fn(() => succeed(current))
@@ -226,7 +247,14 @@ describe('commit mutation application', () => {
 			storage
 		)
 
-		await runPromise(applyMutationPlan(input, draft, 'Transcript', [updateProposal], plan))
+		await runPromise(
+			applyMutationPlan(
+				input,
+				{ kind: 'session', draft, transcript: 'Transcript' },
+				[updateProposal],
+				plan
+			)
+		)
 
 		expect(updateDocument).toHaveBeenCalledWith(
 			input.campaignId,
@@ -260,12 +288,13 @@ describe('commit mutation application', () => {
 				{
 					mutationId: 'chronology-mutation',
 					documentId: base.id,
-					after: ['event-0'],
-					during: [],
-					eventForm: 'period'
+					update: {
+						...updateFor(base),
+						after: ['event-0'],
+						eventForm: 'period'
+					}
 				}
-			],
-			existingById: { [base.id]: base }
+			]
 		})
 		const { storage, getJournal } = storageHarness()
 		const updateDocument = vi.fn(() => succeed(current))
@@ -278,7 +307,9 @@ describe('commit mutation application', () => {
 			storage
 		)
 
-		await runPromise(applyMutationPlan(input, draft, 'Transcript', [], plan))
+		await runPromise(
+			applyMutationPlan(input, { kind: 'session', draft, transcript: 'Transcript' }, [], plan)
+		)
 
 		expect(updateDocument).toHaveBeenCalledWith(
 			input.campaignId,
@@ -292,7 +323,8 @@ describe('commit mutation application', () => {
 		)
 		expect(getJournal()?.applied['chronology-mutation']).toEqual({
 			mutationId: 'chronology-mutation',
-			documentId: base.id
+			documentId: base.id,
+			revisionId: current.currentRevisionId
 		})
 	})
 
@@ -309,11 +341,9 @@ describe('commit mutation application', () => {
 					mutationId: 'update-mutation',
 					proposal: updateProposal,
 					documentId: base.id,
-					after: [],
-					during: []
+					update: updateFor(base, '# Varek\n\nNew fact.\n')
 				}
-			],
-			existingById: { [base.id]: base }
+			]
 		})
 		const { storage } = storageHarness()
 		const updateDocument = vi.fn(() =>
@@ -333,7 +363,14 @@ describe('commit mutation application', () => {
 		)
 
 		const failure = await runPromise(
-			flip(applyMutationPlan(input, draft, 'Transcript', [updateProposal], plan))
+			flip(
+				applyMutationPlan(
+					input,
+					{ kind: 'session', draft, transcript: 'Transcript' },
+					[updateProposal],
+					plan
+				)
+			)
 		)
 
 		expect(updateDocument).toHaveBeenCalledTimes(1)

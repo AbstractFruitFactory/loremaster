@@ -10,6 +10,7 @@ import type {
 	GenerateAssistant,
 	GenerateRelationshipLinks,
 	GenerateText,
+	InferCampaignImportChronology,
 	InferDocumentType,
 	RepairSessionClaimEvidence,
 	ResolveSessionEntities,
@@ -234,6 +235,9 @@ const auditSessionEvents: AuditSessionEvents = () =>
 const inferSessionChronology: InferSessionChronology = () =>
 	succeed({ relations: [], coverage: [] })
 
+const inferCampaignImportChronology: InferCampaignImportChronology = () =>
+	succeed({ relations: [], coverage: [] })
+
 const generateRelationshipLinks: GenerateRelationshipLinks = () => succeed([])
 
 export const mockAiProvider: AiProvider = {
@@ -243,6 +247,7 @@ export const mockAiProvider: AiProvider = {
 	resolveSessionEntities,
 	auditSessionEvents,
 	inferSessionChronology,
+	inferCampaignImportChronology,
 	generateRelationshipLinks,
 	models: mockAiModels,
 	embedTexts,

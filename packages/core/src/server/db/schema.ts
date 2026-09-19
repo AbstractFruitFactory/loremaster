@@ -378,3 +378,203 @@ export const conversationMessages = pgTable(
 		index('conversation_messages_campaign_created_index').on(table.campaignId, table.createdAt)
 	]
 )
+
+export const campaignImportSourceRevisions = pgTable(
+	'campaign_import_source_revisions',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		sourceId: uuid('source_id').notNull(),
+		sourceRevisionId: uuid('source_revision_id').notNull(),
+		displayName: text('display_name').notNull(),
+		title: text('title').notNull(),
+		mediaType: text('media_type', { enum: ['text/markdown', 'text/plain'] }).notNull(),
+		contentHash: text('content_hash').notNull(),
+		byteLength: integer('byte_length').notNull(),
+		ingestionId: text('ingestion_id').notNull(),
+		committedAt: timestamp('committed_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.sourceId, table.sourceRevisionId],
+			name: 'campaign_import_source_revisions_pk'
+		}),
+		uniqueIndex('campaign_import_source_revisions_hash_unique').on(
+			table.campaignId,
+			table.sourceId,
+			table.contentHash
+		),
+		index('campaign_import_source_revisions_source_index').on(table.campaignId, table.sourceId)
+	]
+)
+
+export const campaignImportAcceptedClaims = pgTable(
+	'campaign_import_accepted_claims',
+	{
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id, { onDelete: 'cascade' }),
+		claimFingerprint: text('claim_fingerprint').notNull(),
+		kind: text('kind').notNull(),
+		eventTitle: text('event_title'),
+		content: text('content').notNull(),
+		entityReferences: jsonb('entity_references').notNull(),
+		acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.campaignId, table.claimFingerprint],
+			name: 'campaign_import_accepted_claims_pk'
+		})
+	]
+)
+
+export const campaignImportClaimProvenance = pgTable(
+	'campaign_import_claim_provenance',
+	{
+		campaignId: uuid('campaign_id').notNull(),
+		claimFingerprint: text('claim_fingerprint').notNull(),
+		sourceId: uuid('source_id').notNull(),
+		sourceRevisionId: uuid('source_revision_id').notNull(),
+		documentId: text('document_id').notNull(),
+		vaultRevisionId: text('vault_revision_id').notNull(),
+		excerpt: text('excerpt').notNull(),
+		startStringIndex: integer('start_string_index').notNull(),
+		endStringIndex: integer('end_string_index').notNull(),
+		startLine: integer('start_line').notNull(),
+		endLine: integer('end_line').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.campaignId,
+				table.claimFingerprint,
+				table.sourceId,
+				table.sourceRevisionId,
+				table.documentId,
+				table.vaultRevisionId,
+				table.startStringIndex,
+				table.endStringIndex
+			],
+			name: 'campaign_import_claim_provenance_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.claimFingerprint],
+			foreignColumns: [
+				campaignImportAcceptedClaims.campaignId,
+				campaignImportAcceptedClaims.claimFingerprint
+			],
+			name: 'campaign_import_claim_provenance_claim_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.sourceId, table.sourceRevisionId],
+			foreignColumns: [
+				campaignImportSourceRevisions.campaignId,
+				campaignImportSourceRevisions.sourceId,
+				campaignImportSourceRevisions.sourceRevisionId
+			],
+			name: 'campaign_import_claim_provenance_source_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.documentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'campaign_import_claim_provenance_document_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.vaultRevisionId],
+			foreignColumns: [vaultRevisions.campaignId, vaultRevisions.revisionId],
+			name: 'campaign_import_claim_provenance_revision_fk'
+		}).onDelete('cascade'),
+		index('campaign_import_claim_provenance_source_index').on(
+			table.campaignId,
+			table.sourceId,
+			table.sourceRevisionId
+		),
+		index('campaign_import_claim_provenance_document_index').on(table.campaignId, table.documentId)
+	]
+)
+
+export const campaignImportChronologyProvenance = pgTable(
+	'campaign_import_chronology_provenance',
+	{
+		campaignId: uuid('campaign_id').notNull(),
+		ingestionId: text('ingestion_id').notNull(),
+		chronologyId: uuid('chronology_id').notNull(),
+		relation: text('relation', { enum: ['before', 'during'] }).notNull(),
+		sourceEventId: text('source_event_id').notNull(),
+		targetEventId: text('target_event_id').notNull(),
+		affectedDocumentId: text('affected_document_id').notNull(),
+		vaultRevisionId: text('vault_revision_id').notNull(),
+		claimId: uuid('claim_id').notNull(),
+		claimFingerprint: text('claim_fingerprint').notNull(),
+		sourceId: uuid('source_id').notNull(),
+		sourceRevisionId: uuid('source_revision_id').notNull(),
+		excerpt: text('excerpt').notNull(),
+		startStringIndex: integer('start_string_index').notNull(),
+		endStringIndex: integer('end_string_index').notNull(),
+		startLine: integer('start_line').notNull(),
+		endLine: integer('end_line').notNull()
+	},
+	(table) => [
+		primaryKey({
+			columns: [
+				table.campaignId,
+				table.ingestionId,
+				table.chronologyId,
+				table.affectedDocumentId,
+				table.vaultRevisionId,
+				table.claimId,
+				table.sourceId,
+				table.sourceRevisionId,
+				table.startStringIndex,
+				table.endStringIndex
+			],
+			name: 'campaign_import_chronology_provenance_pk'
+		}),
+		foreignKey({
+			columns: [table.campaignId, table.claimFingerprint],
+			foreignColumns: [
+				campaignImportAcceptedClaims.campaignId,
+				campaignImportAcceptedClaims.claimFingerprint
+			],
+			name: 'campaign_import_chronology_provenance_claim_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.sourceId, table.sourceRevisionId],
+			foreignColumns: [
+				campaignImportSourceRevisions.campaignId,
+				campaignImportSourceRevisions.sourceId,
+				campaignImportSourceRevisions.sourceRevisionId
+			],
+			name: 'campaign_import_chronology_provenance_source_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.affectedDocumentId],
+			foreignColumns: [vaultDocuments.campaignId, vaultDocuments.documentId],
+			name: 'campaign_import_chronology_provenance_document_fk'
+		}).onDelete('cascade'),
+		foreignKey({
+			columns: [table.campaignId, table.vaultRevisionId],
+			foreignColumns: [vaultRevisions.campaignId, vaultRevisions.revisionId],
+			name: 'campaign_import_chronology_provenance_revision_fk'
+		}).onDelete('cascade'),
+		index('campaign_import_chronology_provenance_ingestion_index').on(
+			table.campaignId,
+			table.ingestionId
+		),
+		index('campaign_import_chronology_provenance_source_index').on(
+			table.campaignId,
+			table.sourceId,
+			table.sourceRevisionId
+		),
+		index('campaign_import_chronology_provenance_document_index').on(
+			table.campaignId,
+			table.affectedDocumentId
+		)
+	]
+)

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { analysisWorkflowId, commitWorkflowId, workflowLifecycleFromStatus } from './contracts.js'
+import {
+	analysisWorkflowId,
+	campaignImportWorkflowDescriptors,
+	campaignImportWorkflowKinds,
+	commitWorkflowId,
+	workflowLifecycleFromStatus
+} from './contracts.js'
 import { serializeWorkflowFailure, workflowStageError } from './failure.js'
 
 describe('workflow contracts', () => {
@@ -10,6 +16,18 @@ describe('workflow contracts', () => {
 		expect(commitWorkflowId('campaign-1', 'ingestion-1')).toBe(
 			'loremaster:commit:campaign-1:ingestion-1'
 		)
+	})
+
+	it('defines exactly four distinct campaign import workflow descriptors', () => {
+		expect(campaignImportWorkflowKinds).toHaveLength(4)
+		const descriptors = campaignImportWorkflowKinds.map(
+			(kind) => campaignImportWorkflowDescriptors[kind]
+		)
+		expect(new Set(descriptors.map(({ workflowName }) => workflowName)).size).toBe(4)
+		expect(new Set(descriptors.map(({ queueName }) => queueName)).size).toBe(4)
+		expect(
+			new Set(descriptors.map(({ workflowId }) => workflowId('campaign-1', 'ingestion-1'))).size
+		).toBe(4)
 	})
 
 	it.each([

@@ -87,6 +87,17 @@ export type CommitInput = {
 	resolutions?: SessionProposalResolution[]
 }
 
+export type PlannedDocumentUpdate = {
+	type: VaultDocument['type']
+	aliases?: string[]
+	after: string[]
+	during: string[]
+	eventForm?: VaultDocument['eventForm']
+	content: string
+	expectedRevisionId: string
+	expectedPath: string
+}
+
 export type PlannedMutation = {
 	mutationId: string
 	proposal: SessionProposal
@@ -95,6 +106,7 @@ export type PlannedMutation = {
 	after?: string[]
 	during?: string[]
 	eventForm?: VaultDocument['eventForm']
+	update?: PlannedDocumentUpdate
 }
 
 export type MutationPlan = {
@@ -102,11 +114,8 @@ export type MutationPlan = {
 	chronologyUpdates: {
 		mutationId: string
 		documentId: string
-		after: string[]
-		during: string[]
-		eventForm: VaultDocument['eventForm']
+		update: PlannedDocumentUpdate
 	}[]
 	documentIdByProposal: Record<string, string>
-	existingById: Record<string, VaultDocument>
-	sessionDocumentId: string
+	sessionDocumentId?: string
 }

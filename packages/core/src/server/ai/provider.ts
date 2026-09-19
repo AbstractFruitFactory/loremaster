@@ -4,6 +4,7 @@ import type { AssistantGeneration, AssistantGenerationEvent } from '../assistant
 import type { Failure } from '../failure.js'
 import type {
 	ExtractedSessionClaim,
+	InferredCampaignImportChronology,
 	InferredSessionChronology,
 	SessionEventAudit,
 	SessionClaimEvidenceRepair,
@@ -67,6 +68,10 @@ export type InferSessionChronology = (
 	input: AiPrompt & { model: string }
 ) => Effect<InferredSessionChronology, Failure<'ai', 'inferSessionChronology'>>
 
+export type InferCampaignImportChronology = (
+	input: AiPrompt & { model: string }
+) => Effect<InferredCampaignImportChronology, Failure<'ai', 'inferCampaignImportChronology'>>
+
 export type GenerateRelationshipLinks = (
 	input: AiPrompt & { model: string }
 ) => Effect<RelationshipLink[], Failure<'ai', 'generateRelationshipLinks'>>
@@ -94,6 +99,7 @@ export type AiProvider = {
 	resolveSessionEntities: ResolveSessionEntities
 	auditSessionEvents: AuditSessionEvents
 	inferSessionChronology: InferSessionChronology
+	inferCampaignImportChronology: InferCampaignImportChronology
 	generateRelationshipLinks: GenerateRelationshipLinks
 }
 

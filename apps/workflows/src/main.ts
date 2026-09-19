@@ -3,7 +3,9 @@ import {
 	ANALYSIS_QUEUE_NAME,
 	COMMIT_QUEUE_NAME,
 	WORKFLOW_APPLICATION_NAME,
-	WORKFLOW_SYSTEM_SCHEMA
+	WORKFLOW_SYSTEM_SCHEMA,
+	campaignImportWorkflowDescriptors,
+	campaignImportWorkflowKinds
 } from '@loremaster/core/workflows/contracts'
 import { runtime } from './runtime.js'
 
@@ -42,7 +44,12 @@ const main = async () => {
 	await DBOS.launch()
 	await Promise.all([
 		DBOS.registerQueue(ANALYSIS_QUEUE_NAME, { globalConcurrency: 2 }),
-		DBOS.registerQueue(COMMIT_QUEUE_NAME, { globalConcurrency: 2 })
+		DBOS.registerQueue(COMMIT_QUEUE_NAME, { globalConcurrency: 2 }),
+		...campaignImportWorkflowKinds.map((kind) =>
+			DBOS.registerQueue(campaignImportWorkflowDescriptors[kind].queueName, {
+				globalConcurrency: 2
+			})
+		)
 	])
 }
 

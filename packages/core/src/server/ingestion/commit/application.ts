@@ -1,11 +1,11 @@
-import { gen, succeed, type Effect } from 'effect/Effect'
+import { fail as failEffect, gen, succeed, type Effect } from 'effect/Effect'
 import { buildSessionRecap, canonicalDocumentContent } from '../../../ingestion.js'
 import type { Failure } from '../../failure.js'
 import { topologicalLayers } from '../../timeline/graph.js'
 import type { VaultDocument } from '../../vault/types.js'
 import { commitRevisionId } from '../ids.js'
 import type { CommitInput, MutationPlan } from '../internal.js'
-import type { IngestionStorage } from '../storage.js'
+import type { CampaignImportBaseCommitStorage, IngestionStorage } from '../storage.js'
 import type {
 	SessionCommitJournal,
 	SessionCommitMutationResult,
@@ -13,6 +13,35 @@ import type {
 	SessionIngestionResult,
 	SessionProposal
 } from '../types.js'
+
+export type CommitApplicationResult = {
+	documents: SessionIngestionResult['documents']
+	sessionDocumentId?: string
+}
+
+type CommitApplicationContext =
+	| {
+			kind: 'session'
+			draft: Pick<SessionIngestionDraft, 'title'>
+			transcript: string
+	  }
+	| { kind: 'campaign-import' }
+
+export type CommitJournalStorage = Pick<
+	CampaignImportBaseCommitStorage,
+	'readCommitJournal' | 'writeCommitJournal'
+>
+
+export const optionalCommitJournalStorage = (
+	storage: Pick<IngestionStorage, 'readCommitJournal' | 'writeCommitJournal'>
+): CommitJournalStorage => ({
+	readCommitJournal: (campaignId, ingestionId) =>
+		storage.readCommitJournal
+			? storage.readCommitJournal(campaignId, ingestionId)
+			: succeed(undefined),
+	writeCommitJournal: (journal) =>
+		storage.writeCommitJournal ? storage.writeCommitJournal(journal) : succeed(undefined)
+})
 
 export const commitMutationIdsInOrder = (plan: MutationPlan) => {
 	const creates = plan.planned.filter(({ proposal }) => proposal.operation !== 'update-canon')
@@ -70,7 +99,7 @@ export const commitApplication = (
 				transcript?: string
 				revision?: {
 					source: 'ingestion'
-					relatedSessionId: string
+					relatedSessionId?: string
 					ingestionId: string
 					changeSummary: string
 					revisionId: string
@@ -91,7 +120,7 @@ export const commitApplication = (
 				expectedPath?: string
 				revision?: {
 					source: 'ingestion'
-					relatedSessionId: string
+					relatedSessionId?: string
 					ingestionId: string
 					changeSummary: string
 					revisionId: string
@@ -99,37 +128,43 @@ export const commitApplication = (
 			}
 		) => Effect<VaultDocument, Failure>
 	},
-	storage: IngestionStorage
+	storage: CommitJournalStorage
 ) => {
 	const revisionFor = (
 		mutationId: string,
 		proposal: SessionProposal,
-		draft: SessionIngestionDraft,
 		ingestionId: string,
-		sessionDocumentId: string
+		sessionDocumentId: string | undefined,
+		context: CommitApplicationContext
 	) => ({
 		source: 'ingestion' as const,
-		relatedSessionId: sessionDocumentId,
+		...(sessionDocumentId ? { relatedSessionId: sessionDocumentId } : {}),
 		ingestionId,
 		revisionId: commitRevisionId(mutationId),
 		changeSummary:
-			proposal.documentType === 'session'
-				? `Created from session ingestion: ${draft.title}`
-				: `Applied from session: ${draft.title}`
+			context.kind === 'campaign-import'
+				? 'Applied from campaign import'
+				: proposal.documentType === 'session'
+					? `Created from session ingestion: ${context.draft.title}`
+					: `Applied from session: ${context.draft.title}`
 	})
 
 	const applyMutationPlan = (
 		input: CommitInput,
-		draft: SessionIngestionDraft,
-		transcript: string,
+		context: CommitApplicationContext,
 		resolvedSelected: SessionProposal[],
-		plan: MutationPlan
-	): Effect<SessionIngestionResult, Failure> =>
+		plan: MutationPlan,
+		onApplied?: (
+			result: SessionCommitMutationResult,
+			proposal: SessionProposal
+		) => Effect<void, Failure>
+	): Effect<CommitApplicationResult, Failure> =>
 		gen(function* () {
 			const committed: SessionIngestionResult['documents'] = []
-			const journal: SessionCommitJournal = (storage.readCommitJournal
-				? yield* storage.readCommitJournal(input.campaignId, input.ingestionId)
-				: undefined) ?? {
+			const journal: SessionCommitJournal = (yield* storage.readCommitJournal(
+				input.campaignId,
+				input.ingestionId
+			)) ?? {
 				schemaVersion: 1,
 				campaignId: input.campaignId,
 				ingestionId: input.ingestionId,
@@ -137,7 +172,7 @@ export const commitApplication = (
 			}
 			const recordApplied = (result: SessionCommitMutationResult) => {
 				journal.applied[result.mutationId] = result
-				return storage.writeCommitJournal ? storage.writeCommitJournal(journal) : succeed(undefined)
+				return storage.writeCommitJournal(journal)
 			}
 			const appendCommitted = (result: SessionCommitMutationResult) => {
 				if (!result.proposalId || !result.documentType) return
@@ -147,10 +182,15 @@ export const commitApplication = (
 					documentType: result.documentType
 				})
 			}
-			const approvedSessionContent = buildSessionRecap(
-				draft.title,
-				resolvedSelected.filter(({ documentType }) => documentType !== 'session')
-			)
+			const applyRecorded = (result: SessionCommitMutationResult, proposal: SessionProposal) =>
+				onApplied ? onApplied(result, proposal) : succeed(undefined)
+			const approvedSessionContent =
+				context.kind === 'session'
+					? buildSessionRecap(
+							context.draft.title,
+							resolvedSelected.filter(({ documentType }) => documentType !== 'session')
+						)
+					: undefined
 			const creates = plan.planned.filter(({ proposal }) => proposal.operation !== 'update-canon')
 			const updates = plan.planned.filter(({ proposal }) => proposal.operation === 'update-canon')
 			const mutationRank = new Map(
@@ -172,94 +212,101 @@ export const commitApplication = (
 				const applied = journal.applied[mutationId]
 				if (applied) {
 					appendCommitted(applied)
+					yield* applyRecorded(applied, proposal)
 					continue
 				}
 				const revision = revisionFor(
 					mutationId,
 					proposal,
-					draft,
 					input.ingestionId,
-					plan.sessionDocumentId
+					plan.sessionDocumentId,
+					context
 				)
 				const expected = {
 					documentId,
 					path: path!,
 					type: proposal.documentType,
 					content:
-						proposal.documentType === 'session'
+						proposal.documentType === 'session' && approvedSessionContent
 							? approvedSessionContent
 							: canonicalDocumentContent(proposal.title, proposal.content),
 					after,
 					during,
 					eventForm,
 					ingestionId: proposal.documentType === 'session' ? input.ingestionId : undefined,
-					transcript: proposal.documentType === 'session' ? transcript : undefined,
+					transcript:
+						proposal.documentType === 'session' && context.kind === 'session'
+							? context.transcript
+							: undefined,
 					revision
 				}
-				yield* vault.createDocument(input.campaignId, expected)
+				const document = yield* vault.createDocument(input.campaignId, expected)
 				const result = {
 					mutationId,
 					proposalId: proposal.proposalId,
 					documentId,
-					documentType: proposal.documentType
+					documentType: proposal.documentType,
+					revisionId: document.currentRevisionId
 				}
 				appendCommitted(result)
+				yield* applyRecorded(result, proposal)
 				yield* recordApplied(result)
 			}
-			for (const { mutationId, proposal, documentId, after, during, eventForm } of updates) {
+			for (const { mutationId, proposal, documentId, update } of updates) {
 				const applied = journal.applied[mutationId]
 				if (applied) {
 					appendCommitted(applied)
+					yield* applyRecorded(applied, proposal)
 					continue
 				}
-				const existing = plan.existingById[documentId]!
-				yield* vault.updateDocument(input.campaignId, documentId, {
-					type: existing.type,
-					aliases: existing.aliases,
-					after,
-					during,
-					eventForm,
-					content: `${existing.content.trimEnd()}\n\n${proposal.patch!.content.trim()}\n`,
-					expectedRevisionId: proposal.base!.revisionId,
-					expectedPath: existing.path,
+				if (!update) {
+					return yield* failEffect({
+						domain: 'ingestion',
+						operation: 'commit',
+						cause: { reason: 'missingUpdateBase', proposalId: proposal.proposalId }
+					} satisfies Failure)
+				}
+				const document = yield* vault.updateDocument(input.campaignId, documentId, {
+					...update,
 					revision: revisionFor(
 						mutationId,
 						proposal,
-						draft,
 						input.ingestionId,
-						plan.sessionDocumentId
+						plan.sessionDocumentId,
+						context
 					)
 				})
 				const result = {
 					mutationId,
 					proposalId: proposal.proposalId,
 					documentId,
-					documentType: proposal.documentType
+					documentType: proposal.documentType,
+					revisionId: document.currentRevisionId
 				}
 				appendCommitted(result)
+				yield* applyRecorded(result, proposal)
 				yield* recordApplied(result)
 			}
-			for (const { mutationId, documentId, after, during, eventForm } of plan.chronologyUpdates) {
+			for (const { mutationId, documentId, update } of plan.chronologyUpdates) {
 				if (journal.applied[mutationId]) continue
-				const existing = plan.existingById[documentId]!
-				yield* vault.updateDocument(input.campaignId, documentId, {
-					type: existing.type,
-					aliases: existing.aliases,
-					after,
-					during,
-					eventForm,
-					content: existing.content,
-					expectedRevisionId: existing.currentRevisionId!,
-					expectedPath: existing.path,
+				const document = yield* vault.updateDocument(input.campaignId, documentId, {
+					...update,
 					revision: {
 						source: 'ingestion',
-						relatedSessionId: plan.sessionDocumentId,
+						...(plan.sessionDocumentId ? { relatedSessionId: plan.sessionDocumentId } : {}),
 						ingestionId: input.ingestionId,
 						revisionId: commitRevisionId(mutationId),
-						changeSummary: `Updated chronology from session: ${draft.title}`
+						changeSummary:
+							context.kind === 'campaign-import'
+								? 'Updated chronology from campaign import'
+								: `Updated chronology from session: ${context.draft.title}`
 					}
 				})
-				yield* recordApplied({ mutationId, documentId })
+				yield* recordApplied({
+					mutationId,
+					documentId,
+					revisionId: document.currentRevisionId
+				})
 			}
 			return { documents: committed, sessionDocumentId: plan.sessionDocumentId }
 		})

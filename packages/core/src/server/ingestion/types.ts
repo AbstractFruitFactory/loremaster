@@ -1,4 +1,5 @@
 import type { DocumentType } from '../../document.js'
+import type { MutationPlan, ValidatedClaim } from './internal.js'
 
 export const ingestionDocumentTypes = [
 	'player',
@@ -128,6 +129,15 @@ export type InferredSessionChronology = {
 	coverage: InferredSessionChronologyCoverage[]
 }
 
+export type InferredCampaignImportChronologyRelation = InferredSessionChronologyRelation & {
+	claimIds: string[]
+}
+
+export type InferredCampaignImportChronology = {
+	relations: InferredCampaignImportChronologyRelation[]
+	coverage: InferredSessionChronologyCoverage[]
+}
+
 export type TranscriptChunk = {
 	chunkId: string
 	content: string
@@ -140,6 +150,8 @@ export type TranscriptChunk = {
 export type Evidence = {
 	excerpt: string
 	chunkId: string
+	sourceId?: string
+	sourceRevisionId?: string
 	startStringIndex: number
 	endStringIndex: number
 	startLine: number
@@ -256,6 +268,265 @@ export type SessionIngestionResult = {
 	documents: { proposalId: string; documentId: string; documentType: DocumentType }[]
 }
 
+export type CampaignImportSourceMediaType = 'text/markdown' | 'text/plain'
+
+export type CampaignImportSourceInput = {
+	displayName: string
+	title: string
+	mediaType: CampaignImportSourceMediaType
+	content: string
+}
+
+export type CampaignImportSource = Omit<CampaignImportSourceInput, 'content'> & {
+	sourceId: string
+	sourceRevisionId: string
+	contentHash: string
+	byteLength: number
+}
+
+export type CampaignImportSourceData = CampaignImportSource & {
+	content: string
+}
+
+export type CampaignImportAnalyzeInput = {
+	ingestionId?: string
+	campaignId: string
+	sources: CampaignImportSourceInput[]
+}
+
+export type CampaignImportRequestData = {
+	schemaVersion: 1
+	kind: 'campaign-import'
+	ingestionId: string
+	campaignId: string
+	createdAt: string
+	sources: CampaignImportSource[]
+}
+
+export type CampaignImportEvidence = Evidence & {
+	sourceId: string
+	sourceRevisionId: string
+}
+
+export type CampaignImportClaim = Omit<SessionValidatedClaim, 'evidence'> & {
+	evidence: CampaignImportEvidence[]
+	claimFingerprint: string
+}
+
+export type CampaignImportDraft = {
+	schemaVersion: 1
+	kind: 'campaign-import'
+	ingestionId: string
+	campaignId: string
+	createdAt: string
+	sources: CampaignImportSource[]
+	claims: CampaignImportClaim[]
+	temporalClaims: CampaignImportClaim[]
+	proposals: SessionProposal[]
+	warnings: string[]
+}
+
+export type CampaignImportProposalResolution =
+	| { proposalId: string; kind: 'create' }
+	| { proposalId: string; kind: 'existing'; documentId: string }
+
+export type CampaignImportReviewState = {
+	schemaVersion: 1
+	campaignId: string
+	ingestionId: string
+	revision: number
+	updatedAt: string
+	selectedProposalIds: string[]
+	resolutions: CampaignImportProposalResolution[]
+}
+
+export type CampaignImportReviewUpdateInput = {
+	campaignId: string
+	ingestionId: string
+	expectedRevision: number
+	selectedProposalIds: string[]
+	resolutions: CampaignImportProposalResolution[]
+}
+
+export const MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS = 500
+export const MAX_CAMPAIGN_IMPORT_SOURCES = 50
+export const MAX_CAMPAIGN_IMPORT_SOURCE_BYTES = 2 * 1024 * 1024
+export const MAX_CAMPAIGN_IMPORT_BYTES = 10 * 1024 * 1024
+
+export type CampaignImportCommitInput = {
+	campaignId: string
+	ingestionId: string
+	expectedReviewRevision: number
+	selectedProposalIds: string[]
+	resolutions?: CampaignImportProposalResolution[]
+}
+
+export type CampaignImportCommitData = CampaignImportCommitInput & {
+	schemaVersion: 1
+	kind: 'campaign-import-commit'
+}
+
+export type CampaignImportCommitPlanData = {
+	schemaVersion: 1
+	kind: 'campaign-import-commit-plan'
+	campaignId: string
+	ingestionId: string
+	resolvedSelected: SessionProposal[]
+	plan: MutationPlan
+}
+
+export type CampaignImportCommitResult = {
+	documents: { proposalId: string; documentId: string; documentType: DocumentType }[]
+	finalized: boolean
+}
+
+export type CampaignImportCompletionData = CampaignImportCommitResult & {
+	schemaVersion: 1
+	kind: 'campaign-import-completion'
+	campaignId: string
+	ingestionId: string
+}
+
+export type CampaignImportChronologyProposal = SessionChronologyProposal & {
+	supportingClaimIds: string[]
+	evidence: CampaignImportEvidence[]
+}
+
+export type CampaignImportChronologyDraft = {
+	schemaVersion: 1
+	kind: 'campaign-import-chronology'
+	campaignId: string
+	ingestionId: string
+	createdAt: string
+	chronology: CampaignImportChronologyProposal[]
+	chronologyCoverage: SessionChronologyCoverageProposal[]
+	warnings: string[]
+}
+
+export type CampaignImportChronologyCommitInput = {
+	campaignId: string
+	ingestionId: string
+	selectedChronologyIds: string[]
+}
+
+export type CampaignImportChronologyCommitData = CampaignImportChronologyCommitInput & {
+	schemaVersion: 1
+	kind: 'campaign-import-chronology-commit'
+}
+
+export type CampaignImportChronologyCommitPlanData = {
+	schemaVersion: 1
+	kind: 'campaign-import-chronology-commit-plan'
+	campaignId: string
+	ingestionId: string
+	selectedChronology: CampaignImportChronologyProposal[]
+	plan: MutationPlan
+}
+
+export type CampaignImportChronologyCommitResult = {
+	updatedDocumentIds: string[]
+	finalized: boolean
+}
+
+export type CampaignImportChronologyCommittedCompletionData =
+	CampaignImportChronologyCommitResult & {
+		schemaVersion: 1
+		kind: 'campaign-import-chronology-completion'
+		campaignId: string
+		ingestionId: string
+	}
+
+export type CampaignImportChronologyNoRelationsData = {
+	schemaVersion: 1
+	kind: 'campaign-import-chronology-no-relations'
+	campaignId: string
+	ingestionId: string
+	updatedDocumentIds: []
+	finalized: true
+}
+
+export type CampaignImportChronologyCompletionData =
+	CampaignImportChronologyCommittedCompletionData | CampaignImportChronologyNoRelationsData
+
+export type CampaignImportChronologyBuildResult = {
+	draft: CampaignImportChronologyDraft
+	outcome?: CampaignImportChronologyNoRelationsData
+}
+
+export type CampaignImportChronologyDispatchData = {
+	schemaVersion: 1
+	kind: 'campaign-import-chronology-dispatch'
+	campaignId: string
+	ingestionId: string
+	status: 'dispatched' | 'failed'
+	updatedAt: string
+	error?: {
+		code: string
+		message: string
+	}
+}
+
+export type CampaignImportPhase =
+	| 'analyzing'
+	| 'review'
+	| 'committing'
+	| 'chronology-analyzing'
+	| 'chronology-review'
+	| 'chronology-committing'
+	| 'ready-to-finish'
+	| 'failed'
+
+export type CampaignImportSummary = {
+	ingestionId: string
+	campaignId: string
+	createdAt: string
+	phase: CampaignImportPhase
+	canDiscard: boolean
+}
+
+export type CampaignImportLifecycleStorageState = {
+	request: CampaignImportRequestData
+	draft?: CampaignImportDraft
+	commitRequested: boolean
+	completion?: CampaignImportCompletionData
+	chronologyDispatch?: CampaignImportChronologyDispatchData
+	chronologyDraft?: CampaignImportChronologyDraft
+	chronologyCommitData?: CampaignImportChronologyCommitData
+	chronologyCompletion?: CampaignImportChronologyCompletionData
+}
+
+export type CampaignImportSourceAnalysis = {
+	sourceId: string
+	sourceRevisionId: string
+	claims: ValidatedClaim[]
+	warnings: string[]
+}
+
+export type CampaignImportReconciliation = {
+	claims: CampaignImportClaim[]
+	warnings: string[]
+}
+
+export type CampaignImportClaimProvenanceRecord = {
+	claim: CampaignImportClaim
+	source: CampaignImportSource
+	documentId: string
+	vaultRevisionId: string
+	evidence: CampaignImportEvidence
+}
+
+export type CampaignImportChronologyProvenanceRecord = {
+	chronologyId: string
+	relation: 'before' | 'during'
+	sourceEventId: string
+	targetEventId: string
+	affectedDocumentId: string
+	vaultRevisionId: string
+	claim: CampaignImportClaim
+	source: CampaignImportSource
+	evidence: CampaignImportEvidence
+}
+
 export type SessionCommitData = {
 	schemaVersion: 1
 	campaignId: string
@@ -270,6 +541,7 @@ export type SessionCommitMutationResult = {
 	documentId: string
 	proposalId?: string
 	documentType?: DocumentType
+	revisionId?: string
 }
 
 export type SessionCommitJournal = {
