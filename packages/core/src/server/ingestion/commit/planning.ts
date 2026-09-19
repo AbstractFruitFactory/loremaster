@@ -148,7 +148,7 @@ export const planMutations = (
 				during: [...new Set([...existing.during, ...addedPeriods])],
 				eventForm:
 					existing.type === 'event'
-						? periodDocumentIds.has(documentId)
+						? periodDocumentIds.has(documentId) || proposal.eventForm === 'period'
 							? 'period'
 							: (existing.eventForm ?? 'occurrence')
 						: undefined
@@ -168,9 +168,9 @@ export const planMutations = (
 			during,
 			eventForm:
 				proposal.documentType === 'event'
-					? periodDocumentIds.has(documentId)
+					? periodDocumentIds.has(documentId) || proposal.eventForm === 'period'
 						? 'period'
-						: 'occurrence'
+						: (proposal.eventForm ?? 'occurrence')
 					: undefined
 		})
 	}

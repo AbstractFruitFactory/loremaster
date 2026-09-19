@@ -20,7 +20,7 @@ import {
 	type SessionEntityResolution
 } from '../../ingestion/types.js'
 import { MAX_EVIDENCE_RANGES } from '../../ingestion/evidence.js'
-import type { RelationshipLink } from '../../vault/types.js'
+import { eventForms, type RelationshipLink } from '../../vault/types.js'
 import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider.js'
 
 type OpenAiClient = Pick<OpenAI, 'embeddings' | 'responses'>
@@ -43,7 +43,8 @@ const evidenceRangeSchema = z.object({
 const entityReferenceSchema = z.object({
 	label: z.string().trim().min(1),
 	type: z.enum(ingestionDocumentTypes),
-	role: z.enum(['subject', 'related'])
+	role: z.enum(['subject', 'related']),
+	eventForm: z.enum(eventForms).nullable().optional()
 })
 
 const sessionClaimSchema = z.object({
@@ -72,9 +73,10 @@ const entityReferenceJsonSchema = {
 	properties: {
 		label: { type: 'string' },
 		type: { type: 'string', enum: ingestionDocumentTypes },
-		role: { type: 'string', enum: ['subject', 'related'] }
+		role: { type: 'string', enum: ['subject', 'related'] },
+		eventForm: { type: ['string', 'null'], enum: [...eventForms, null] }
 	},
-	required: ['label', 'type', 'role'],
+	required: ['label', 'type', 'role', 'eventForm'],
 	additionalProperties: false
 }
 
@@ -101,7 +103,7 @@ const sessionClaimsTool = {
 	type: 'function' as const,
 	name: 'record_session_claims',
 	description:
-		'Record atomic campaign claims with supporting transcript line ranges, subject and related entity references, and concise factual titles for developments.',
+		'Record atomic campaign claims with supporting transcript line ranges, subject and related entity references, event form for event references, and concise factual titles for developments.',
 	strict: true,
 	parameters: {
 		type: 'object',

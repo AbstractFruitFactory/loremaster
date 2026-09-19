@@ -1,7 +1,7 @@
 import { flip, runPromise } from 'effect/Effect'
 import { describe, expect, it } from 'vitest'
 import type { VaultDocument } from '../../vault/types.js'
-import type { SessionChronologyProposal } from '../types.js'
+import type { SessionChronologyProposal, SessionProposal } from '../types.js'
 import { planMutations } from './planning.js'
 
 const event = (id: string, type: VaultDocument['type'] = 'event'): VaultDocument => ({
@@ -29,6 +29,35 @@ const chronology = (sourceEventId: string): SessionChronologyProposal => ({
 })
 
 describe('commit planning chronology endpoints', () => {
+	it('creates a period with empty chronology when its placement is unknown', async () => {
+		const proposal: SessionProposal = {
+			proposalId: 'war-proposal',
+			claimIds: ['war-claim'],
+			operation: 'create-entity',
+			documentType: 'event',
+			title: 'War of the Ages',
+			certainty: 'explicit',
+			selected: true,
+			evidence: [],
+			match: { kind: 'unresolved', candidates: [] },
+			references: [],
+			content: 'The War of the Ages was a war.',
+			eventForm: 'period',
+			canCreate: true
+		}
+		const plan = await runPromise(planMutations('ingestion-1', [proposal], [], undefined, []))
+
+		expect(plan.planned).toEqual([
+			expect.objectContaining({
+				proposal,
+				after: [],
+				during: [],
+				eventForm: 'period'
+			})
+		])
+		expect(plan.chronologyUpdates).toEqual([])
+	})
+
 	it.each([
 		['missing', [event('target-event')]],
 		['non-event', [event('source-event', 'npc'), event('target-event')]]

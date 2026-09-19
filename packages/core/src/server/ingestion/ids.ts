@@ -70,7 +70,7 @@ export const campaignImportClaimFingerprint = (input: {
 	kind: string
 	eventTitle: string | null
 	content: string
-	entityReferences: { label: string; type: string; role: string }[]
+	entityReferences: { label: string; type: string; role: string; eventForm?: string | null }[]
 }) =>
 	createHash('sha256')
 		.update(
@@ -80,10 +80,11 @@ export const campaignImportClaimFingerprint = (input: {
 				eventTitle: input.eventTitle?.trim().toLocaleLowerCase() ?? null,
 				content: input.content.trim().replace(/\s+/g, ' ').toLocaleLowerCase(),
 				entityReferences: input.entityReferences
-					.map(({ label, type, role }) => ({
+					.map(({ label, type, role, eventForm }) => ({
 						label: label.trim().replace(/\s+/g, ' ').toLocaleLowerCase(),
 						type,
-						role
+						role,
+						eventForm
 					}))
 					.sort(
 						(left, right) =>

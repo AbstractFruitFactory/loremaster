@@ -145,7 +145,7 @@ ${JSON.stringify(
 	eventProposals.map((proposal) => ({
 		eventId: proposal.proposalId,
 		title: proposal.title,
-		eventForm: 'occurrence',
+		eventForm: proposal.eventForm ?? 'occurrence',
 		content: proposal.content,
 		acceptedClaimIds: proposal.claimIds
 	})),

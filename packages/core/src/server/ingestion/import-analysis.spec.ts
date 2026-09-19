@@ -291,6 +291,61 @@ describe('campaign import analysis', () => {
 		])
 	})
 
+	it('proposes a named period even when no chronology placement is known', async () => {
+		const analyzer: AnalyzeSessionChunk = () =>
+			succeed([
+				{
+					kind: 'stable-fact',
+					eventTitle: null,
+					certainty: 'explicit',
+					content: 'Dereka served during the War of the Ages.',
+					evidence: [{ startLine: 1, endLine: 1 }],
+					entityReferences: [
+						{ label: 'Dereka', type: 'npc', role: 'subject', eventForm: null },
+						{ label: 'War of the Ages', type: 'event', role: 'related', eventForm: 'period' }
+					]
+				},
+				{
+					kind: 'stable-fact',
+					eventTitle: null,
+					certainty: 'explicit',
+					content: 'The War of the Ages was a war.',
+					evidence: [{ startLine: 1, endLine: 1 }],
+					entityReferences: [
+						{ label: 'War of the Ages', type: 'event', role: 'subject', eventForm: 'period' }
+					]
+				}
+			])
+		const { operations, inferCampaignImportChronology } = harness(analyzer)
+		const draft = await runPromise(
+			operations.analyze({
+				ingestionId: 'import-unplaced-period',
+				campaignId: 'campaign',
+				sources: [
+					source(
+						1,
+						'Dereka the barbarian, who served during the War of the Ages, knew a secret about the black door.'
+					)
+				]
+			})
+		)
+
+		expect(draft.proposals).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ documentType: 'npc', title: 'Dereka' }),
+				expect.objectContaining({
+					operation: 'create-entity',
+					documentType: 'event',
+					title: 'War of the Ages',
+					eventForm: 'period',
+					selected: true
+				})
+			])
+		)
+		expect(draft.temporalClaims).toEqual([])
+		expect(inferCampaignImportChronology).not.toHaveBeenCalled()
+	})
+
 	it('derives stable claim identities from source revisions and evidence', async () => {
 		const analyzer = analyzerFor((content) => ({
 			kind: 'stable-fact',

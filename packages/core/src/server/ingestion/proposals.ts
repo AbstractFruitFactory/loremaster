@@ -19,7 +19,6 @@ import {
 } from './text.js'
 
 export const canCreateEntityFromReference = (reference: EntityReference) => {
-	if (reference.type === 'event') return false
 	const value = reference.label.trim()
 	if (!value || value.length > 80) return false
 	if (/\p{L}['’](?:s\b|\s)/iu.test(value)) return false
@@ -130,6 +129,9 @@ const updateEntityProposal = (
 	match: matchForExisting(entity.document),
 	references,
 	content: claim.content,
+	...(entity.reference.type === 'event' && entity.reference.eventForm
+		? { eventForm: entity.reference.eventForm }
+		: {}),
 	resolutionMethod: entity.method,
 	base: {
 		documentId: entity.document.id,
@@ -154,6 +156,9 @@ const createSessionEntityProposal = (
 	match: { kind: 'unresolved', candidates: [] },
 	references,
 	content: claim.content,
+	...(entity.reference.type === 'event' && entity.reference.eventForm
+		? { eventForm: entity.reference.eventForm }
+		: {}),
 	resolutionMethod: entity.method,
 	canCreate: true
 })
@@ -176,6 +181,9 @@ const unresolvedEntityProposal = (
 				match: entity.match,
 				references,
 				content: claim.content,
+				...(entity.reference.type === 'event' && entity.reference.eventForm
+					? { eventForm: entity.reference.eventForm }
+					: {}),
 				canCreate: entity.canCreate
 			}
 		: undefined
@@ -205,6 +213,7 @@ const developmentProposal = (
 		match,
 		references,
 		content: claim.content,
+		eventForm: 'occurrence',
 		resolutionMethod,
 		canCreate: true
 	}
@@ -317,6 +326,12 @@ export const mergeProposals = (proposals: SessionProposal[]) => {
 			match,
 			references: uniqueReferences([...existing.references, ...proposal.references]),
 			content,
+			eventForm:
+				existing.documentType === 'event' || proposal.documentType === 'event'
+					? existing.eventForm === 'period' || proposal.eventForm === 'period'
+						? 'period'
+						: (existing.eventForm ?? proposal.eventForm)
+					: undefined,
 			resolutionMethod,
 			canCreate: Boolean(existing.canCreate || proposal.canCreate),
 			...(existing.patch ? { patch: { ...existing.patch, content } } : {})

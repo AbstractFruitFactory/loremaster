@@ -1,5 +1,6 @@
 import type { DocumentType } from '../../document.js'
 import type { MutationPlan } from './internal.js'
+import type { EventForm } from '../vault/types.js'
 
 export const ingestionDocumentTypes = [
 	'player',
@@ -23,6 +24,7 @@ export type EntityReference = {
 	label: string
 	type: IngestionDocumentType
 	role: 'subject' | 'related'
+	eventForm?: EventForm | null
 }
 
 export type ExtractedSessionClaim = {
@@ -193,6 +195,7 @@ export type SessionProposal = {
 	match: ProposalMatch
 	references: ProposalReference[]
 	content: string
+	eventForm?: EventForm
 	resolutionMethod?: 'deterministic' | 'model'
 	canCreate?: boolean
 	base?: { documentId: string; revisionId: string }

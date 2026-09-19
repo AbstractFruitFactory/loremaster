@@ -50,7 +50,17 @@ export const uniqueEntityReferences = (references: EntityReference[]) => {
 	for (const reference of references) {
 		const key = `${reference.type}:${normalize(reference.label)}`
 		const existing = unique.get(key)
-		if (!existing || reference.role === 'subject') unique.set(key, reference)
+		if (!existing) {
+			unique.set(key, reference)
+			continue
+		}
+		unique.set(key, {
+			...(reference.role === 'subject' ? reference : existing),
+			eventForm:
+				existing.eventForm === 'period' || reference.eventForm === 'period'
+					? 'period'
+					: (existing.eventForm ?? reference.eventForm)
+		})
 	}
 	return [...unique.values()]
 }
