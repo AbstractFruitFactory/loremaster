@@ -1,12 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import type { PageProps } from './$types'
-	import {
-		MAX_CAMPAIGN_IMPORT_BYTES,
-		MAX_CAMPAIGN_IMPORT_SOURCE_BYTES,
-		MAX_CAMPAIGN_IMPORT_SOURCES
-	} from '#lib/import/import-limits.js'
-	import { isUncertainTransportError } from '#lib/import/http-error.js'
 	import { startCampaignImport } from '../data.remote'
 
 	type FileDraft = {
@@ -22,9 +16,9 @@
 		payloadKey: string
 	}
 
-	const maximumSources = MAX_CAMPAIGN_IMPORT_SOURCES
-	const maximumSourceBytes = MAX_CAMPAIGN_IMPORT_SOURCE_BYTES
-	const maximumImportBytes = MAX_CAMPAIGN_IMPORT_BYTES
+	const maximumSources = 50
+	const maximumSourceBytes = 2 * 1024 * 1024
+	const maximumImportBytes = 10 * 1024 * 1024
 	const encoder = new TextEncoder()
 	let sourceSequence = 0
 
@@ -116,6 +110,16 @@
 		}
 		files.push(...added)
 		pickerError = errors.join(' ')
+	}
+
+	const httpStatus = (error: unknown) => {
+		if (typeof error !== 'object' || error === null || !('status' in error)) return undefined
+		return typeof error.status === 'number' ? error.status : undefined
+	}
+
+	const isUncertainTransportError = (error: unknown) => {
+		const status = httpStatus(error)
+		return status === undefined || status >= 500
 	}
 
 	const startImport = async (event: SubmitEvent) => {

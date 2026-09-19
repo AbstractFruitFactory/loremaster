@@ -15,7 +15,6 @@ import {
 	type WorkflowProgress,
 	workflowLifecycleFromStatus
 } from '@loremaster/core/workflows/contracts'
-import { isWorkflowRetryable } from './status.js'
 
 type EnqueueHandle = { workflowID: string }
 
@@ -104,7 +103,7 @@ export const createIngestionDbosAdapter = (client: IngestionDbosClient) => {
 			await client.resumeWorkflow(workflowId, { queueName: descriptor.queueName })
 			return workflowId
 		}
-		if (isWorkflowRetryable(lifecycle)) {
+		if (lifecycle === 'not-started') {
 			return enqueueCampaignImport(kind, campaignId, ingestionId)
 		}
 		throw new CampaignImportWorkflowRetryError(kind, lifecycle)
@@ -137,6 +136,18 @@ export const createIngestionDbosAdapter = (client: IngestionDbosClient) => {
 			)
 			return handle.workflowID
 		},
+		enqueueCampaignImportAnalysis: async (workflowId: string, input: AnalysisWorkflowInput) =>
+			enqueueCampaignImport('analysis', input.campaignId, input.ingestionId),
+		enqueueCampaignImportCommit: async (workflowId: string, input: AnalysisWorkflowInput) =>
+			enqueueCampaignImport('commit', input.campaignId, input.ingestionId),
+		enqueueCampaignImportChronologyAnalysis: async (
+			workflowId: string,
+			input: AnalysisWorkflowInput
+		) => enqueueCampaignImport('chronology-analysis', input.campaignId, input.ingestionId),
+		enqueueCampaignImportChronologyCommit: async (
+			workflowId: string,
+			input: AnalysisWorkflowInput
+		) => enqueueCampaignImport('chronology-commit', input.campaignId, input.ingestionId),
 		enqueueCampaignImport,
 		retryCampaignImport,
 		cancelAnalysis: async (workflowId: string) => {

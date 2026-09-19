@@ -25,7 +25,8 @@ import {
 	sourceChunkPrompt
 } from './import-prompts.js'
 import type { CampaignImportHistoryRepository } from './import-history.js'
-import type { ImportVault } from './import-commit.js'
+import { campaignImportCommit, type ImportVault } from './import-commit.js'
+import { campaignImportChronology } from './import-chronology.js'
 import { resolveCampaignImportClaims } from './import-identity.js'
 import { reconcileCampaignImportClaims } from './import-reconciliation.js'
 import { campaignImportReview } from './import-review.js'
@@ -39,7 +40,6 @@ import type {
 import type {
 	CampaignImportAnalyzeInput,
 	CampaignImportDraft,
-	CampaignImportReconciliation,
 	CampaignImportRequestData,
 	CampaignImportSource,
 	CampaignImportSourceAnalysis,
@@ -219,26 +219,21 @@ export const campaignImportAnalysis = ({
 			const request = yield* getRequest(campaignId, ingestionId)
 			const source = yield* getSource(request, sourceRevisionId)
 			const result = yield* analyzeSourceContent(source)
+			const claims = reconcileCampaignImportClaims(result.claims).claims
 			return {
 				sourceId: source.sourceId,
 				sourceRevisionId,
-				claims: result.claims,
+				claims,
 				warnings: result.warnings
 			}
 		})
 
-	const reconcileAnalyses = (
-		analyses: CampaignImportSourceAnalysis[]
-	): CampaignImportReconciliation => ({
-		claims: reconcileCampaignImportClaims(analyses.flatMap(({ claims }) => claims)).claims,
-		warnings: analyses.flatMap(({ warnings }) => warnings)
-	})
-
 	const buildDraft = (
 		request: CampaignImportRequestData,
-		reconciliation: CampaignImportReconciliation
+		analyses: CampaignImportSourceAnalysis[]
 	) =>
 		gen(function* () {
+			const reconciliation = reconcileCampaignImportClaims(analyses.flatMap(({ claims }) => claims))
 			const acceptedFingerprints = yield* history.getAcceptedClaimFingerprints(
 				request.campaignId,
 				reconciliation.claims.map(({ claimFingerprint }) => claimFingerprint)
@@ -292,7 +287,7 @@ export const campaignImportAnalysis = ({
 				claims,
 				temporalClaims: claims.filter((claim) => claim.kind === 'development'),
 				proposals,
-				warnings: reconciliation.warnings
+				warnings: analyses.flatMap(({ warnings }) => warnings)
 			}
 			return draft
 		})
@@ -306,7 +301,7 @@ export const campaignImportAnalysis = ({
 					yield* analyzePersistedSource(campaignId, ingestionId, source.sourceRevisionId)
 				)
 			}
-			const draft = yield* buildDraft(request, reconcileAnalyses(analyses))
+			const draft = yield* buildDraft(request, analyses)
 			yield* persistDraft(draft)
 			return draft
 		})
@@ -340,12 +335,23 @@ export const campaignImportAnalysis = ({
 		getReviewState: reviewOperations.getState,
 		persistDraft,
 		persistRequest,
-		reconcileAnalyses,
 		reconcileClaims: reconcileCampaignImportClaims,
 		review: {
 			getState: reviewOperations.getState,
 			saveState: saveReviewState
 		},
 		saveReviewState
+	}
+}
+
+export const campaignImport = (dependencies: CampaignImportDependencies) => {
+	const analysisOperations = campaignImportAnalysis(dependencies)
+	const commitOperations = campaignImportCommit(dependencies)
+	const chronologyOperations = campaignImportChronology(dependencies)
+	return {
+		...analysisOperations,
+		commit: commitOperations.commit,
+		commitOperations,
+		chronology: chronologyOperations
 	}
 }

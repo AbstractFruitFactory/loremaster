@@ -457,10 +457,23 @@ export const campaignImportChronology = ({
 			return completion
 		})
 
+	const commit = (
+		input: CampaignImportChronologyCommitInput
+	): Effect<CampaignImportChronologyCompletionData, Failure> =>
+		gen(function* () {
+			const data = yield* persistCommitData(input)
+			const prepared = yield* planCommit(data)
+			for (const mutationId of commitMutationIdsInOrder(prepared.plan)) {
+				yield* applyCommitMutation(data, prepared, mutationId)
+			}
+			return yield* finalizeCommit(data, prepared)
+		})
+
 	return {
 		analyze,
 		applyCommitMutation,
 		buildDraft,
+		commit,
 		commitMutationIds: (prepared: CampaignImportChronologyCommitPlanData) =>
 			commitMutationIdsInOrder(prepared.plan),
 		finalizeCommit,

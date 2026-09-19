@@ -1,4 +1,4 @@
-import { fail as failEffect, gen, succeed, type Effect } from 'effect/Effect'
+import { gen, succeed, type Effect } from 'effect/Effect'
 import { buildSessionRecap, canonicalDocumentContent } from '../../../ingestion.js'
 import type { Failure } from '../../failure.js'
 import { topologicalLayers } from '../../timeline/graph.js'
@@ -252,22 +252,23 @@ export const commitApplication = (
 				yield* applyRecorded(result, proposal)
 				yield* recordApplied(result)
 			}
-			for (const { mutationId, proposal, documentId, update } of updates) {
+			for (const { mutationId, proposal, documentId, after, during, eventForm } of updates) {
 				const applied = journal.applied[mutationId]
 				if (applied) {
 					appendCommitted(applied)
 					yield* applyRecorded(applied, proposal)
 					continue
 				}
-				if (!update) {
-					return yield* failEffect({
-						domain: 'ingestion',
-						operation: 'commit',
-						cause: { reason: 'missingUpdateBase', proposalId: proposal.proposalId }
-					} satisfies Failure)
-				}
+				const existing = plan.existingById[documentId]!
 				const document = yield* vault.updateDocument(input.campaignId, documentId, {
-					...update,
+					type: existing.type,
+					aliases: existing.aliases,
+					after,
+					during,
+					eventForm,
+					content: `${existing.content.trimEnd()}\n\n${proposal.patch!.content.trim()}\n`,
+					expectedRevisionId: proposal.base!.revisionId,
+					expectedPath: existing.path,
 					revision: revisionFor(
 						mutationId,
 						proposal,
@@ -287,10 +288,18 @@ export const commitApplication = (
 				yield* applyRecorded(result, proposal)
 				yield* recordApplied(result)
 			}
-			for (const { mutationId, documentId, update } of plan.chronologyUpdates) {
+			for (const { mutationId, documentId, after, during, eventForm } of plan.chronologyUpdates) {
 				if (journal.applied[mutationId]) continue
+				const existing = plan.existingById[documentId]!
 				const document = yield* vault.updateDocument(input.campaignId, documentId, {
-					...update,
+					type: existing.type,
+					aliases: existing.aliases,
+					after,
+					during,
+					eventForm,
+					content: existing.content,
+					expectedRevisionId: existing.currentRevisionId!,
+					expectedPath: existing.path,
 					revision: {
 						source: 'ingestion',
 						...(plan.sessionDocumentId ? { relatedSessionId: plan.sessionDocumentId } : {}),

@@ -12,7 +12,6 @@
 	} from '#lib/import/review-state.js'
 	import type { CampaignImportReviewSyncStatus } from '#lib/import/review-state-sync.js'
 	import { campaignImportStoppedAt } from '#lib/import/workflow-status.js'
-	import { MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS } from '#lib/import/import-limits.js'
 	import type { CampaignImportDraft, SessionProposal } from '#lib/server/ingestion/types.js'
 
 	type Props = {
@@ -54,10 +53,10 @@
 	const selectedCount = $derived(selection.selectedProposalIds.length)
 	const selectedResolutionCount = $derived(selection.resolutions.length)
 	const selectionLimitError = $derived(
-		selectedCount > MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS
-			? `Select ${MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS} or fewer proposals before committing. ${selectedCount} are currently selected.`
-			: selectedResolutionCount > MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS
-				? `Resolve and select ${MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS} or fewer identities before committing. ${selectedResolutionCount} selected proposals have identity resolutions.`
+		selectedCount > 500
+			? `Select 500 or fewer proposals before committing. ${selectedCount} are currently selected.`
+			: selectedResolutionCount > 500
+				? `Resolve and select 500 or fewer identities before committing. ${selectedResolutionCount} selected proposals have identity resolutions.`
 				: ''
 	)
 	const visibleProposals = $derived(

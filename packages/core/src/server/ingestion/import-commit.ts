@@ -4,17 +4,28 @@ import type { VaultDocument } from '../vault/types.js'
 import { commitApplication } from './commit/application.js'
 import { commitMutationIdsInOrder } from './commit/application.js'
 import { planMutations } from './commit/planning.js'
+import { campaignImportChronologyProvenanceRecords } from './import-chronology.js'
 import type { CampaignImportHistoryRepository } from './import-history.js'
-import type { CampaignImportAnalysisStorage, CampaignImportBaseCommitStorage } from './storage.js'
+import type {
+	CampaignImportAnalysisStorage,
+	CampaignImportBaseCommitStorage,
+	CampaignImportChronologyStorage,
+	CampaignImportCleanupStorage,
+	CampaignImportLifecycleStorage
+} from './storage.js'
 import { MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS } from './types.js'
 import type {
 	CampaignImportCommitInput,
 	CampaignImportCommitData,
 	CampaignImportCommitPlanData,
+	CampaignImportCommitResult,
+	CampaignImportChronologyDispatchData,
 	CampaignImportCompletionData,
 	CampaignImportDraft,
+	CampaignImportLifecycleStorageState,
 	CampaignImportClaimProvenanceRecord,
 	CampaignImportProposalResolution,
+	CampaignImportSummary,
 	SessionProposal
 } from './types.js'
 
@@ -65,57 +76,13 @@ export type ImportVault = {
 }
 
 type CampaignImportCommitStorage = Pick<CampaignImportAnalysisStorage, 'readCampaignImportDraft'> &
-	CampaignImportBaseCommitStorage
+	CampaignImportBaseCommitStorage &
+	CampaignImportChronologyStorage &
+	CampaignImportLifecycleStorage &
+	CampaignImportCleanupStorage
 
-export const invalidCampaignImportCommit = (
-	cause: Record<string, unknown>
-): Effect<never, Failure> => failEffect({ domain: 'ingestion', operation: 'commit', cause })
-
-const invalidCommit = invalidCampaignImportCommit
-
-export const campaignImportClaimProvenanceRecords = (
-	draft: CampaignImportDraft,
-	proposal: SessionProposal,
-	result: { documentId: string; revisionId?: string }
-): Effect<CampaignImportClaimProvenanceRecord[], Failure> => {
-	if (!result.revisionId) {
-		return invalidCommit({
-			reason: 'missingCommittedRevision',
-			proposalId: proposal.proposalId
-		})
-	}
-	const sourceById = new Map(draft.sources.map((source) => [source.sourceId, source]))
-	const claimById = new Map(draft.claims.map((claim) => [claim.claimId, claim]))
-	const records: CampaignImportClaimProvenanceRecord[] = []
-	for (const claimId of proposal.claimIds) {
-		const claim = claimById.get(claimId)
-		if (!claim) {
-			return invalidCommit({
-				reason: 'missingCommittedClaim',
-				proposalId: proposal.proposalId,
-				claimId
-			})
-		}
-		for (const evidence of claim.evidence) {
-			const source = sourceById.get(evidence.sourceId)
-			if (!source) {
-				return invalidCommit({
-					reason: 'missingCommittedSource',
-					proposalId: proposal.proposalId,
-					sourceId: evidence.sourceId
-				})
-			}
-			records.push({
-				claim,
-				source,
-				documentId: result.documentId,
-				vaultRevisionId: result.revisionId,
-				evidence
-			})
-		}
-	}
-	return succeed(records)
-}
+const invalidCommit = (cause: Record<string, unknown>): Effect<never, Failure> =>
+	failEffect({ domain: 'ingestion', operation: 'commit', cause })
 
 const resolveProposal = (
 	proposal: SessionProposal,
@@ -168,6 +135,50 @@ export const campaignImportCommit = ({
 	vault: ImportVault
 }) => {
 	const { applyMutationPlan } = commitApplication(vault, storage)
+
+	const provenanceRecords = (
+		draft: CampaignImportDraft,
+		proposal: SessionProposal,
+		result: { documentId: string; revisionId?: string }
+	): Effect<CampaignImportClaimProvenanceRecord[], Failure> => {
+		if (!result.revisionId) {
+			return invalidCommit({
+				reason: 'missingCommittedRevision',
+				proposalId: proposal.proposalId
+			})
+		}
+		const sourceById = new Map(draft.sources.map((source) => [source.sourceId, source]))
+		const claimById = new Map(draft.claims.map((claim) => [claim.claimId, claim]))
+		const records: CampaignImportClaimProvenanceRecord[] = []
+		for (const claimId of proposal.claimIds) {
+			const claim = claimById.get(claimId)
+			if (!claim) {
+				return invalidCommit({
+					reason: 'missingCommittedClaim',
+					proposalId: proposal.proposalId,
+					claimId
+				})
+			}
+			for (const evidence of claim.evidence) {
+				const source = sourceById.get(evidence.sourceId)
+				if (!source) {
+					return invalidCommit({
+						reason: 'missingCommittedSource',
+						proposalId: proposal.proposalId,
+						sourceId: evidence.sourceId
+					})
+				}
+				records.push({
+					claim,
+					source,
+					documentId: result.documentId,
+					vaultRevisionId: result.revisionId,
+					evidence
+				})
+			}
+		}
+		return succeed(records)
+	}
 
 	const validateCommitPayload = (input: CampaignImportCommitInput): Effect<void, Failure> => {
 		const resolutionCount = input.resolutions?.length ?? 0
@@ -321,7 +332,7 @@ export const campaignImportCommit = ({
 				prepared.resolvedSelected,
 				{ ...prepared.plan, planned, chronologyUpdates: [] },
 				(result, proposal) => {
-					const records = campaignImportClaimProvenanceRecords(draft, proposal, result)
+					const records = provenanceRecords(draft, proposal, result)
 					return gen(function* () {
 						const values = yield* records
 						return yield* history.recordProvenance(input.campaignId, input.ingestionId, values)
@@ -371,14 +382,150 @@ export const campaignImportCommit = ({
 			return completion
 		})
 
+	const commit = (input: CampaignImportCommitInput): Effect<CampaignImportCommitResult, Failure> =>
+		gen(function* () {
+			const data = yield* persistCommitData(input)
+			const prepared = yield* planCommit(data)
+			for (const mutationId of commitMutationIdsInOrder(prepared.plan)) {
+				yield* applyCommitMutation(data, prepared, mutationId)
+			}
+			return yield* finalizeCommit(data, prepared)
+		})
+
+	const list = (campaignId: string): Effect<CampaignImportSummary[], Failure> =>
+		storage.listCampaignImports(campaignId)
+
+	const discard = (campaignId: string, ingestionId: string): Effect<void, Failure> =>
+		storage.discardCampaignImport(campaignId, ingestionId)
+
+	const recordChronologyDispatch = (
+		data: CampaignImportChronologyDispatchData
+	): Effect<void, Failure> => storage.writeCampaignImportChronologyDispatch(data)
+
+	const getChronologyDispatch = (
+		campaignId: string,
+		ingestionId: string
+	): Effect<CampaignImportChronologyDispatchData | undefined, Failure> =>
+		storage.readCampaignImportChronologyDispatch(campaignId, ingestionId)
+
+	const getLifecycleState = (
+		campaignId: string,
+		ingestionId: string
+	): Effect<CampaignImportLifecycleStorageState, Failure> =>
+		storage.readCampaignImportLifecycleState(campaignId, ingestionId)
+
+	const verifyCleanupPermanence = (
+		campaignId: string,
+		ingestionId: string
+	): Effect<void, Failure> =>
+		gen(function* () {
+			const lifecycle = yield* storage.readCampaignImportLifecycleState(campaignId, ingestionId)
+			if (
+				lifecycle.chronologyCommitData &&
+				lifecycle.chronologyCompletion?.kind !== 'campaign-import-chronology-completion'
+			) {
+				return yield* invalidCommit({ reason: 'chronologyCommitIncomplete' })
+			}
+			if (
+				(yield* storage.isCampaignImportCleanupVerified(campaignId, ingestionId)) &&
+				!lifecycle.chronologyCommitData
+			) {
+				return
+			}
+			const draft = yield* getDraft(campaignId, ingestionId)
+			const prepared = yield* getCommitPlan(campaignId, ingestionId)
+			const journal =
+				(yield* storage.readCommitJournal(campaignId, ingestionId)) ??
+				(prepared.plan.planned.length
+					? undefined
+					: { schemaVersion: 1 as const, campaignId, ingestionId, applied: {} })
+			if (!journal) return yield* invalidCommit({ reason: 'missingCommitJournal' })
+			const proposalById = new Map(
+				prepared.resolvedSelected.map((proposal) => [proposal.proposalId, proposal])
+			)
+			const records: CampaignImportClaimProvenanceRecord[] = []
+			for (const result of Object.values(journal.applied)) {
+				if (!result.proposalId) continue
+				const proposal = proposalById.get(result.proposalId)
+				if (!proposal) {
+					return yield* invalidCommit({
+						reason: 'missingCommittedProposal',
+						proposalId: result.proposalId
+					})
+				}
+				records.push(...(yield* provenanceRecords(draft, proposal, result)))
+			}
+			yield* history.verifyPermanence(campaignId, ingestionId, {
+				sources: draft.sources,
+				records
+			})
+			if (lifecycle.chronologyCommitData) {
+				const chronologyPlan = yield* storage.readCampaignImportChronologyCommitPlan(
+					campaignId,
+					ingestionId
+				)
+				if (!chronologyPlan) {
+					return yield* invalidCommit({ reason: 'missingChronologyCommitPlan' })
+				}
+				const chronologyRecords = yield* campaignImportChronologyProvenanceRecords(
+					draft,
+					chronologyPlan,
+					journal
+				)
+				yield* history.verifyChronologyPermanence(campaignId, ingestionId, chronologyRecords)
+			}
+			yield* storage.verifyCampaignImportSourceBodies(campaignId, draft.sources)
+			yield* storage.markCampaignImportCleanupVerified(campaignId, ingestionId)
+		})
+
+	const isCleanupVerified = (campaignId: string, ingestionId: string): Effect<boolean, Failure> =>
+		storage.isCampaignImportCleanupVerified(campaignId, ingestionId)
+
+	const isCleanupStarted = (campaignId: string, ingestionId: string): Effect<boolean, Failure> =>
+		storage.isCampaignImportCleanupStarted(campaignId, ingestionId)
+
+	const markCleanupStarted = (campaignId: string, ingestionId: string): Effect<void, Failure> =>
+		storage.markCampaignImportCleanupStarted(campaignId, ingestionId)
+
+	const acquireOperationLease = (campaignId: string, ingestionId: string) =>
+		storage.acquireCampaignImportOperationLease(campaignId, ingestionId)
+
+	const releaseOperationLease = (
+		campaignId: string,
+		ingestionId: string,
+		lease: Parameters<typeof storage.releaseCampaignImportOperationLease>[2]
+	) => storage.releaseCampaignImportOperationLease(campaignId, ingestionId, lease)
+
+	const cleanup = (campaignId: string, ingestionId: string): Effect<void, Failure> =>
+		gen(function* () {
+			if (!(yield* isCleanupStarted(campaignId, ingestionId))) {
+				yield* markCleanupStarted(campaignId, ingestionId)
+			}
+			yield* verifyCleanupPermanence(campaignId, ingestionId)
+			yield* storage.cleanupCampaignImport(campaignId, ingestionId)
+		})
+
 	return {
+		acquireOperationLease,
 		applyCommitMutation,
+		cleanup,
+		commit,
 		commitMutationIds: (prepared: CampaignImportCommitPlanData) =>
 			commitMutationIdsInOrder(prepared.plan),
+		discard,
 		finalizeCommit,
+		getChronologyDispatch,
 		getCommitData,
 		getCommitPlan,
+		getLifecycleState,
+		isCleanupStarted,
+		isCleanupVerified,
+		list,
+		markCleanupStarted,
 		persistCommitData,
-		planCommit
+		planCommit,
+		recordChronologyDispatch,
+		releaseOperationLease,
+		verifyCleanupPermanence
 	}
 }

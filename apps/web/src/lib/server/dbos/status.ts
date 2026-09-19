@@ -1,21 +1,10 @@
 import type { WorkflowStatus } from '@dbos-inc/dbos-sdk'
 import {
 	workflowLifecycleFromStatus,
-	type WorkflowLifecycle,
 	type WorkflowProgress,
 	type WorkflowReference,
 	type WorkflowStatusResult
 } from '@loremaster/core/workflows/contracts'
-
-export type RetryableWorkflowLifecycle = Extract<
-	WorkflowLifecycle,
-	'not-started' | 'failed' | 'cancelled'
->
-
-export const isWorkflowRetryable = (
-	lifecycle: WorkflowLifecycle
-): lifecycle is RetryableWorkflowLifecycle =>
-	lifecycle === 'not-started' || lifecycle === 'failed' || lifecycle === 'cancelled'
 
 export const mapIngestionWorkflowStatus = <
 	Result,
@@ -40,7 +29,7 @@ export const mapIngestionWorkflowStatus = <
 				message: 'The workflow has not been enqueued.'
 			},
 			refreshDocuments: false,
-			retryable: isWorkflowRetryable('not-started')
+			retryable: true
 		}
 	}
 
@@ -64,6 +53,6 @@ export const mapIngestionWorkflowStatus = <
 				}
 			: {}),
 		refreshDocuments: kind === 'commit' && lifecycle === 'succeeded',
-		retryable: isWorkflowRetryable(lifecycle)
+		retryable: lifecycle === 'failed' || lifecycle === 'cancelled'
 	}
 }

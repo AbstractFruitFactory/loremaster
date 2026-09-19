@@ -284,6 +284,6 @@ export const sessionIngestion = ({
 
 export type { CommitInput } from './internal.js'
 export { allocateIngestionId } from './ids.js'
-export { campaignImport } from './campaign-import.js'
+export { campaignImport } from './import-analysis.js'
 export { reconcileCampaignImportClaims } from './import-reconciliation.js'
 export * from './types.js'

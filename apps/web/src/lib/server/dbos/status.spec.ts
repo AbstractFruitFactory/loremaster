@@ -20,7 +20,7 @@ import {
 } from '@loremaster/core/workflows/contracts'
 import { describe, expect, it, vi } from 'vitest'
 import { createIngestionDbosAdapter, type IngestionDbosClient } from './client'
-import { isWorkflowRetryable, mapIngestionWorkflowStatus } from './status'
+import { mapIngestionWorkflowStatus } from './status'
 
 const reference = {
 	campaignId: 'campaign-1',
@@ -53,18 +53,10 @@ describe('ingestion DBOS adapter', () => {
 			campaignId: reference.campaignId,
 			ingestionId: reference.ingestionId
 		})
-		await adapter.enqueueCampaignImport('analysis', reference.campaignId, reference.ingestionId)
-		await adapter.enqueueCampaignImport('commit', reference.campaignId, reference.ingestionId)
-		await adapter.enqueueCampaignImport(
-			'chronology-analysis',
-			reference.campaignId,
-			reference.ingestionId
-		)
-		await adapter.enqueueCampaignImport(
-			'chronology-commit',
-			reference.campaignId,
-			reference.ingestionId
-		)
+		await adapter.enqueueCampaignImportAnalysis(reference.workflowId, reference)
+		await adapter.enqueueCampaignImportCommit(reference.workflowId, reference)
+		await adapter.enqueueCampaignImportChronologyAnalysis(reference.workflowId, reference)
+		await adapter.enqueueCampaignImportChronologyCommit(reference.workflowId, reference)
 
 		expect(enqueuePortable).toHaveBeenNthCalledWith(
 			1,
@@ -192,23 +184,6 @@ describe('ingestion DBOS adapter', () => {
 })
 
 describe('ingestion workflow status mapping', () => {
-	it('uses one retryability policy for workflow lifecycle states', () => {
-		expect(
-			Object.fromEntries(
-				(['not-started', 'queued', 'running', 'succeeded', 'failed', 'cancelled'] as const).map(
-					(lifecycle) => [lifecycle, isWorkflowRetryable(lifecycle)]
-				)
-			)
-		).toEqual({
-			'not-started': true,
-			queued: false,
-			running: false,
-			succeeded: false,
-			failed: true,
-			cancelled: true
-		})
-	})
-
 	it('marks missing workflow rows as retryable and not started', () => {
 		expect(
 			mapIngestionWorkflowStatus({

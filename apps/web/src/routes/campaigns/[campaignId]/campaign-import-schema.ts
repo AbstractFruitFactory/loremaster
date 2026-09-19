@@ -1,9 +1,3 @@
-import {
-	MAX_CAMPAIGN_IMPORT_BYTES,
-	MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS,
-	MAX_CAMPAIGN_IMPORT_SOURCE_BYTES,
-	MAX_CAMPAIGN_IMPORT_SOURCES
-} from '@loremaster/core/server/ingestion/types'
 import { z } from 'zod'
 
 const campaignId = z.uuid()
@@ -32,7 +26,7 @@ const importSource = z
 	})
 	.strict()
 	.superRefine((source, context) => {
-		if (Buffer.byteLength(source.content) > MAX_CAMPAIGN_IMPORT_SOURCE_BYTES) {
+		if (Buffer.byteLength(source.content) > 2 * 1024 * 1024) {
 			context.addIssue({
 				code: 'custom',
 				message: 'Each import source must be at most 2 MB',
@@ -45,13 +39,13 @@ export const startCampaignImportInput = z
 	.object({
 		campaignId,
 		ingestionId: ingestionId.optional(),
-		sources: z.array(importSource).min(1).max(MAX_CAMPAIGN_IMPORT_SOURCES)
+		sources: z.array(importSource).min(1).max(50)
 	})
 	.strict()
 	.superRefine(({ sources }, context) => {
 		if (
 			sources.reduce((total, source) => total + Buffer.byteLength(source.content), 0) >
-			MAX_CAMPAIGN_IMPORT_BYTES
+			10 * 1024 * 1024
 		) {
 			context.addIssue({
 				code: 'custom',
@@ -80,13 +74,10 @@ export const commitCampaignImportInput = campaignImportReferenceInput
 		expectedReviewRevision: z.number().int().min(0),
 		selectedProposalIds: z
 			.array(proposalId)
-			.max(MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS, 'At most 500 proposals can be committed at once'),
+			.max(500, 'At most 500 proposals can be committed at once'),
 		resolutions: z
 			.array(campaignImportProposalResolutionInput)
-			.max(
-				MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS,
-				'At most 500 identity resolutions can be committed at once'
-			)
+			.max(500, 'At most 500 identity resolutions can be committed at once')
 			.optional()
 	})
 	.strict()
@@ -101,6 +92,6 @@ export const saveCampaignImportReviewStateInput = campaignImportReferenceInput
 
 export const commitCampaignImportChronologyInput = campaignImportReferenceInput
 	.extend({
-		selectedChronologyIds: z.array(z.uuid()).max(MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS)
+		selectedChronologyIds: z.array(z.uuid()).max(500)
 	})
 	.strict()

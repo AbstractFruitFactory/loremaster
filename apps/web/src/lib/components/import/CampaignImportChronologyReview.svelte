@@ -8,7 +8,6 @@
 	} from '#lib/import/chronology-review.js'
 	import { campaignImportStoppedAt } from '#lib/import/workflow-status.js'
 	import type { CampaignImportWorkflowLifecycleStage } from '@loremaster/core/workflows/contracts'
-	import { MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS } from '#lib/import/import-limits.js'
 	import type {
 		CampaignImportChronologyDraft,
 		CampaignImportSource
@@ -55,7 +54,7 @@
 
 	const groups = $derived(groupCampaignImportChronology(draft.chronology))
 	const selectedIds = $derived(selectedCampaignImportChronologyIds(draft.chronology, selections))
-	const overSelectionLimit = $derived(selectedIds.length > MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS)
+	const overSelectionLimit = $derived(selectedIds.length > 500)
 
 	const changeSelection = (chronologyId: string, selected: boolean) => {
 		if (commitStarted) return
@@ -156,8 +155,8 @@
 		</label>
 		{#if overSelectionLimit}
 			<p class="error" role="alert">
-				Select {MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS} or fewer chronology relationships before committing.
-				{selectedIds.length} are currently selected.
+				Select 500 or fewer chronology relationships before committing. {selectedIds.length} are currently
+				selected.
 			</p>
 		{/if}
 	</div>

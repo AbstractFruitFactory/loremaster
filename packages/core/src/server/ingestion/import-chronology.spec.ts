@@ -1,11 +1,9 @@
-import { fail, gen, runPromise, succeed, type Effect } from 'effect/Effect'
+import { fail, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../vault/types.js'
-import type { Failure } from '../failure.js'
 import { campaignImportChronology } from './import-chronology.js'
 import type {
 	CampaignImportChronologyCommitData,
-	CampaignImportChronologyCommitInput,
 	CampaignImportChronologyCommitPlanData,
 	CampaignImportChronologyCompletionData,
 	CampaignImportChronologyDraft,
@@ -13,19 +11,6 @@ import type {
 	InferredCampaignImportChronology,
 	SessionCommitJournal
 } from './types.js'
-
-const runStagedChronologyCommit = (
-	operations: ReturnType<typeof campaignImportChronology>,
-	input: CampaignImportChronologyCommitInput
-): Effect<CampaignImportChronologyCompletionData, Failure> =>
-	gen(function* () {
-		const data = yield* operations.persistCommitData(input)
-		const prepared = yield* operations.planCommit(data)
-		for (const mutationId of operations.commitMutationIds(prepared)) {
-			yield* operations.applyCommitMutation(data, prepared, mutationId)
-		}
-		return yield* operations.finalizeCommit(data, prepared)
-	})
 
 const campaignId = '40000000-0000-5000-8000-000000000001'
 const ingestionId = '30000000-0000-5000-8000-000000000001'
@@ -443,7 +428,7 @@ describe('campaign import chronology', () => {
 		])
 
 		const result = await runPromise(
-			runStagedChronologyCommit(operations, {
+			operations.commit({
 				campaignId,
 				ingestionId,
 				selectedChronologyIds: [analysis.chronology[0]!.chronologyId]
@@ -545,15 +530,13 @@ describe('campaign import chronology', () => {
 			selectedChronologyIds: [analysis.chronology[0]!.chronologyId]
 		}
 
-		await expect(runPromise(runStagedChronologyCommit(harness.operations, input))).rejects.toThrow()
+		await expect(runPromise(harness.operations.commit(input))).rejects.toThrow()
 		const sourceMutation = Object.values(harness.getJournal().applied).find(
 			(result) => result.documentId === eventOneId && !result.proposalId
 		)
 		expect(sourceMutation).toMatchObject({ revisionId: `updated-${eventOneId}` })
 
-		await expect(
-			runPromise(runStagedChronologyCommit(harness.operations, input))
-		).resolves.toMatchObject({
+		await expect(runPromise(harness.operations.commit(input))).resolves.toMatchObject({
 			updatedDocumentIds: [eventOneId, eventTwoId],
 			finalized: true
 		})
@@ -572,7 +555,7 @@ describe('campaign import chronology', () => {
 			[eventTwoId, `updated-${eventTwoId}`]
 		])
 
-		await runPromise(runStagedChronologyCommit(harness.operations, input))
+		await runPromise(harness.operations.commit(input))
 		expect(harness.recordChronologyProvenance).toHaveBeenCalledOnce()
 	})
 

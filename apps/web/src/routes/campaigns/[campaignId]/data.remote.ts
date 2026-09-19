@@ -17,9 +17,11 @@ import {
 	getCampaignImportLifecycleOperation,
 	getCampaignImportOperation,
 	getCampaignImportReviewStateOperation,
+	getCampaignImportWorkflowStatusOperation,
 	listCampaignImportsOperation,
 	retryCampaignImportWorkflowOperation,
 	saveCampaignImportReviewStateOperation,
+	startCampaignImportChronologyOperation,
 	startCampaignImportOperation
 } from '#lib/server/campaign-import/orchestration.js'
 import { ingestionDocumentId } from '@loremaster/core/server/ingestion/ids'
@@ -42,6 +44,10 @@ import {
 	type AnalysisWorkflowStatus,
 	type CommitStartReference,
 	type CommitWorkflowStatus,
+	type CampaignImportAnalysisWorkflowStatus,
+	type CampaignImportChronologyAnalysisWorkflowStatus,
+	type CampaignImportChronologyCommitWorkflowStatus,
+	type CampaignImportCommitWorkflowStatus,
 	type WorkflowReference
 } from '@loremaster/core/workflows/contracts'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
@@ -583,6 +589,16 @@ export const retryCampaignImportAnalysis = command(
 		retryCampaignImportWorkflowOperation('analysis', campaignId, ingestionId)
 )
 
+export const getCampaignImportAnalysisStatus = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportAnalysisWorkflowStatus> =>
+		getCampaignImportWorkflowStatusOperation(
+			'analysis',
+			campaignId,
+			ingestionId
+		) as Promise<CampaignImportAnalysisWorkflowStatus>
+)
+
 export const getCampaignImport = query(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportDraft> =>
@@ -622,6 +638,16 @@ export const retryCampaignImportCommit = command(
 		retryCampaignImportWorkflowOperation('commit', campaignId, ingestionId)
 )
 
+export const getCampaignImportCommitStatus = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportCommitWorkflowStatus> =>
+		getCampaignImportWorkflowStatusOperation(
+			'commit',
+			campaignId,
+			ingestionId
+		) as Promise<CampaignImportCommitWorkflowStatus>
+)
+
 const loadCampaignImports = listCampaignImportsOperation
 
 export const listCampaignImports = query(campaignId, loadCampaignImports)
@@ -647,10 +673,26 @@ export const discardCampaignImport = command(
 	}
 )
 
+export const startCampaignImportChronology = command(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
+		startCampaignImportChronologyOperation(campaignId, ingestionId)
+)
+
 export const retryCampaignImportChronologyAnalysis = command(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('chronology-analysis', campaignId, ingestionId)
+)
+
+export const getCampaignImportChronologyStatus = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportChronologyAnalysisWorkflowStatus> =>
+		getCampaignImportWorkflowStatusOperation(
+			'chronology-analysis',
+			campaignId,
+			ingestionId
+		) as Promise<CampaignImportChronologyAnalysisWorkflowStatus>
 )
 
 export const getCampaignImportChronology = query(
@@ -668,6 +710,16 @@ export const retryCampaignImportChronologyCommit = command(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('chronology-commit', campaignId, ingestionId)
+)
+
+export const getCampaignImportChronologyCommitStatus = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportChronologyCommitWorkflowStatus> =>
+		getCampaignImportWorkflowStatusOperation(
+			'chronology-commit',
+			campaignId,
+			ingestionId
+		) as Promise<CampaignImportChronologyCommitWorkflowStatus>
 )
 
 const loadVaultDocuments = (id: string): Promise<VaultDocumentSummary[]> =>

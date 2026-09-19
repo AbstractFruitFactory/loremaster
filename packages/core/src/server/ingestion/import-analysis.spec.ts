@@ -430,12 +430,8 @@ describe('campaign import analysis', () => {
 				)
 			)
 		}
-		const first = await runPromise(
-			operations.buildDraft(request, operations.reconcileAnalyses(analyses))
-		)
-		const retryBuild = await runPromise(
-			operations.buildDraft(request, operations.reconcileAnalyses([...analyses].reverse()))
-		)
+		const first = await runPromise(operations.buildDraft(request, analyses))
+		const retryBuild = await runPromise(operations.buildDraft(request, [...analyses].reverse()))
 
 		expect(first.createdAt).toBe(request.createdAt)
 		expect(retryBuild).toEqual(first)
@@ -607,17 +603,14 @@ describe('campaign import analysis', () => {
 		}))
 
 		const value = await runPromise(
-			operations.buildDraft(
-				request,
-				operations.reconcileAnalyses([
-					{
-						sourceId: descriptor!.sourceId,
-						sourceRevisionId: descriptor!.sourceRevisionId,
-						claims,
-						warnings: []
-					}
-				])
-			)
+			operations.buildDraft(request, [
+				{
+					sourceId: descriptor!.sourceId,
+					sourceRevisionId: descriptor!.sourceRevisionId,
+					claims,
+					warnings: []
+				}
+			])
 		)
 
 		expect(value.claims).toHaveLength(501)

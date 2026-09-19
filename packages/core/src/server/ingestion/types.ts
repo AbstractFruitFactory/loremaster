@@ -1,5 +1,5 @@
 import type { DocumentType } from '../../document.js'
-import type { MutationPlan, ValidatedClaim } from './internal.js'
+import type { MutationPlan } from './internal.js'
 
 export const ingestionDocumentTypes = [
 	'player',
@@ -349,9 +349,6 @@ export type CampaignImportReviewUpdateInput = {
 }
 
 export const MAX_CAMPAIGN_IMPORT_COMMIT_SELECTIONS = 500
-export const MAX_CAMPAIGN_IMPORT_SOURCES = 50
-export const MAX_CAMPAIGN_IMPORT_SOURCE_BYTES = 2 * 1024 * 1024
-export const MAX_CAMPAIGN_IMPORT_BYTES = 10 * 1024 * 1024
 
 export type CampaignImportCommitInput = {
 	campaignId: string
@@ -498,11 +495,6 @@ export type CampaignImportLifecycleStorageState = {
 export type CampaignImportSourceAnalysis = {
 	sourceId: string
 	sourceRevisionId: string
-	claims: ValidatedClaim[]
-	warnings: string[]
-}
-
-export type CampaignImportReconciliation = {
 	claims: CampaignImportClaim[]
 	warnings: string[]
 }

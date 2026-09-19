@@ -10,7 +10,6 @@ import type {
 	CampaignImportCommitPlanData,
 	CampaignImportCommitResult,
 	CampaignImportDraft,
-	CampaignImportReconciliation,
 	CampaignImportRequestData,
 	CampaignImportSourceAnalysis,
 	SessionAnalysisStageResult,
@@ -208,13 +207,9 @@ export const analyzeCampaignImport = DBOS.registerWorkflow(
 			request.sources.length,
 			request.sources.length
 		)
-		const reconciliation = await DBOS.runStep<CampaignImportReconciliation>(
-			() => runtime.campaignImport.reconcileAnalyses(analyses),
-			{ name: 'reconcile-campaign-import-sources' }
-		)
 		await publishProgress('building-import-draft', request.sources.length, request.sources.length)
 		const draft = await DBOS.runStep<CampaignImportDraft>(
-			() => runEffect(runtime.campaignImport.buildDraft(request, reconciliation)),
+			() => runEffect(runtime.campaignImport.buildDraft(request, analyses)),
 			{ name: 'build-campaign-import-draft', retriesAllowed: true }
 		)
 		await DBOS.runStep(() => runEffect(runtime.campaignImport.persistDraft(draft)), {

@@ -19,7 +19,6 @@ const runtime = vi.hoisted(() => ({
 	campaignImport: {
 		getRequest: vi.fn(),
 		analyzePersistedSource: vi.fn(),
-		reconcileAnalyses: vi.fn(),
 		buildDraft: vi.fn(),
 		persistDraft: vi.fn(),
 		chronology: {
@@ -132,7 +131,6 @@ describe('campaign import analysis workflow', () => {
 		)
 		runtime.campaignImport.getRequest.mockReturnValue(succeed(request))
 		runtime.campaignImport.analyzePersistedSource.mockReturnValue(succeed(analysis))
-		runtime.campaignImport.reconcileAnalyses.mockReturnValue({ claims: [], warnings: [] })
 		runtime.campaignImport.buildDraft.mockReturnValue(succeed(draft))
 	})
 
@@ -159,7 +157,6 @@ describe('campaign import analysis workflow', () => {
 		expect(dbos.runStep.mock.calls.map(([, options]) => options.name)).toEqual([
 			'load-campaign-import-data',
 			'analyze-campaign-import-source-1',
-			'reconcile-campaign-import-sources',
 			'build-campaign-import-draft',
 			'persist-campaign-import-draft'
 		])

@@ -71,19 +71,9 @@ const planFor = (values: Partial<MutationPlan>): MutationPlan => ({
 	planned: [],
 	chronologyUpdates: [],
 	documentIdByProposal: {},
+	existingById: {},
 	sessionDocumentId: 'session-document',
 	...values
-})
-
-const updateFor = (base: VaultDocument, content = base.content) => ({
-	type: base.type,
-	aliases: base.aliases,
-	after: base.after,
-	during: base.during,
-	eventForm: base.eventForm,
-	content,
-	expectedRevisionId: base.currentRevisionId!,
-	expectedPath: base.path
 })
 
 describe('commit mutation application', () => {
@@ -232,9 +222,11 @@ describe('commit mutation application', () => {
 					mutationId: 'update-mutation',
 					proposal: updateProposal,
 					documentId: base.id,
-					update: updateFor(base, '# Varek\n\nNew fact.\n')
+					after: [],
+					during: []
 				}
-			]
+			],
+			existingById: { [base.id]: base }
 		})
 		const { storage, getJournal } = storageHarness()
 		const updateDocument = vi.fn(() => succeed(current))
@@ -288,13 +280,12 @@ describe('commit mutation application', () => {
 				{
 					mutationId: 'chronology-mutation',
 					documentId: base.id,
-					update: {
-						...updateFor(base),
-						after: ['event-0'],
-						eventForm: 'period'
-					}
+					after: ['event-0'],
+					during: [],
+					eventForm: 'period'
 				}
-			]
+			],
+			existingById: { [base.id]: base }
 		})
 		const { storage, getJournal } = storageHarness()
 		const updateDocument = vi.fn(() => succeed(current))
@@ -341,9 +332,11 @@ describe('commit mutation application', () => {
 					mutationId: 'update-mutation',
 					proposal: updateProposal,
 					documentId: base.id,
-					update: updateFor(base, '# Varek\n\nNew fact.\n')
+					after: [],
+					during: []
 				}
-			]
+			],
+			existingById: { [base.id]: base }
 		})
 		const { storage } = storageHarness()
 		const updateDocument = vi.fn(() =>

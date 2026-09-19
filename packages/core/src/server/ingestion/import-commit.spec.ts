@@ -1,14 +1,11 @@
-import { fail, flip, gen, runPromise, succeed, type Effect } from 'effect/Effect'
+import { fail, flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../vault/types.js'
-import type { Failure } from '../failure.js'
 import { campaignImportCommit } from './import-commit.js'
-import { campaignImportLifecycle } from './import-lifecycle.js'
 import type {
 	CampaignImportClaim,
 	CampaignImportChronologyCommitPlanData,
 	CampaignImportCommitData,
-	CampaignImportCommitInput,
 	CampaignImportCommitPlanData,
 	CampaignImportCompletionData,
 	CampaignImportDraft,
@@ -16,19 +13,6 @@ import type {
 	SessionCommitJournal,
 	SessionProposal
 } from './types.js'
-
-const runStagedCommit = (
-	operations: ReturnType<typeof campaignImportCommit>,
-	input: CampaignImportCommitInput
-): Effect<CampaignImportCompletionData, Failure> =>
-	gen(function* () {
-		const data = yield* operations.persistCommitData(input)
-		const prepared = yield* operations.planCommit(data)
-		for (const mutationId of operations.commitMutationIds(prepared)) {
-			yield* operations.applyCommitMutation(data, prepared, mutationId)
-		}
-		return yield* operations.finalizeCommit(data, prepared)
-	})
 
 const source: CampaignImportSource = {
 	displayName: 'lore/mara.md',
@@ -162,73 +146,68 @@ const setup = (value: CampaignImportDraft) => {
 		cleanupStarted = true
 		return succeed(undefined)
 	})
-	const history = {
-		getAcceptedClaimFingerprints: () => succeed(new Set()),
-		recordProvenance,
-		recordChronologyProvenance: () => succeed(undefined),
-		persistSourceRevisions,
-		verifyPermanence,
-		verifyChronologyPermanence
-	}
-	const storage = {
-		readCampaignImportDraft: () => succeed(value),
-		writeCampaignImportCommitData: (next: CampaignImportCommitData) => {
-			commitData = structuredClone(next)
-			return succeed(undefined)
+	const operations = campaignImportCommit({
+		history: {
+			getAcceptedClaimFingerprints: () => succeed(new Set()),
+			recordProvenance,
+			recordChronologyProvenance: () => succeed(undefined),
+			persistSourceRevisions,
+			verifyPermanence,
+			verifyChronologyPermanence
 		},
-		readCampaignImportCommitData: () => succeed(commitData!),
-		writeCampaignImportCommitPlan: (next: CampaignImportCommitPlanData) => {
-			commitPlan = structuredClone(next)
-			return succeed(undefined)
+		storage: {
+			readCampaignImportDraft: () => succeed(value),
+			writeCampaignImportCommitData: (next) => {
+				commitData = structuredClone(next)
+				return succeed(undefined)
+			},
+			readCampaignImportCommitData: () => succeed(commitData!),
+			writeCampaignImportCommitPlan: (next) => {
+				commitPlan = structuredClone(next)
+				return succeed(undefined)
+			},
+			readCampaignImportCommitPlan: () => succeed(commitPlan),
+			writeCampaignImportCompletion: (next) => {
+				completion = structuredClone(next)
+				return succeed(undefined)
+			},
+			readCampaignImportCompletion: () => succeed(completion),
+			readCommitJournal: () => succeed(journal),
+			writeCommitJournal: (next) => {
+				journal = structuredClone(next)
+				return succeed(undefined)
+			},
+			verifyCampaignImportSourceBodies: verifySourceBodies,
+			isCampaignImportCleanupVerified: () => succeed(cleanupVerified),
+			isCampaignImportCleanupStarted: () => succeed(cleanupStarted),
+			markCampaignImportCleanupStarted: markCleanupStarted,
+			markCampaignImportCleanupVerified: () => {
+				cleanupVerified = true
+				return succeed(undefined)
+			},
+			acquireCampaignImportOperationLease: () => succeed({ ownerToken: 'test-owner' }),
+			releaseCampaignImportOperationLease: () => succeed(undefined),
+			cleanupCampaignImport,
+			writeCampaignImportChronologyDispatch: () => succeed(undefined),
+			readCampaignImportChronologyDispatch: () => succeed(undefined),
+			writeCampaignImportChronologyDraft: () => succeed(undefined),
+			readCampaignImportChronologyDraft: () => succeed({} as never),
+			writeCampaignImportChronologyCommitData: () => succeed(undefined),
+			readCampaignImportChronologyCommitData: () => succeed({} as never),
+			writeCampaignImportChronologyCommitPlan: () => succeed(undefined),
+			readCampaignImportChronologyCommitPlan: readChronologyPlan,
+			writeCampaignImportChronologyCompletion: () => succeed(undefined),
+			readCampaignImportChronologyCompletion: () => succeed(undefined),
+			listCampaignImports: () => succeed([]),
+			discardCampaignImport: () => succeed(undefined),
+			readCampaignImportLifecycleState: readLifecycleState
 		},
-		readCampaignImportCommitPlan: () => succeed(commitPlan),
-		writeCampaignImportCompletion: (next: CampaignImportCompletionData) => {
-			completion = structuredClone(next)
-			return succeed(undefined)
-		},
-		readCampaignImportCompletion: () => succeed(completion),
-		readCommitJournal: () => succeed(journal),
-		writeCommitJournal: (next: SessionCommitJournal) => {
-			journal = structuredClone(next)
-			return succeed(undefined)
-		},
-		verifyCampaignImportSourceBodies: verifySourceBodies,
-		isCampaignImportCleanupVerified: () => succeed(cleanupVerified),
-		isCampaignImportCleanupStarted: () => succeed(cleanupStarted),
-		markCampaignImportCleanupStarted: markCleanupStarted,
-		markCampaignImportCleanupVerified: () => {
-			cleanupVerified = true
-			return succeed(undefined)
-		},
-		acquireCampaignImportOperationLease: () => succeed({ ownerToken: 'test-owner' }),
-		releaseCampaignImportOperationLease: () => succeed(undefined),
-		cleanupCampaignImport,
-		writeCampaignImportChronologyDispatch: () => succeed(undefined),
-		readCampaignImportChronologyDispatch: () => succeed(undefined),
-		writeCampaignImportChronologyDraft: () => succeed(undefined),
-		readCampaignImportChronologyDraft: () => succeed({} as never),
-		writeCampaignImportChronologyCommitData: () => succeed(undefined),
-		readCampaignImportChronologyCommitData: () => succeed({} as never),
-		writeCampaignImportChronologyCommitPlan: () => succeed(undefined),
-		readCampaignImportChronologyCommitPlan: readChronologyPlan,
-		writeCampaignImportChronologyCompletion: () => succeed(undefined),
-		readCampaignImportChronologyCompletion: () => succeed(undefined),
-		listCampaignImports: () => succeed([]),
-		discardCampaignImport: () => succeed(undefined),
-		readCampaignImportLifecycleState: readLifecycleState
-	}
-	const operations = {
-		...campaignImportCommit({
-			history,
-			storage,
-			vault: {
-				getDocuments: () => succeed(documents),
-				createDocument,
-				updateDocument
-			}
-		}),
-		...campaignImportLifecycle({ history, storage })
-	}
+		vault: {
+			getDocuments: () => succeed(documents),
+			createDocument,
+			updateDocument
+		}
+	})
 	return {
 		operations,
 		createDocument,
@@ -277,8 +256,8 @@ describe('campaign import commit', () => {
 			resolutions: [{ proposalId: ambiguous.proposalId, kind: 'create' as const }]
 		}
 
-		const first = await runPromise(runStagedCommit(harness.operations, input))
-		const second = await runPromise(runStagedCommit(harness.operations, input))
+		const first = await runPromise(harness.operations.commit(input))
+		const second = await runPromise(harness.operations.commit(input))
 
 		expect(first.finalized).toBe(true)
 		expect(second).toEqual(first)
@@ -320,7 +299,7 @@ describe('campaign import commit', () => {
 		expect(
 			await runPromise(
 				flip(
-					runStagedCommit(harness.operations, {
+					harness.operations.commit({
 						campaignId: value.campaignId,
 						ingestionId: value.ingestionId,
 						expectedReviewRevision: 0,
@@ -366,7 +345,7 @@ describe('campaign import commit', () => {
 		const harness = setup(value)
 
 		const result = await runPromise(
-			runStagedCommit(harness.operations, {
+			harness.operations.commit({
 				campaignId: value.campaignId,
 				ingestionId: value.ingestionId,
 				expectedReviewRevision: 0,
@@ -408,7 +387,7 @@ describe('campaign import commit', () => {
 		const noChangeValue = draft([])
 		const noChangeHarness = setup(noChangeValue)
 		const noChange = await runPromise(
-			runStagedCommit(noChangeHarness.operations, {
+			noChangeHarness.operations.commit({
 				campaignId: noChangeValue.campaignId,
 				ingestionId: noChangeValue.ingestionId,
 				expectedReviewRevision: 0,
@@ -425,7 +404,7 @@ describe('campaign import commit', () => {
 		const value = draft([accepted])
 		const harness = setup(value)
 		await runPromise(
-			runStagedCommit(harness.operations, {
+			harness.operations.commit({
 				campaignId: value.campaignId,
 				ingestionId: value.ingestionId,
 				expectedReviewRevision: 0,
@@ -455,7 +434,7 @@ describe('campaign import commit', () => {
 		value.temporalClaims = value.claims
 		const harness = setup(value)
 		await runPromise(
-			runStagedCommit(harness.operations, {
+			harness.operations.commit({
 				campaignId: value.campaignId,
 				ingestionId: value.ingestionId,
 				expectedReviewRevision: 0,
@@ -489,18 +468,13 @@ describe('campaign import commit', () => {
 					{
 						mutationId: 'chronology-target',
 						documentId: targetEventId,
-						update: {
-							type: 'event',
-							after: [sourceEventId],
-							during: [],
-							eventForm: 'occurrence',
-							content: '# Target',
-							expectedRevisionId: 'target-revision',
-							expectedPath: 'Events/target.md'
-						}
+						after: [sourceEventId],
+						during: [],
+						eventForm: 'occurrence'
 					}
 				],
-				documentIdByProposal: {}
+				documentIdByProposal: {},
+				existingById: {}
 			}
 		}
 		harness.setJournal({
@@ -560,7 +534,7 @@ describe('campaign import commit', () => {
 		const value = draft([accepted])
 		const harness = setup(value)
 		await runPromise(
-			runStagedCommit(harness.operations, {
+			harness.operations.commit({
 				campaignId: value.campaignId,
 				ingestionId: value.ingestionId,
 				expectedReviewRevision: 0,

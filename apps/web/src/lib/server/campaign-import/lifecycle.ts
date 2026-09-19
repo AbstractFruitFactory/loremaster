@@ -7,17 +7,21 @@ import type {
 } from '@loremaster/core/server/ingestion/types'
 import {
 	campaignImportWorkflowKinds,
-	isActiveWorkflowLifecycle
+	isActiveWorkflowLifecycle,
+	type CampaignImportWorkflowKind,
+	type CampaignImportWorkflowProgress,
+	type WorkflowStatusResult
 } from '@loremaster/core/workflows/contracts'
-import type {
-	CampaignImportWorkflowLifecycleStatus,
-	CampaignImportWorkflowStatuses
-} from './workflow-status.js'
 
-export type {
-	CampaignImportWorkflowLifecycleStatus,
-	CampaignImportWorkflowStatuses
-} from './workflow-status.js'
+export type CampaignImportWorkflowLifecycleStatus = WorkflowStatusResult<
+	unknown,
+	CampaignImportWorkflowProgress
+>
+
+export type CampaignImportWorkflowStatuses = Record<
+	CampaignImportWorkflowKind,
+	CampaignImportWorkflowLifecycleStatus
+>
 
 export type CampaignImportFinishDisabledReason =
 	| 'workflow-active'
