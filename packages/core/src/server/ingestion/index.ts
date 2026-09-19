@@ -1,10 +1,14 @@
-import { fail as failEffect, gen, type Effect } from 'effect/Effect'
+import { fail as failEffect, gen, map, type Effect } from 'effect/Effect'
 import type { AiProvider } from '../ai/provider.js'
 import type { Failure } from '../failure.js'
 import type { VaultDocument } from '../vault/types.js'
 import { analysisPipeline } from './analysis.js'
 import { chronology } from './chronology.js'
-import { commitApplication, commitMutationIdsInOrder } from './commit/application.js'
+import {
+	commitApplication,
+	commitMutationIdsInOrder,
+	optionalCommitJournalStorage
+} from './commit/application.js'
 import { planMutations } from './commit/planning.js'
 import { commitSelection } from './commit/selection.js'
 import { entityResolution } from './entity-resolution.js'
@@ -103,7 +107,10 @@ export const sessionIngestion = ({
 		storage,
 		vault
 	})
-	const { applyMutationPlan } = commitApplication(vault, storage)
+	const { applyMutationPlan } = commitApplication(
+		vault as Parameters<typeof commitApplication>[0],
+		optionalCommitJournalStorage(storage)
+	)
 
 	const planCommit = (input: CommitInput) =>
 		gen(function* () {
@@ -145,12 +152,14 @@ export const sessionIngestion = ({
 			plan: MutationPlan
 		}
 	): Effect<SessionIngestionResult, Failure> =>
-		applyMutationPlan(
-			input,
-			prepared.draft,
-			prepared.transcript,
-			prepared.resolvedSelected,
-			prepared.plan
+		map(
+			applyMutationPlan(
+				input,
+				{ kind: 'session', draft: prepared.draft, transcript: prepared.transcript },
+				prepared.resolvedSelected,
+				prepared.plan
+			),
+			(result) => ({ ...result, sessionDocumentId: result.sessionDocumentId! })
 		)
 
 	const commit = (input: CommitInput): Effect<SessionIngestionResult, Failure> =>
@@ -275,4 +284,6 @@ export const sessionIngestion = ({
 
 export type { CommitInput } from './internal.js'
 export { allocateIngestionId } from './ids.js'
+export { campaignImport } from './campaign-import.js'
+export { reconcileCampaignImportClaims } from './import-reconciliation.js'
 export * from './types.js'

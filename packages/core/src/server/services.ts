@@ -6,8 +6,9 @@ import { candidateRetrieval } from './context/candidates.js'
 import { contextIndex as createContextIndex } from './context/indexing/index.js'
 import { context as createContext } from './context/index.js'
 import { ingestionContext } from './ingestion/context.js'
-import { sessionIngestion } from './ingestion/index.js'
+import { campaignImport as createCampaignImport, sessionIngestion } from './ingestion/index.js'
 import { filesystemIngestionStorage } from './ingestion/storage.js'
+import { campaignImportHistoryRepository } from './db/campaign-import.js'
 import * as campaignDb from './db/campaign.js'
 import * as contextDb from './db/context.js'
 import { initializeDatabase } from './db/index.js'
@@ -107,6 +108,7 @@ export const createServices = (
 		hydrateDocuments: vault.getDocumentsByIds
 	})
 
+	const ingestionStorage = filesystemIngestionStorage(resolvedVaultRoot)
 	const ingestion = sessionIngestion({
 		ai: {
 			analyzeSessionChunk: (input) =>
@@ -121,7 +123,20 @@ export const createServices = (
 			inferSessionChronology: ai.inferSessionChronology,
 			analysisModel: ai.models.sessionAnalysis
 		},
-		storage: filesystemIngestionStorage(resolvedVaultRoot),
+		storage: ingestionStorage,
+		retrieveAnalysisDocuments: analysisContext.retrieveDocuments,
+		vault
+	})
+	const campaignImport = createCampaignImport({
+		ai: {
+			analyzeSessionChunk: ai.analyzeSessionChunk,
+			validateSessionClaims: ai.validateSessionClaims,
+			repairSessionClaimEvidence: ai.repairSessionClaimEvidence,
+			inferCampaignImportChronology: ai.inferCampaignImportChronology,
+			analysisModel: ai.models.sessionAnalysis
+		},
+		history: campaignImportHistoryRepository,
+		storage: ingestionStorage,
 		retrieveAnalysisDocuments: analysisContext.retrieveDocuments,
 		vault
 	})
@@ -137,5 +152,15 @@ export const createServices = (
 
 	const lore = createLore({ vault })
 
-	return { assistant, campaign, context, ingestion, lore, revisions, timeline, vault }
+	return {
+		assistant,
+		campaign,
+		campaignImport,
+		context,
+		ingestion,
+		lore,
+		revisions,
+		timeline,
+		vault
+	}
 }

@@ -8,12 +8,29 @@ import { campaign, ingestion, lore, vault } from '#lib/server/app.js'
 import { getIngestionDbosAdapter } from '#lib/server/dbos/client.js'
 import { mapIngestionWorkflowStatus } from '#lib/server/dbos/status.js'
 import { logFailure } from '#lib/server/failure.js'
+import {
+	commitCampaignImportChronologyOperation,
+	commitCampaignImportOperation,
+	discardCampaignImportOperation,
+	finishCampaignImportOperation,
+	getCampaignImportChronologyOperation,
+	getCampaignImportLifecycleOperation,
+	getCampaignImportOperation,
+	getCampaignImportReviewStateOperation,
+	listCampaignImportsOperation,
+	retryCampaignImportWorkflowOperation,
+	saveCampaignImportReviewStateOperation,
+	startCampaignImportOperation
+} from '#lib/server/campaign-import/orchestration.js'
 import { ingestionDocumentId } from '@loremaster/core/server/ingestion/ids'
 import {
 	isCommitStartedIngestionDiscard,
 	isImmutableIngestionConflict
 } from '@loremaster/core/server/ingestion/storage'
 import type {
+	CampaignImportChronologyDraft,
+	CampaignImportDraft,
+	CampaignImportReviewState,
 	SessionIngestionDraft,
 	SessionIngestionResult,
 	SessionIngestionSummary
@@ -24,7 +41,8 @@ import {
 	type AnalysisStartReference,
 	type AnalysisWorkflowStatus,
 	type CommitStartReference,
-	type CommitWorkflowStatus
+	type CommitWorkflowStatus,
+	type WorkflowReference
 } from '@loremaster/core/workflows/contracts'
 import type { LoreEntry, LoreSummary } from '#lib/server/lore/types.js'
 import type {
@@ -37,6 +55,13 @@ import type {
 	VaultDocumentSummary,
 	VaultDocumentView
 } from '#lib/server/vault/types.js'
+import {
+	campaignImportReferenceInput,
+	commitCampaignImportChronologyInput,
+	commitCampaignImportInput,
+	saveCampaignImportReviewStateInput,
+	startCampaignImportInput
+} from './campaign-import-schema.js'
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
@@ -541,6 +566,108 @@ export const discardSessionIngestion = command(
 		)
 		void listUncommittedSessionIngestions(campaignId).refresh()
 	}
+)
+
+export const startCampaignImport = command(
+	startCampaignImportInput,
+	async (input): Promise<WorkflowReference> => {
+		const reference = await startCampaignImportOperation(input)
+		void listCampaignImports(input.campaignId).refresh()
+		return reference
+	}
+)
+
+export const retryCampaignImportAnalysis = command(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
+		retryCampaignImportWorkflowOperation('analysis', campaignId, ingestionId)
+)
+
+export const getCampaignImport = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportDraft> =>
+		getCampaignImportOperation(campaignId, ingestionId)
+)
+
+export const getCampaignImportReviewState = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportReviewState> =>
+		getCampaignImportReviewStateOperation(campaignId, ingestionId)
+)
+
+export const saveCampaignImportReviewState = command(
+	saveCampaignImportReviewStateInput,
+	async (input) => {
+		const state = await saveCampaignImportReviewStateOperation(input)
+		getCampaignImportReviewState({
+			campaignId: input.campaignId,
+			ingestionId: input.ingestionId
+		}).set(state)
+		return state
+	}
+)
+
+export const commitCampaignImport = command(
+	commitCampaignImportInput,
+	async (input): Promise<WorkflowReference> => {
+		const reference = await commitCampaignImportOperation(input)
+		void listCampaignImports(input.campaignId).refresh()
+		return reference
+	}
+)
+
+export const retryCampaignImportCommit = command(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
+		retryCampaignImportWorkflowOperation('commit', campaignId, ingestionId)
+)
+
+const loadCampaignImports = listCampaignImportsOperation
+
+export const listCampaignImports = query(campaignId, loadCampaignImports)
+
+export const getCampaignImportLifecycle = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }) => getCampaignImportLifecycleOperation(campaignId, ingestionId)
+)
+
+export const finishCampaignImport = command(
+	campaignImportReferenceInput,
+	async ({ campaignId, ingestionId }) => {
+		await finishCampaignImportOperation(campaignId, ingestionId)
+		void listCampaignImports(campaignId).refresh()
+	}
+)
+
+export const discardCampaignImport = command(
+	campaignImportReferenceInput,
+	async ({ campaignId, ingestionId }) => {
+		await discardCampaignImportOperation(campaignId, ingestionId)
+		void listCampaignImports(campaignId).refresh()
+	}
+)
+
+export const retryCampaignImportChronologyAnalysis = command(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
+		retryCampaignImportWorkflowOperation('chronology-analysis', campaignId, ingestionId)
+)
+
+export const getCampaignImportChronology = query(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<CampaignImportChronologyDraft> =>
+		getCampaignImportChronologyOperation(campaignId, ingestionId)
+)
+
+export const commitCampaignImportChronology = command(
+	commitCampaignImportChronologyInput,
+	(input): Promise<WorkflowReference> => commitCampaignImportChronologyOperation(input)
+)
+
+export const retryCampaignImportChronologyCommit = command(
+	campaignImportReferenceInput,
+	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
+		retryCampaignImportWorkflowOperation('chronology-commit', campaignId, ingestionId)
 )
 
 const loadVaultDocuments = (id: string): Promise<VaultDocumentSummary[]> =>

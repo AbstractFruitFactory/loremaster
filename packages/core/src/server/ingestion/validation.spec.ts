@@ -423,4 +423,85 @@ describe('session claim validation', () => {
 		expect(draft.warnings[0]).toContain('Wall')
 		warn.mockRestore()
 	})
+
+	it('enforces atomic stable-fact ownership without changing event routing', async () => {
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+		const noSubjectValidator: ValidateSessionClaims = ({ prompt }) => {
+			const [{ candidateId, certainty, entityReferences }] = JSON.parse(
+				prompt.split('\n\n## Candidate claims\n').at(-1) ?? '[]'
+			) as {
+				candidateId: string
+				certainty: 'explicit' | 'inferred'
+				entityReferences: { referenceId: string }[]
+			}[]
+			return succeed([
+				{
+					candidateId,
+					accepted: true,
+					certainty,
+					reason: 'supported' as const,
+					referenceValidations: entityReferences.map(({ referenceId }) => ({
+						referenceId,
+						accepted: false
+					}))
+				}
+			])
+		}
+		const noSubjectDraft = await analyze(
+			operationsWith(() => succeed([extractedClaim]), noSubjectValidator),
+			'Mara opened the gate.'
+		)
+		expect(noSubjectDraft.proposals).toEqual([
+			expect.objectContaining({ documentType: 'session' }),
+			expect.objectContaining({ operation: 'record-only', content: extractedClaim.content })
+		])
+		expect(noSubjectDraft.warnings).toEqual([
+			expect.stringContaining('[validator-rejected-reference]'),
+			expect.stringContaining('[no-accepted-subject]')
+		])
+
+		const compoundClaim: ExtractedSessionClaim = {
+			...extractedClaim,
+			content: 'Mara carries the bell while Ilyra carries the key.',
+			entityReferences: [
+				{ label: 'Mara', type: 'npc', role: 'subject' },
+				{ label: 'Ilyra', type: 'npc', role: 'subject' }
+			]
+		}
+		const compoundDraft = await analyze(
+			operationsWith(() => succeed([compoundClaim])),
+			'Mara carries the bell while Ilyra carries the key.'
+		)
+		expect(
+			compoundDraft.proposals.filter(({ documentType }) => documentType !== 'session')
+		).toEqual([])
+		expect(compoundDraft.warnings).toEqual([
+			expect.stringContaining('[multiple-accepted-subjects]')
+		])
+
+		const developmentClaim: ExtractedSessionClaim = {
+			kind: 'development',
+			eventTitle: 'Mara opens the gate',
+			certainty: 'explicit',
+			content: 'Mara opened the gate for Ilyra.',
+			evidence: [{ startLine: 1, endLine: 1 }],
+			entityReferences: [
+				{ label: 'Mara', type: 'npc', role: 'related' },
+				{ label: 'Ilyra', type: 'npc', role: 'related' }
+			]
+		}
+		const developmentDraft = await analyze(
+			operationsWith(() => succeed([developmentClaim])),
+			'Mara opened the gate for Ilyra.'
+		)
+		expect(developmentDraft.proposals).toContainEqual(
+			expect.objectContaining({
+				operation: 'create-event',
+				documentType: 'event',
+				title: 'Mara opens the gate'
+			})
+		)
+		expect(developmentDraft.warnings).toEqual([])
+		warn.mockRestore()
+	})
 })

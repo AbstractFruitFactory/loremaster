@@ -4,12 +4,11 @@ import type { AiProvider } from '../ai/provider.js'
 import type { VaultDocument } from '../vault/types.js'
 import { buildSessionRecap } from '../../ingestion.js'
 import { chunkTranscript } from './chunking.js'
-import { materializeEvidenceRanges } from './evidence.js'
+import { claimValidation } from './claim-validation.js'
 import { mergeClaims, reconcileEventClaims } from './claims.js'
 import { allocateIngestionId } from './ids.js'
 import { mergeProposals, proposalsForClaim } from './proposals.js'
-import type { EvidenceBackedClaim, TranscriptChunk, ValidatedClaim } from './internal.js'
-import { entityReferenceId, uniqueEntityReferences } from './text.js'
+import type { TranscriptChunk, ValidatedClaim } from './internal.js'
 import {
 	completeTranscriptChunk,
 	evidenceRangesLabel,
@@ -26,11 +25,6 @@ import {
 } from './prompts.js'
 import type { IngestionStorage } from './storage.js'
 import type {
-	EntityReference,
-	Evidence,
-	ExtractedSessionClaim,
-	SessionClaimEvidenceRepair,
-	SessionClaimValidation,
 	SessionChronologyCoverageProposal,
 	SessionChronologyProposal,
 	SessionAnalysisStageResult,
@@ -81,275 +75,16 @@ export const analysisPipeline = ({
 		import('../failure.js').Failure
 	>
 }) => {
-	const discardedClaimWarning = (
-		chunk: TranscriptChunk,
-		claimIndex: number,
-		claim: ExtractedSessionClaim,
-		reason: string,
-		evidence: Evidence[] = [],
-		validationReason?: SessionClaimValidation['reason']
-	) => {
-		const details = {
-			chunkId: chunk.chunkId,
-			claim: claimIndex + 1,
-			reason,
-			validationReason,
-			content: claim.content,
-			evidenceRanges: claim.evidence,
-			evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
-				startLine,
-				endLine,
-				excerpt
-			})),
-			entityReferences: claim.entityReferences
-		}
-		if (process.env.NODE_ENV !== 'production') {
-			console.warn('[session-ingestion] discarded claim', details)
-		}
-		return `${chunk.chunkId} claim ${claimIndex + 1} discarded [${reason}]${validationReason ? ` validationReason=${validationReason}` : ''} evidence=${evidenceRangesLabel(claim)} entities=${entityReferencesLabel(claim)} content=${JSON.stringify(claim.content)}`
-	}
-
-	const discardedEntityReferenceWarning = (
-		chunk: TranscriptChunk,
-		claimIndex: number,
-		claim: ExtractedSessionClaim,
-		reference: EntityReference,
-		referenceIndex: number,
-		reason: string,
-		evidence: Evidence[]
-	) => {
-		const details = {
-			chunkId: chunk.chunkId,
-			claim: claimIndex + 1,
-			reference: referenceIndex + 1,
-			reason,
-			content: claim.content,
-			entityReference: reference,
-			evidence: evidence.map(({ startLine, endLine, excerpt }) => ({
-				startLine,
-				endLine,
-				excerpt
-			}))
-		}
-		if (process.env.NODE_ENV !== 'production') {
-			console.warn('[session-ingestion] discarded entity reference', details)
-		}
-		return `${chunk.chunkId} claim ${claimIndex + 1} entity reference ${referenceIndex + 1} discarded [${reason}] entity=${JSON.stringify(reference.label)} evidence=${evidenceRangesLabel(claim)} content=${JSON.stringify(claim.content)}`
-	}
-
-	const evidenceBackedClaims = (
-		transcript: string,
-		chunk: TranscriptChunk,
-		claims: ExtractedSessionClaim[]
-	) => {
-		const backed: EvidenceBackedClaim[] = []
-		const warnings: string[] = []
-		for (const [claimIndex, claim] of claims.entries()) {
-			const materialized = materializeEvidenceRanges(transcript, chunk, claim.evidence)
-			if (!materialized.ok) {
-				warnings.push(discardedClaimWarning(chunk, claimIndex, claim, materialized.reason))
-				continue
-			}
-			backed.push({
-				candidateId: `${chunk.chunkId}:claim-${claimIndex + 1}`,
-				claimIndex,
-				claim: { ...claim, entityReferences: uniqueEntityReferences(claim.entityReferences) },
-				evidence: materialized.evidence
-			})
-		}
-		return { claims: backed, warnings }
-	}
-	const applyClaimValidation = (
-		chunk: TranscriptChunk,
-		backedClaims: EvidenceBackedClaim[],
-		validations: SessionClaimValidation[],
-		allowEvidenceRepair = true
-	) => {
-		const validationById = new Map(
-			validations.map((validation) => [validation.candidateId, validation])
-		)
-		const claims: ValidatedClaim[] = []
-		const repairable: EvidenceBackedClaim[] = []
-		const warnings: string[] = []
-		for (const backedClaim of backedClaims) {
-			const { candidateId, claimIndex, claim, evidence } = backedClaim
-			const validation = validationById.get(candidateId)
-			if (!validation?.accepted) {
-				if (allowEvidenceRepair && validation?.reason === 'insufficient-evidence') {
-					repairable.push(backedClaim)
-					continue
-				}
-				warnings.push(
-					discardedClaimWarning(
-						chunk,
-						claimIndex,
-						claim,
-						validation
-							? allowEvidenceRepair
-								? 'validator-rejected'
-								: 'validator-rejected-after-repair'
-							: 'validator-missing-decision',
-						evidence,
-						validation?.reason
-					)
-				)
-				continue
-			}
-
-			const referenceValidationById = new Map(
-				validation.referenceValidations.map((decision) => [decision.referenceId, decision.accepted])
-			)
-			const entityReferences = claim.entityReferences.filter((reference, referenceIndex) => {
-				const accepted = referenceValidationById.get(entityReferenceId(candidateId, referenceIndex))
-				if (accepted) return true
-				warnings.push(
-					discardedEntityReferenceWarning(
-						chunk,
-						claimIndex,
-						claim,
-						reference,
-						referenceIndex,
-						accepted === false
-							? 'validator-rejected-reference'
-							: 'validator-missing-reference-decision',
-						evidence
-					)
-				)
-				return false
-			})
-
-			claims.push({
-				kind: claim.kind,
-				eventTitle: claim.eventTitle,
-				content: claim.content,
-				entityReferences,
-				certainty:
-					claim.certainty === 'inferred' || validation.certainty === 'inferred'
-						? 'inferred'
-						: 'explicit',
-				claimId: randomUUID(),
-				evidence
-			})
-		}
-		return { claims, repairable, warnings }
-	}
-
-	const applyEvidenceRepairs = (
-		transcript: string,
-		chunk: TranscriptChunk,
-		claims: EvidenceBackedClaim[],
-		repairs: SessionClaimEvidenceRepair[]
-	) => {
-		const repairById = new Map(repairs.map((repair) => [repair.candidateId, repair]))
-		const repaired: EvidenceBackedClaim[] = []
-		const warnings: string[] = []
-
-		for (const backedClaim of claims) {
-			const { candidateId, claimIndex, claim, evidence } = backedClaim
-			const repair = repairById.get(candidateId)
-			if (!repair) {
-				warnings.push(
-					discardedClaimWarning(
-						chunk,
-						claimIndex,
-						claim,
-						'evidence-repair-missing',
-						evidence,
-						'insufficient-evidence'
-					)
-				)
-				continue
-			}
-
-			const repairedClaim = { ...claim, evidence: repair.evidence }
-			const materialized = materializeEvidenceRanges(transcript, chunk, repair.evidence)
-			if (!materialized.ok) {
-				warnings.push(
-					discardedClaimWarning(
-						chunk,
-						claimIndex,
-						repairedClaim,
-						`evidence-repair-${materialized.reason}`,
-						evidence,
-						'insufficient-evidence'
-					)
-				)
-				continue
-			}
-
-			if (process.env.NODE_ENV !== 'production') {
-				console.info('[session-ingestion] repaired claim evidence', {
-					chunkId: chunk.chunkId,
-					claim: claimIndex + 1,
-					content: claim.content,
-					previousEvidenceRanges: claim.evidence,
-					repairedEvidenceRanges: repair.evidence
-				})
-			}
-
-			repaired.push({
-				...backedClaim,
-				claim: repairedClaim,
-				evidence: materialized.evidence
-			})
-		}
-
-		return { claims: repaired, warnings }
-	}
-
-	const validateExtractedClaims = (
-		transcript: string,
-		chunk: TranscriptChunk,
-		extracted: ExtractedSessionClaim[]
-	) =>
-		gen(function* () {
-			const backed = evidenceBackedClaims(transcript, chunk, extracted)
-			if (!backed.claims.length) {
-				return { claims: [] as ValidatedClaim[], warnings: backed.warnings }
-			}
-
-			const validations = yield* ai.validateSessionClaims({
-				model: ai.analysisModel,
-				system: `${validationSystem} ${worldbuildingValidationGuidance}`,
-				prompt: validationPrompt(chunk, backed.claims)
-			})
-			const applied = applyClaimValidation(chunk, backed.claims, validations)
-			if (!applied.repairable.length) {
-				return {
-					claims: applied.claims,
-					warnings: [...backed.warnings, ...applied.warnings]
-				}
-			}
-
-			const repairs = yield* ai.repairSessionClaimEvidence({
-				model: ai.analysisModel,
-				system: evidenceRepairSystem,
-				prompt: evidenceRepairPrompt(chunk, applied.repairable)
-			})
-			const repaired = applyEvidenceRepairs(transcript, chunk, applied.repairable, repairs)
-			if (!repaired.claims.length) {
-				return {
-					claims: applied.claims,
-					warnings: [...backed.warnings, ...applied.warnings, ...repaired.warnings]
-				}
-			}
-
-			const repairedValidations = yield* ai.validateSessionClaims({
-				model: ai.analysisModel,
-				system: `${validationSystem} ${worldbuildingValidationGuidance}`,
-				prompt: validationPrompt(chunk, repaired.claims)
-			})
-			const reapplied = applyClaimValidation(chunk, repaired.claims, repairedValidations, false)
-			return {
-				claims: [...applied.claims, ...reapplied.claims],
-				warnings: [
-					...backed.warnings,
-					...applied.warnings,
-					...repaired.warnings,
-					...reapplied.warnings
-				]
-			}
-		})
+	const { validateExtractedClaims } = claimValidation({
+		ai,
+		validationSystem: `${validationSystem} ${worldbuildingValidationGuidance}`,
+		evidenceRepairSystem,
+		validationPrompt,
+		evidenceRepairPrompt,
+		evidenceRangesLabel,
+		entityReferencesLabel,
+		logScope: 'session-ingestion'
+	})
 
 	const analyzeChunk = (transcript: string, chunk: TranscriptChunk) =>
 		gen(function* () {

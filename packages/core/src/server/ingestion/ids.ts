@@ -25,3 +25,97 @@ export const commitMutationId = (
 
 export const commitRevisionId = (mutationId: string) =>
 	deterministicUuid(`loremaster:commit-mutation:${mutationId}:revision`)
+
+export const campaignImportContentHash = (content: string) =>
+	createHash('sha256').update(content).digest('hex')
+
+export const campaignImportSourceId = (ingestionId: string, sourceSlot: number) =>
+	deterministicUuid(`loremaster:campaign-import:source:${ingestionId}:${sourceSlot}`)
+
+export const campaignImportSourceRevisionId = (sourceId: string, contentHash: string) =>
+	deterministicUuid(`loremaster:campaign-import:source-revision:${sourceId}:${contentHash}`)
+
+export const campaignImportProposalId = (
+	ingestionId: string,
+	documentType: string,
+	groupingKey: string,
+	claimIdentities: { claimFingerprint: string; claimId: string }[]
+) =>
+	deterministicUuid(
+		`loremaster:campaign-import:proposal:${JSON.stringify({
+			ingestionId,
+			documentType,
+			groupingKey,
+			claimIdentities: claimIdentities
+				.map(({ claimFingerprint, claimId }) => ({ claimFingerprint, claimId }))
+				.sort(
+					(left, right) =>
+						left.claimFingerprint.localeCompare(right.claimFingerprint) ||
+						left.claimId.localeCompare(right.claimId)
+				)
+		})}`
+	)
+
+export const campaignImportChronologyId = (
+	ingestionId: string,
+	relation: string,
+	sourceDocumentId: string,
+	targetDocumentId: string
+) =>
+	deterministicUuid(
+		`loremaster:campaign-import:chronology:${ingestionId}:${relation}:${sourceDocumentId}:${targetDocumentId}`
+	)
+
+export const campaignImportClaimFingerprint = (input: {
+	kind: string
+	eventTitle: string | null
+	content: string
+	entityReferences: { label: string; type: string; role: string }[]
+}) =>
+	createHash('sha256')
+		.update(
+			JSON.stringify({
+				version: 1,
+				kind: input.kind,
+				eventTitle: input.eventTitle?.trim().toLocaleLowerCase() ?? null,
+				content: input.content.trim().replace(/\s+/g, ' ').toLocaleLowerCase(),
+				entityReferences: input.entityReferences
+					.map(({ label, type, role }) => ({
+						label: label.trim().replace(/\s+/g, ' ').toLocaleLowerCase(),
+						type,
+						role
+					}))
+					.sort(
+						(left, right) =>
+							left.type.localeCompare(right.type) ||
+							left.label.localeCompare(right.label) ||
+							left.role.localeCompare(right.role)
+					)
+			})
+		)
+		.digest('hex')
+
+export const campaignImportClaimId = (
+	sourceId: string,
+	sourceRevisionId: string,
+	claimFingerprint: string,
+	evidence: {
+		startStringIndex: number
+		endStringIndex: number
+		startLine: number
+		endLine: number
+	}[]
+) =>
+	deterministicUuid(
+		`loremaster:campaign-import:claim:${JSON.stringify({
+			sourceId,
+			sourceRevisionId,
+			claimFingerprint,
+			evidence: evidence.map(({ startStringIndex, endStringIndex, startLine, endLine }) => [
+				startStringIndex,
+				endStringIndex,
+				startLine,
+				endLine
+			])
+		})}`
+	)

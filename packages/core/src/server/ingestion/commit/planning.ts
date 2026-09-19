@@ -23,7 +23,7 @@ export const planMutations = (
 	ingestionId: string,
 	resolvedSelected: SessionProposal[],
 	selectedChronology: SessionChronologyProposal[],
-	sessionProposal: SessionProposal,
+	sessionProposal: SessionProposal | undefined,
 	documents: VaultDocument[]
 ): Effect<MutationPlan, Failure> => {
 	const documentIdByProposal = documentIdsFor(ingestionId, resolvedSelected)
@@ -42,7 +42,28 @@ export const planMutations = (
 	for (const relation of selectedChronology) {
 		const sourceDocumentId = documentIdForEndpoint(relation.source)
 		const targetDocumentId = documentIdForEndpoint(relation.target)
-		if (!sourceDocumentId || !targetDocumentId) continue
+		if (!sourceDocumentId) {
+			return failEffect({
+				domain: 'ingestion',
+				operation: 'commit',
+				cause: {
+					reason: 'staleChronologyEndpoint',
+					chronologyId: relation.chronologyId,
+					endpoint: { role: 'source', ...relation.source }
+				}
+			} satisfies Failure)
+		}
+		if (!targetDocumentId) {
+			return failEffect({
+				domain: 'ingestion',
+				operation: 'commit',
+				cause: {
+					reason: 'staleChronologyEndpoint',
+					chronologyId: relation.chronologyId,
+					endpoint: { role: 'target', ...relation.target }
+				}
+			} satisfies Failure)
+		}
 		if (relation.relation === 'before') {
 			chronologyEdges.push({
 				beforeDocumentId: sourceDocumentId,
@@ -123,14 +144,21 @@ export const planMutations = (
 				mutationId: commitMutationId(ingestionId, 'update', documentId, proposal.proposalId),
 				proposal,
 				documentId,
-				after: [...new Set([...existing.after, ...addedPredecessors])],
-				during: [...new Set([...existing.during, ...addedPeriods])],
-				eventForm:
-					existing.type === 'event'
-						? periodDocumentIds.has(documentId)
-							? 'period'
-							: (existing.eventForm ?? 'occurrence')
-						: undefined
+				update: {
+					type: existing.type,
+					aliases: existing.aliases,
+					after: [...new Set([...existing.after, ...addedPredecessors])],
+					during: [...new Set([...existing.during, ...addedPeriods])],
+					eventForm:
+						existing.type === 'event'
+							? periodDocumentIds.has(documentId)
+								? 'period'
+								: (existing.eventForm ?? 'occurrence')
+							: undefined,
+					content: `${existing.content.trimEnd()}\n\n${proposal.patch.content.trim()}\n`,
+					expectedRevisionId: proposal.base.revisionId,
+					expectedPath: existing.path
+				}
 			})
 			continue
 		}
@@ -180,9 +208,18 @@ export const planMutations = (
 		chronologyUpdates.push({
 			mutationId: commitMutationId(ingestionId, 'chronology', documentId),
 			documentId,
-			after: [...new Set([...existing.after, ...addedPredecessors])],
-			during: [...new Set([...existing.during, ...addedPeriods])],
-			eventForm: periodDocumentIds.has(documentId) ? 'period' : (existing.eventForm ?? 'occurrence')
+			update: {
+				type: existing.type,
+				aliases: existing.aliases,
+				after: [...new Set([...existing.after, ...addedPredecessors])],
+				during: [...new Set([...existing.during, ...addedPeriods])],
+				eventForm: periodDocumentIds.has(documentId)
+					? 'period'
+					: (existing.eventForm ?? 'occurrence'),
+				content: existing.content,
+				expectedRevisionId: existing.currentRevisionId,
+				expectedPath: existing.path
+			}
 		})
 	}
 
@@ -190,7 +227,8 @@ export const planMutations = (
 		planned,
 		chronologyUpdates,
 		documentIdByProposal,
-		existingById,
-		sessionDocumentId: documentIdByProposal[sessionProposal.proposalId]!
+		sessionDocumentId: sessionProposal
+			? documentIdByProposal[sessionProposal.proposalId]
+			: undefined
 	})
 }

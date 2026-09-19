@@ -38,7 +38,10 @@ export const uniqueStrings = (values: string[]) => [
 
 export const uniqueEvidence = (evidence: Evidence[]) => [
 	...new Map(
-		evidence.map((item) => [`${item.startStringIndex}:${item.endStringIndex}`, item])
+		evidence.map((item) => [
+			`${item.sourceId ?? ''}:${item.sourceRevisionId ?? ''}:${item.startStringIndex}:${item.endStringIndex}`,
+			item
+		])
 	).values()
 ]
 

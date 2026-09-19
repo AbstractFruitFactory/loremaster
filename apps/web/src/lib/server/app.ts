@@ -24,6 +24,15 @@ const services = createCoreRuntime({
 	useMockAi: MOCK_AI_PROVIDER === 'true'
 })
 
-export const { assistant, campaign, context, ingestion, lore, revisions, timeline, vault } =
-	services
+export const {
+	assistant,
+	campaign,
+	campaignImport,
+	context,
+	ingestion,
+	lore,
+	revisions,
+	timeline,
+	vault
+} = services
 export const disposeCoreRuntime = services.dispose

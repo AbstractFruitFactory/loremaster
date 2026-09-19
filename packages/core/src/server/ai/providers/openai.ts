@@ -12,6 +12,7 @@ import {
 	ingestionDocumentTypes,
 	sessionClaimValidationReasons,
 	type ExtractedSessionClaim,
+	type InferredCampaignImportChronology,
 	type InferredSessionChronology,
 	type SessionEventAudit,
 	type SessionClaimEvidenceRepair,
@@ -401,26 +402,22 @@ const parseSessionEventAudit = (response: OpenAiResponse): SessionEventAudit => 
 }
 
 const sessionChronologySchema = z.object({
-	relations: z
-		.array(
-			z.object({
-				relation: z.enum(['before', 'during']),
-				sourceEventId: z.string().trim().min(1),
-				targetEventId: z.string().trim().min(1),
-				certainty: z.enum(['explicit', 'inferred']),
-				reason: z.string().trim().min(1).max(240)
-			})
-		)
-		.max(500),
-	coverage: z
-		.array(
-			z.object({
-				eventId: z.string().trim().min(1),
-				status: z.enum(['connected', 'intentionally-unplaced']),
-				reason: z.string().trim().min(1).max(240)
-			})
-		)
-		.max(500)
+	relations: z.array(
+		z.object({
+			relation: z.enum(['before', 'during']),
+			sourceEventId: z.string().trim().min(1),
+			targetEventId: z.string().trim().min(1),
+			certainty: z.enum(['explicit', 'inferred']),
+			reason: z.string().trim().min(1).max(240)
+		})
+	),
+	coverage: z.array(
+		z.object({
+			eventId: z.string().trim().min(1),
+			status: z.enum(['connected', 'intentionally-unplaced']),
+			reason: z.string().trim().min(1).max(240)
+		})
+	)
 })
 
 const sessionChronologyTool = {
@@ -445,8 +442,7 @@ const sessionChronologyTool = {
 					},
 					required: ['relation', 'sourceEventId', 'targetEventId', 'certainty', 'reason'],
 					additionalProperties: false
-				},
-				maxItems: 500
+				}
 			},
 			coverage: {
 				type: 'array',
@@ -462,8 +458,7 @@ const sessionChronologyTool = {
 					},
 					required: ['eventId', 'status', 'reason'],
 					additionalProperties: false
-				},
-				maxItems: 500
+				}
 			}
 		},
 		required: ['relations', 'coverage'],
@@ -477,6 +472,74 @@ const parseSessionChronology = (response: OpenAiResponse): InferredSessionChrono
 	)
 	return call?.type === 'function_call'
 		? sessionChronologySchema.parse(JSON.parse(call.arguments))
+		: { relations: [], coverage: [] }
+}
+
+const campaignImportChronologySchema = z.object({
+	relations: z.array(
+		z.object({
+			relation: z.enum(['before', 'during']),
+			sourceEventId: z.string().trim().min(1),
+			targetEventId: z.string().trim().min(1),
+			certainty: z.enum(['explicit', 'inferred']),
+			reason: z.string().trim().min(1).max(240),
+			claimIds: z.array(z.string().trim().min(1)).min(1)
+		})
+	),
+	coverage: sessionChronologySchema.shape.coverage
+})
+
+const campaignImportChronologyTool = {
+	type: 'function' as const,
+	name: 'record_campaign_import_chronology',
+	description:
+		'Record evidence-backed direct chronology relationships for committed campaign-import events.',
+	strict: true,
+	parameters: {
+		type: 'object',
+		properties: {
+			relations: {
+				type: 'array',
+				items: {
+					type: 'object',
+					properties: {
+						relation: { type: 'string', enum: ['before', 'during'] },
+						sourceEventId: { type: 'string' },
+						targetEventId: { type: 'string' },
+						certainty: { type: 'string', enum: ['explicit', 'inferred'] },
+						reason: { type: 'string', minLength: 1, maxLength: 240 },
+						claimIds: {
+							type: 'array',
+							items: { type: 'string', minLength: 1 },
+							minItems: 1
+						}
+					},
+					required: [
+						'relation',
+						'sourceEventId',
+						'targetEventId',
+						'certainty',
+						'reason',
+						'claimIds'
+					],
+					additionalProperties: false
+				}
+			},
+			coverage: sessionChronologyTool.parameters.properties.coverage
+		},
+		required: ['relations', 'coverage'],
+		additionalProperties: false
+	}
+}
+
+const parseCampaignImportChronology = (
+	response: OpenAiResponse
+): InferredCampaignImportChronology => {
+	const call = response.output.find(
+		(item) => item.type === 'function_call' && item.name === campaignImportChronologyTool.name
+	)
+	return call?.type === 'function_call'
+		? campaignImportChronologySchema.parse(JSON.parse(call.arguments))
 		: { relations: [], coverage: [] }
 }
 
@@ -796,6 +859,20 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'inferSessionChronology', cause)
 		}),
 
+	inferCampaignImportChronology: ({ model, system, prompt }) =>
+		tryPromise({
+			try: async () => {
+				const response = await client.responses.create({
+					model,
+					...requestInput({ system, prompt }),
+					tools: [campaignImportChronologyTool],
+					tool_choice: { type: 'function', name: campaignImportChronologyTool.name }
+				})
+				return parseCampaignImportChronology(response)
+			},
+			catch: (cause) => failure('ai', 'inferCampaignImportChronology', cause)
+		}),
+
 	generateRelationshipLinks: ({ model, system, prompt }) =>
 		tryPromise({
 			try: async () => {
@@ -832,6 +909,7 @@ export const createOpenAiProvider = (apiKey?: string): AiProvider => {
 		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
 		auditSessionEvents: () => missingApiKey('auditSessionEvents'),
 		inferSessionChronology: () => missingApiKey('inferSessionChronology'),
+		inferCampaignImportChronology: () => missingApiKey('inferCampaignImportChronology'),
 		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
 	}
 }
