@@ -5,8 +5,18 @@ import { pipe } from 'effect/Function'
 import { z } from 'zod'
 import * as conversationDb from '#lib/server/db/conversation.js'
 import { logFailure } from '#lib/server/failure.js'
+import { requireCampaignOwner } from '#lib/server/auth/authorization.js'
 
-export const getConversationHistory = query(z.uuid(), (campaignId) =>
+const ownedQuery = <Schema extends z.ZodType, Output>(
+	schema: Schema,
+	callback: (input: z.output<Schema>) => Output | PromiseLike<Output>
+) =>
+	query(schema, async (input) => {
+		await requireCampaignOwner(input as string)
+		return callback(input as z.output<Schema>)
+	})
+
+export const getConversationHistory = ownedQuery(z.uuid(), (campaignId) =>
 	runPromise(
 		pipe(
 			conversationDb.list(campaignId),
