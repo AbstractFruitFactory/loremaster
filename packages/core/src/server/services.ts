@@ -7,7 +7,6 @@ import { contextIndex as createContextIndex } from './context/indexing/index.js'
 import { context as createContext } from './context/index.js'
 import { ingestionContext } from './ingestion/context.js'
 import { campaignImport as createCampaignImport, sessionIngestion } from './ingestion/index.js'
-import { filesystemIngestionStorage } from './ingestion/storage.js'
 import { filesystemStorageAdapter } from './storage/filesystem.js'
 import { supabaseStorageAdapter, type SupabaseStorageConfig } from './storage/supabase.js'
 import { campaignImportHistoryRepository } from './db/campaign-import.js'
@@ -113,7 +112,7 @@ export const createServices = (
 		hydrateDocuments: vault.getDocumentsByIds
 	})
 
-	const ingestionStorage = filesystemIngestionStorage(resolvedVaultRoot)
+	const ingestionStorage = storageAdapter.ingestion
 	const ingestion = sessionIngestion({
 		ai: {
 			analyzeSessionChunk: (input) =>
