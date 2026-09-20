@@ -4,13 +4,15 @@ import postgres from 'postgres'
 import { withAdvisoryLocks, type AdvisoryLockConnection } from './advisory-lock.js'
 import * as schema from './schema.js'
 
-const connect = (databaseUrl: string) => {
-	const client = postgres(databaseUrl)
-	const advisoryClient = postgres(databaseUrl)
+const connect = (databaseUrl: string, maxConnections?: number) => {
+	const options = maxConnections ? { max: maxConnections } : {}
+	const client = postgres(databaseUrl, options)
+	const advisoryClient = postgres(databaseUrl, options)
 	return {
 		client,
 		advisoryClient,
 		databaseUrl,
+		maxConnections,
 		database: drizzle(client, { schema })
 	}
 }
@@ -46,12 +48,18 @@ export const withDatabaseAdvisoryLocks = <Value, Error, Requirements>(
 	effect: () => Effect<Value, Error, Requirements>
 ) => withAdvisoryLocks(reserveAdvisoryConnection, keys, effect)
 
-export const initializeDatabase = (databaseUrl: string) => {
+export const initializeDatabase = (
+	databaseUrl: string,
+	{ maxConnections }: { maxConnections?: number } = {}
+) => {
 	if (!databaseUrl) throw new Error('databaseUrl is required')
 	if (state && state.databaseUrl !== databaseUrl) {
 		throw new Error('Core database is already initialized with a different URL')
 	}
-	state ??= connect(databaseUrl)
+	if (state && state.maxConnections !== maxConnections) {
+		throw new Error('Core database is already initialized with a different pool size')
+	}
+	state ??= connect(databaseUrl, maxConnections)
 	return state.database
 }
 

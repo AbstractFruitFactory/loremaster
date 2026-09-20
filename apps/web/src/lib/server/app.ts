@@ -23,6 +23,7 @@ const vaultRoot = resolve(
 )
 const services = createCoreRuntime({
 	databaseUrl: DATABASE_URL,
+	databaseMaxConnections: isLive ? 1 : undefined,
 	vaultRoot,
 	...(isLive && hasSupabaseStorage
 		? {

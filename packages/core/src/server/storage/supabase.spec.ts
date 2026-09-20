@@ -1,6 +1,11 @@
 import { runPromise } from 'effect/Effect'
 import { describe, expect, it } from 'vitest'
 import type { VaultRevision } from '../vault/revisions/types.js'
+import {
+	campaignImportContentHash,
+	campaignImportSourceId,
+	campaignImportSourceRevisionId
+} from '../ingestion/ids.js'
 import { createSupabaseStorageAdapter, type SupabaseObjectStorage } from './supabase.js'
 
 const memoryObjects = (): SupabaseObjectStorage => {
@@ -64,5 +69,48 @@ describe('Supabase storage adapter', () => {
 			revision
 		])
 		expect(await runPromise(revisions.listCampaignRevisions('campaign-1'))).toEqual([revision])
+	})
+
+	it('shares campaign import state between independently created adapters', async () => {
+		const objects = memoryObjects()
+		const writer = createSupabaseStorageAdapter(objects).ingestion
+		const reader = createSupabaseStorageAdapter(objects).ingestion
+		const campaignId = 'campaign-1'
+		const ingestionId = 'import-1'
+		const content = '# Imported notes'
+		const sourceId = campaignImportSourceId(ingestionId, 0)
+		const contentHash = campaignImportContentHash(content)
+		const sourceRevisionId = campaignImportSourceRevisionId(sourceId, contentHash)
+		const source = {
+			displayName: 'notes.md',
+			sourceId,
+			sourceRevisionId,
+			title: 'Imported notes',
+			mediaType: 'text/markdown',
+			contentHash,
+			byteLength: Buffer.byteLength(content)
+		}
+
+		await runPromise(
+			writer.writeCampaignImportData(
+				{
+					schemaVersion: 1,
+					kind: 'campaign-import',
+					campaignId,
+					ingestionId,
+					createdAt: '2026-09-20T00:00:00.000Z',
+					sources: [source]
+				},
+				[{ ...source, content }]
+			)
+		)
+
+		const lifecycle = await runPromise(
+			reader.readCampaignImportLifecycleState(campaignId, ingestionId)
+		)
+		expect(lifecycle.request.ingestionId).toBe(ingestionId)
+		expect(await runPromise(reader.listCampaignImports(campaignId))).toMatchObject([
+			{ campaignId, ingestionId, phase: 'analyzing' }
+		])
 	})
 })

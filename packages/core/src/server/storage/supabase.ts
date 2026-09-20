@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { tryPromise } from 'effect/Effect'
 import { failure } from '../failure.js'
+import { objectIngestionStorage } from '../ingestion/object-storage.js'
 import type { VaultRevision } from '../vault/revisions/types.js'
 import {
 	comparableRevision,
@@ -282,7 +283,8 @@ const revisionStorage = (objects: SupabaseObjectStorage): RevisionStorage => ({
 
 export const createSupabaseStorageAdapter = (objects: SupabaseObjectStorage): StorageAdapter => ({
 	vault: vaultStorage(objects),
-	revisions: revisionStorage(objects)
+	revisions: revisionStorage(objects),
+	ingestion: objectIngestionStorage(objects)
 })
 
 export const supabaseStorageAdapter = (config: SupabaseStorageConfig): StorageAdapter =>

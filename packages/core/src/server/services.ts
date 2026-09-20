@@ -29,15 +29,17 @@ export const createServices = (
 	ai: AiProvider,
 	{
 		databaseUrl,
+		databaseMaxConnections,
 		vaultRoot = 'data/campaigns',
 		supabaseStorage
 	}: {
 		databaseUrl: string
+		databaseMaxConnections?: number
 		vaultRoot?: string
 		supabaseStorage?: SupabaseStorageConfig
 	}
 ) => {
-	initializeDatabase(databaseUrl)
+	initializeDatabase(databaseUrl, { maxConnections: databaseMaxConnections })
 	vectorDb.initializeVectorStore(databaseUrl)
 	const campaign = createCampaign({
 		ai: {
