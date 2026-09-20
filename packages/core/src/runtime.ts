@@ -1,9 +1,9 @@
-import { mockAiProvider } from './server/ai/providers/mock'
-import { createOpenAiProvider } from './server/ai/providers/openai'
-import { closeDb } from './server/db/index'
-import { closeVectorStore } from './server/db/vector'
-import { createServices } from './server/services'
-import type { CoreRuntimeConfig } from './runtime-config'
+import { mockAiProvider } from './server/ai/providers/mock.js'
+import { createOpenAiProvider } from './server/ai/providers/openai.js'
+import { closeDb } from './server/db/index.js'
+import { closeVectorStore } from './server/db/vector.js'
+import { createServices } from './server/services.js'
+import type { CoreRuntimeConfig } from './runtime-config.js'
 
 const disposeCoreResources = async () => {
 	const results = await Promise.allSettled([closeVectorStore(), closeDb()])
@@ -23,4 +23,4 @@ export const createCoreRuntime = (config: CoreRuntimeConfig) => {
 	return { ...services, dispose: disposeCoreResources }
 }
 
-export type { CoreRuntimeConfig } from './runtime-config'
+export type { CoreRuntimeConfig } from './runtime-config.js'
