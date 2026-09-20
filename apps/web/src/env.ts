@@ -8,5 +8,9 @@ export const variables = defineEnvVars({
 	AUTH_SIGNUP_CODE: optionalString,
 	LOREMASTER_DATA_ROOT: optionalString,
 	MOCK_AI_PROVIDER: optionalString,
-	OPENAI_API_KEY: optionalString
+	OPENAI_API_KEY: optionalString,
+	SUPABASE_STORAGE_BUCKET: optionalString,
+	SUPABASE_SERVICE_ROLE_KEY: optionalString,
+	SUPABASE_URL: optionalString,
+	VERCEL: optionalString
 })

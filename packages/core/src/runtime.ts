@@ -17,7 +17,8 @@ export const createCoreRuntime = (config: CoreRuntimeConfig) => {
 	const aiProvider = config.useMockAi ? mockAiProvider : createOpenAiProvider(config.openAiApiKey)
 	const services = createServices(aiProvider, {
 		databaseUrl: config.databaseUrl,
-		...(config.vaultRoot ? { vaultRoot: config.vaultRoot } : {})
+		...(config.vaultRoot ? { vaultRoot: config.vaultRoot } : {}),
+		...(config.supabaseStorage ? { supabaseStorage: config.supabaseStorage } : {})
 	})
 	return { ...services, dispose: disposeCoreResources }
 }

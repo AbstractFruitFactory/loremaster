@@ -8,6 +8,8 @@ import { context as createContext } from './context/index.js'
 import { ingestionContext } from './ingestion/context.js'
 import { campaignImport as createCampaignImport, sessionIngestion } from './ingestion/index.js'
 import { filesystemIngestionStorage } from './ingestion/storage.js'
+import { filesystemStorageAdapter } from './storage/filesystem.js'
+import { supabaseStorageAdapter, type SupabaseStorageConfig } from './storage/supabase.js'
 import { campaignImportHistoryRepository } from './db/campaign-import.js'
 import * as campaignDb from './db/campaign.js'
 import * as contextDb from './db/context.js'
@@ -20,8 +22,6 @@ import { lore as createLore } from './lore/index.js'
 import { timeline as createTimeline } from './timeline/index.js'
 import { vault as createVault } from './vault/index.js'
 import { vaultRevision } from './vault/revisions/index.js'
-import { filesystemRevisionStorage } from './vault/revisions/storage.js'
-import { filesystemVaultStorage } from './vault/storage/filesystem.js'
 
 const sessionAttributionInstruction =
 	'Preserve epistemic attribution in every extracted claim. If information is presented as dialogue, testimony, belief, rumor, legend, hearsay, or a written source, keep that source in the normalized claim content. Never rewrite "Ilyra says X" as "X", "Nell believes or reports X" as "X", "a letter states X" as "X", or "a legend says X" as "X". Only state X directly as an objective world fact when the transcript itself establishes X authoritatively. The certainty field describes how directly the full attributed claim is supported by the evidence; explicit does not mean that an embedded proposition is objectively true.'
@@ -30,10 +30,12 @@ export const createServices = (
 	ai: AiProvider,
 	{
 		databaseUrl,
-		vaultRoot = 'data/campaigns'
+		vaultRoot = 'data/campaigns',
+		supabaseStorage
 	}: {
 		databaseUrl: string
 		vaultRoot?: string
+		supabaseStorage?: SupabaseStorageConfig
 	}
 ) => {
 	initializeDatabase(databaseUrl)
@@ -59,10 +61,13 @@ export const createServices = (
 
 	const timeline = createTimeline({ db: timelineDb })
 	const resolvedVaultRoot = resolve(vaultRoot)
-	const storage = filesystemVaultStorage(resolvedVaultRoot)
+	const storageAdapter = supabaseStorage
+		? supabaseStorageAdapter(supabaseStorage)
+		: filesystemStorageAdapter(resolvedVaultRoot)
+	const storage = storageAdapter.vault
 	const revisions = vaultRevision({
 		db: revisionDb,
-		revisions: filesystemRevisionStorage(resolvedVaultRoot),
+		revisions: storageAdapter.revisions,
 		vault: storage
 	})
 

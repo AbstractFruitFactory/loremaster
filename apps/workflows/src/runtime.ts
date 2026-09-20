@@ -1,22 +1,36 @@
 import { createCoreRuntime } from '@loremaster/core'
-import { isAbsolute, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
 const databaseUrl = process.env.DATABASE_URL
 
 if (!databaseUrl) throw new Error('DATABASE_URL is not set')
 
 const configuredVaultRoot = process.env.LOREMASTER_DATA_ROOT
-if (
-	process.env.NODE_ENV === 'production' &&
-	(!configuredVaultRoot || !isAbsolute(configuredVaultRoot))
-) {
-	throw new Error('Production LOREMASTER_DATA_ROOT must be an absolute path')
+const supabaseUrl = process.env.SUPABASE_URL
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+const isLive = process.env.NODE_ENV === 'production'
+const hasSupabaseStorage = !!supabaseUrl && !!supabaseServiceRoleKey
+if (isLive && !hasSupabaseStorage) {
+	throw new Error('Production requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
 }
-const vaultRoot = resolve(configuredVaultRoot ?? '../../data/campaigns')
+const vaultRoot = resolve(
+	configuredVaultRoot ?? (isLive ? '/tmp/loremaster/campaigns' : '../../data/campaigns')
+)
 
 export const runtime = createCoreRuntime({
 	databaseUrl,
 	vaultRoot,
+	...(isLive && hasSupabaseStorage
+		? {
+				supabaseStorage: {
+					url: supabaseUrl,
+					serviceRoleKey: supabaseServiceRoleKey,
+					...(process.env.SUPABASE_STORAGE_BUCKET
+						? { bucket: process.env.SUPABASE_STORAGE_BUCKET }
+						: {})
+				}
+			}
+		: {}),
 	...(process.env.OPENAI_API_KEY ? { openAiApiKey: process.env.OPENAI_API_KEY } : {}),
 	useMockAi: process.env.MOCK_AI_PROVIDER === 'true'
 })

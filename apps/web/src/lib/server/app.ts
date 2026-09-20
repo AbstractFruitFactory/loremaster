@@ -2,24 +2,37 @@ import {
 	DATABASE_URL,
 	LOREMASTER_DATA_ROOT,
 	MOCK_AI_PROVIDER,
-	OPENAI_API_KEY
+	OPENAI_API_KEY,
+	SUPABASE_SERVICE_ROLE_KEY,
+	SUPABASE_STORAGE_BUCKET,
+	SUPABASE_URL,
+	VERCEL
 } from '$app/env/private'
 import { building } from '$app/env'
 import { createCoreRuntime } from '@loremaster/core'
-import { isAbsolute, resolve } from 'node:path'
+import { resolve } from 'node:path'
 
 const configuredVaultRoot = LOREMASTER_DATA_ROOT || undefined
-if (
-	process.env.NODE_ENV === 'production' &&
-	!building &&
-	(!configuredVaultRoot || !isAbsolute(configuredVaultRoot))
-) {
-	throw new Error('Production LOREMASTER_DATA_ROOT must be an absolute path')
+const isLive = VERCEL === '1'
+const hasSupabaseStorage = !!SUPABASE_URL && !!SUPABASE_SERVICE_ROLE_KEY
+if (isLive && !building && !hasSupabaseStorage) {
+	throw new Error('Vercel deployments require SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY')
 }
-const vaultRoot = resolve(configuredVaultRoot ?? '../../data/campaigns')
+const vaultRoot = resolve(
+	configuredVaultRoot ?? (isLive ? '/tmp/loremaster/campaigns' : '../../data/campaigns')
+)
 const services = createCoreRuntime({
 	databaseUrl: DATABASE_URL,
 	vaultRoot,
+	...(isLive && hasSupabaseStorage
+		? {
+				supabaseStorage: {
+					url: SUPABASE_URL,
+					serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY,
+					...(SUPABASE_STORAGE_BUCKET ? { bucket: SUPABASE_STORAGE_BUCKET } : {})
+				}
+			}
+		: {}),
 	openAiApiKey: OPENAI_API_KEY,
 	useMockAi: MOCK_AI_PROVIDER === 'true'
 })

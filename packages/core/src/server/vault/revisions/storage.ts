@@ -39,9 +39,10 @@ const resolveInside = (base: string, ...segments: string[]) => {
 const readJson = async <Value>(path: string): Promise<Value> =>
 	JSON.parse(await readFile(path, 'utf8')) as Value
 
-const comparableRevision = ({ createdAt: _createdAt, ...revision }: VaultRevision) => revision
+export const comparableRevision = ({ createdAt: _createdAt, ...revision }: VaultRevision) =>
+	revision
 
-const orderRevisionChain = (revisions: VaultRevision[]) => {
+export const orderRevisionChain = (revisions: VaultRevision[]) => {
 	if (revisions.length <= 1) return revisions
 	const byId = new Map<string, VaultRevision>()
 	const referenced = new Set<string>()
