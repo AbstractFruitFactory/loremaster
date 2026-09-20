@@ -6,8 +6,13 @@ import { campaigns } from '#lib/server/db/schema.js'
 import type { User } from './session.js'
 
 export function requireUser(): User {
-	const { locals, url } = getRequestEvent()
+	const { locals } = getRequestEvent()
 	if (locals.user === null) {
+		// Remote queries may read `locals`, but SvelteKit intentionally prevents
+		// them from reading `event.url`. Only access it on the unauthenticated
+		// request path, where we need to preserve the destination for the login
+		// redirect.
+		const { url } = getRequestEvent()
 		const redirectTo = url.pathname + url.search
 		const params = new URLSearchParams({ redirectTo })
 		redirect(303, `/login?${params}`)
