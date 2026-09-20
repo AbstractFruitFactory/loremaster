@@ -165,9 +165,14 @@ export const commit = DBOS.registerWorkflow(
 			documents.push(...result.documents)
 		}
 
+		const sessionDocumentId = prepared.plan.sessionDocumentId
+		if (!sessionDocumentId) {
+			throw new Error('Commit plan is missing its session document ID')
+		}
+
 		const result = {
 			documents,
-			sessionDocumentId: prepared.plan.sessionDocumentId
+			sessionDocumentId
 		}
 		await publishProgress('completed', mutationIds.length, mutationIds.length)
 		return result
