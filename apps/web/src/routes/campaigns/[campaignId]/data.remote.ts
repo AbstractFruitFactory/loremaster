@@ -3,6 +3,7 @@ import { error } from '@sveltejs/kit'
 import { match, runPromise } from 'effect/Effect'
 import { pipe } from 'effect/Function'
 import { z } from 'zod'
+import { requireCampaignOwner } from '#lib/server/auth/authorization.js'
 import { documentTypes } from '#lib/document.js'
 import { campaign, ingestion, lore, vault } from '#lib/server/app.js'
 import { getIngestionDbosAdapter } from '#lib/server/dbos/client.js'
@@ -68,6 +69,29 @@ import {
 	saveCampaignImportReviewStateInput,
 	startCampaignImportInput
 } from './campaign-import-schema.js'
+
+type CampaignInput = string | { campaignId: string }
+
+const getCampaignId = (input: CampaignInput) =>
+	typeof input === 'string' ? input : input.campaignId
+
+const ownedQuery = <Schema extends z.ZodType, Output>(
+	schema: Schema,
+	callback: (input: z.output<Schema>) => Output | PromiseLike<Output>
+) =>
+	query(schema, async (input) => {
+		await requireCampaignOwner(getCampaignId(input as CampaignInput))
+		return callback(input as z.output<Schema>)
+	})
+
+const ownedCommand = <Schema extends z.ZodType, Output>(
+	schema: Schema,
+	callback: (input: z.output<Schema>) => Output | PromiseLike<Output>
+) =>
+	command(schema, async (input) => {
+		await requireCampaignOwner(getCampaignId(input as CampaignInput))
+		return callback(input as z.output<Schema>)
+	})
 
 const campaignId = z.uuid()
 const documentId = z.string().trim().min(1).max(200)
@@ -183,7 +207,7 @@ const commitIngestionInput = ingestionReference
 		resolutions: z.array(proposalResolution).max(500)
 	})
 	.strict()
-export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
+export const listLore = ownedQuery(campaignId, (id): Promise<LoreSummary[]> =>
 	runPromise(
 		pipe(
 			lore.listLore(id),
@@ -202,7 +226,7 @@ export const listLore = query(campaignId, (id): Promise<LoreSummary[]> =>
 	)
 )
 
-export const getLore = query(loreReference, ({ campaignId, loreId }): Promise<LoreEntry> =>
+export const getLore = ownedQuery(loreReference, ({ campaignId, loreId }): Promise<LoreEntry> =>
 	runPromise(
 		pipe(
 			lore.getLore(campaignId, loreId),
@@ -225,7 +249,7 @@ export const getLore = query(loreReference, ({ campaignId, loreId }): Promise<Lo
 	)
 )
 
-export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =>
+export const createLore = ownedCommand(createLoreInput, (input): Promise<LoreEntry> =>
 	runPromise(
 		pipe(
 			lore.createLore(input.campaignId, input),
@@ -252,7 +276,7 @@ export const createLore = command(createLoreInput, (input): Promise<LoreEntry> =
 	)
 )
 
-export const analyzeSession = command(
+export const analyzeSession = ownedCommand(
 	analyzeSessionInput,
 	async (input): Promise<AnalysisStartReference> => {
 		const allocatedIngestionId = input.ingestionId ?? ingestion.allocateIngestionId()
@@ -311,7 +335,7 @@ export const analyzeSession = command(
 	}
 )
 
-export const retrySessionAnalysis = command(
+export const retrySessionAnalysis = ownedCommand(
 	ingestionReference,
 	async ({ campaignId, ingestionId }): Promise<AnalysisStartReference> => {
 		await runPromise(
@@ -338,7 +362,7 @@ export const retrySessionAnalysis = command(
 	}
 )
 
-export const getSessionAnalysisStatus = query(
+export const getSessionAnalysisStatus = ownedQuery(
 	ingestionReference,
 	async ({ campaignId, ingestionId }): Promise<AnalysisWorkflowStatus> => {
 		await runPromise(
@@ -369,7 +393,7 @@ export const getSessionAnalysisStatus = query(
 	}
 )
 
-export const getSessionIngestion = query(
+export const getSessionIngestion = ownedQuery(
 	ingestionReference,
 	({ campaignId, ingestionId }): Promise<SessionIngestionDraft> =>
 		runPromise(
@@ -386,7 +410,7 @@ export const getSessionIngestion = query(
 		)
 )
 
-export const commitSessionIngestion = command(
+export const commitSessionIngestion = ownedCommand(
 	commitIngestionInput,
 	async (input): Promise<CommitStartReference> => {
 		const draft = await runPromise(
@@ -442,7 +466,7 @@ export const commitSessionIngestion = command(
 	}
 )
 
-export const retrySessionCommit = command(
+export const retrySessionCommit = ownedCommand(
 	ingestionReference,
 	async ({ campaignId, ingestionId }): Promise<CommitStartReference> => {
 		await runPromise(
@@ -488,7 +512,7 @@ export const retrySessionCommit = command(
 	}
 )
 
-export const getSessionCommitStatus = query(
+export const getSessionCommitStatus = ownedQuery(
 	ingestionReference,
 	async ({ campaignId, ingestionId }): Promise<CommitWorkflowStatus> => {
 		await runPromise(
@@ -536,9 +560,12 @@ const loadUncommittedSessionIngestions = (id: string): Promise<SessionIngestionS
 		)
 	)
 
-export const listUncommittedSessionIngestions = query(campaignId, loadUncommittedSessionIngestions)
+export const listUncommittedSessionIngestions = ownedQuery(
+	campaignId,
+	loadUncommittedSessionIngestions
+)
 
-export const discardSessionIngestion = command(
+export const discardSessionIngestion = ownedCommand(
 	ingestionReference,
 	async ({ campaignId, ingestionId }) => {
 		const summary = (await loadUncommittedSessionIngestions(campaignId)).find(
@@ -574,7 +601,7 @@ export const discardSessionIngestion = command(
 	}
 )
 
-export const startCampaignImport = command(
+export const startCampaignImport = ownedCommand(
 	startCampaignImportInput,
 	async (input): Promise<WorkflowReference> => {
 		const reference = await startCampaignImportOperation(input)
@@ -583,13 +610,13 @@ export const startCampaignImport = command(
 	}
 )
 
-export const retryCampaignImportAnalysis = command(
+export const retryCampaignImportAnalysis = ownedCommand(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('analysis', campaignId, ingestionId)
 )
 
-export const getCampaignImportAnalysisStatus = query(
+export const getCampaignImportAnalysisStatus = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportAnalysisWorkflowStatus> =>
 		getCampaignImportWorkflowStatusOperation(
@@ -599,19 +626,19 @@ export const getCampaignImportAnalysisStatus = query(
 		) as Promise<CampaignImportAnalysisWorkflowStatus>
 )
 
-export const getCampaignImport = query(
+export const getCampaignImport = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportDraft> =>
 		getCampaignImportOperation(campaignId, ingestionId)
 )
 
-export const getCampaignImportReviewState = query(
+export const getCampaignImportReviewState = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportReviewState> =>
 		getCampaignImportReviewStateOperation(campaignId, ingestionId)
 )
 
-export const saveCampaignImportReviewState = command(
+export const saveCampaignImportReviewState = ownedCommand(
 	saveCampaignImportReviewStateInput,
 	async (input) => {
 		const state = await saveCampaignImportReviewStateOperation(input)
@@ -623,7 +650,7 @@ export const saveCampaignImportReviewState = command(
 	}
 )
 
-export const commitCampaignImport = command(
+export const commitCampaignImport = ownedCommand(
 	commitCampaignImportInput,
 	async (input): Promise<WorkflowReference> => {
 		const reference = await commitCampaignImportOperation(input)
@@ -632,13 +659,13 @@ export const commitCampaignImport = command(
 	}
 )
 
-export const retryCampaignImportCommit = command(
+export const retryCampaignImportCommit = ownedCommand(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('commit', campaignId, ingestionId)
 )
 
-export const getCampaignImportCommitStatus = query(
+export const getCampaignImportCommitStatus = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportCommitWorkflowStatus> =>
 		getCampaignImportWorkflowStatusOperation(
@@ -650,14 +677,14 @@ export const getCampaignImportCommitStatus = query(
 
 const loadCampaignImports = listCampaignImportsOperation
 
-export const listCampaignImports = query(campaignId, loadCampaignImports)
+export const listCampaignImports = ownedQuery(campaignId, loadCampaignImports)
 
-export const getCampaignImportLifecycle = query(
+export const getCampaignImportLifecycle = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }) => getCampaignImportLifecycleOperation(campaignId, ingestionId)
 )
 
-export const finishCampaignImport = command(
+export const finishCampaignImport = ownedCommand(
 	campaignImportReferenceInput,
 	async ({ campaignId, ingestionId }) => {
 		await finishCampaignImportOperation(campaignId, ingestionId)
@@ -665,7 +692,7 @@ export const finishCampaignImport = command(
 	}
 )
 
-export const discardCampaignImport = command(
+export const discardCampaignImport = ownedCommand(
 	campaignImportReferenceInput,
 	async ({ campaignId, ingestionId }) => {
 		await discardCampaignImportOperation(campaignId, ingestionId)
@@ -673,19 +700,19 @@ export const discardCampaignImport = command(
 	}
 )
 
-export const startCampaignImportChronology = command(
+export const startCampaignImportChronology = ownedCommand(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		startCampaignImportChronologyOperation(campaignId, ingestionId)
 )
 
-export const retryCampaignImportChronologyAnalysis = command(
+export const retryCampaignImportChronologyAnalysis = ownedCommand(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('chronology-analysis', campaignId, ingestionId)
 )
 
-export const getCampaignImportChronologyStatus = query(
+export const getCampaignImportChronologyStatus = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportChronologyAnalysisWorkflowStatus> =>
 		getCampaignImportWorkflowStatusOperation(
@@ -695,24 +722,24 @@ export const getCampaignImportChronologyStatus = query(
 		) as Promise<CampaignImportChronologyAnalysisWorkflowStatus>
 )
 
-export const getCampaignImportChronology = query(
+export const getCampaignImportChronology = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportChronologyDraft> =>
 		getCampaignImportChronologyOperation(campaignId, ingestionId)
 )
 
-export const commitCampaignImportChronology = command(
+export const commitCampaignImportChronology = ownedCommand(
 	commitCampaignImportChronologyInput,
 	(input): Promise<WorkflowReference> => commitCampaignImportChronologyOperation(input)
 )
 
-export const retryCampaignImportChronologyCommit = command(
+export const retryCampaignImportChronologyCommit = ownedCommand(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<WorkflowReference> =>
 		retryCampaignImportWorkflowOperation('chronology-commit', campaignId, ingestionId)
 )
 
-export const getCampaignImportChronologyCommitStatus = query(
+export const getCampaignImportChronologyCommitStatus = ownedQuery(
 	campaignImportReferenceInput,
 	({ campaignId, ingestionId }): Promise<CampaignImportChronologyCommitWorkflowStatus> =>
 		getCampaignImportWorkflowStatusOperation(
@@ -740,9 +767,9 @@ const loadVaultDocuments = (id: string): Promise<VaultDocumentSummary[]> =>
 		)
 	)
 
-export const listDocuments = query(campaignId, loadVaultDocuments)
+export const listDocuments = ownedQuery(campaignId, loadVaultDocuments)
 
-export const listDocumentsByType = query(
+export const listDocumentsByType = ownedQuery(
 	documentsByTypeInput,
 	async ({ campaignId, type }): Promise<VaultDocumentSummary[]> =>
 		(await loadVaultDocuments(campaignId)).filter((document) => document.type === type)
@@ -762,7 +789,7 @@ const toDocumentView = ({
 	currentRevisionId
 })
 
-export const getDocument = query(
+export const getDocument = ownedQuery(
 	documentReference,
 	({ campaignId, documentId }): Promise<VaultDocumentView> =>
 		runPromise(
@@ -787,7 +814,7 @@ export const getDocument = query(
 		)
 )
 
-export const listDocumentRevisions = query(
+export const listDocumentRevisions = ownedQuery(
 	documentReference,
 	({ campaignId, documentId }): Promise<VaultRevisionMetadata[]> =>
 		runPromise(
@@ -808,7 +835,7 @@ export const listDocumentRevisions = query(
 		)
 )
 
-export const getDocumentRevision = query(
+export const getDocumentRevision = ownedQuery(
 	revisionReference,
 	({ campaignId, documentId, revisionId }): Promise<VaultRevision> =>
 		runPromise(
@@ -833,7 +860,7 @@ export const getDocumentRevision = query(
 		)
 )
 
-export const diffDocumentRevisions = query(
+export const diffDocumentRevisions = ownedQuery(
 	revisionDiffInput,
 	({ campaignId, documentId, toRevisionId, fromRevisionId }): Promise<RevisionDiff> =>
 		runPromise(
@@ -858,7 +885,7 @@ export const diffDocumentRevisions = query(
 		)
 )
 
-export const createDocument = command(createDocumentInput, (input) =>
+export const createDocument = ownedCommand(createDocumentInput, (input) =>
 	runPromise(
 		pipe(
 			vault.createDocument(input.campaignId, input),
@@ -897,7 +924,7 @@ export const createDocument = command(createDocumentInput, (input) =>
 	)
 )
 
-export const updateDocument = command(updateDocumentInput, (input) =>
+export const updateDocument = ownedCommand(updateDocumentInput, (input) =>
 	runPromise(
 		pipe(
 			vault.updateDocument(input.campaignId, input.documentId, {
@@ -934,7 +961,7 @@ export const updateDocument = command(updateDocumentInput, (input) =>
 	)
 )
 
-export const editDocument = command(editDocumentInput, (input): Promise<VaultDocumentView> =>
+export const editDocument = ownedCommand(editDocumentInput, (input): Promise<VaultDocumentView> =>
 	runPromise(
 		pipe(
 			vault.editDocument(input.campaignId, input.documentId, {
@@ -981,7 +1008,7 @@ export const editDocument = command(editDocumentInput, (input): Promise<VaultDoc
 	)
 )
 
-export const deleteDocument = command(deleteDocumentInput, (input) =>
+export const deleteDocument = ownedCommand(deleteDocumentInput, (input) =>
 	runPromise(
 		pipe(
 			vault.deleteDocument(input.campaignId, input.documentId, {
@@ -1012,7 +1039,7 @@ export const deleteDocument = command(deleteDocumentInput, (input) =>
 	)
 )
 
-export const restoreDocumentRevision = command(restoreRevisionInput, (input) =>
+export const restoreDocumentRevision = ownedCommand(restoreRevisionInput, (input) =>
 	runPromise(
 		pipe(
 			vault.restoreDocumentRevision(input.campaignId, input.documentId, input.revisionId, {
@@ -1075,7 +1102,7 @@ export const restoreDocumentRevision = command(restoreRevisionInput, (input) =>
 	)
 )
 
-export const reindexCampaignVault = command(campaignId, (id) =>
+export const reindexCampaignVault = ownedCommand(campaignId, (id) =>
 	runPromise(
 		pipe(
 			vault.reindexCampaign(id),

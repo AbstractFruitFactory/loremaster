@@ -6,6 +6,25 @@ import { z } from 'zod'
 import { campaign } from '#lib/server/app.js'
 import type { Campaign } from '#lib/server/campaign/types.js'
 import { logFailure } from '#lib/server/failure.js'
+import { requireCampaignOwner, requireUser } from '#lib/server/auth/authorization.js'
+
+const ownedQuery = <Schema extends z.ZodType, Output>(
+	schema: Schema,
+	callback: (input: z.output<Schema>) => Output | PromiseLike<Output>
+) =>
+	query(schema, async (input) => {
+		await requireCampaignOwner(input as string)
+		return callback(input as z.output<Schema>)
+	})
+
+const ownedCommand = <Schema extends z.ZodType, Output>(
+	schema: Schema,
+	callback: (input: z.output<Schema>) => Output | PromiseLike<Output>
+) =>
+	command(schema, async (input) => {
+		await requireCampaignOwner(input as string)
+		return callback(input as z.output<Schema>)
+	})
 
 const campaignInput = z
 	.object({
@@ -19,7 +38,7 @@ const campaignId = z.uuid()
 export const listCampaigns = query((): Promise<Campaign[]> =>
 	runPromise(
 		pipe(
-			campaign.listCampaigns(),
+			campaign.listCampaigns(requireUser().id),
 			match({
 				onFailure: (failure) => {
 					logFailure(failure)
@@ -31,7 +50,7 @@ export const listCampaigns = query((): Promise<Campaign[]> =>
 	)
 )
 
-export const getCampaign = query(campaignId, (id) =>
+export const getCampaign = ownedQuery(campaignId, (id) =>
 	runPromise(
 		pipe(
 			campaign.getCampaign(id),
@@ -53,7 +72,11 @@ export const getCampaign = query(campaignId, (id) =>
 export const createCampaign = command(campaignInput, (input) =>
 	runPromise(
 		pipe(
-			campaign.createCampaign(input),
+			campaign.createCampaign({
+				name: input.name,
+				description: input.description,
+				ownerId: requireUser().id
+			}),
 			match({
 				onFailure: (failure) => {
 					logFailure(failure)
@@ -65,7 +88,7 @@ export const createCampaign = command(campaignInput, (input) =>
 	)
 )
 
-export const generateCampaignSummary = command(campaignId, (id) =>
+export const generateCampaignSummary = ownedCommand(campaignId, (id) =>
 	runPromise(
 		pipe(
 			campaign.generateCampaignSummary(id),

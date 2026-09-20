@@ -8,6 +8,7 @@ import type { AssistantStreamEvent } from '#lib/server/assistant/types.js'
 import * as conversationDb from '#lib/server/db/conversation.js'
 import { logFailure } from '#lib/server/failure.js'
 import type { RequestHandler } from './$types'
+import { requireCampaignOwner } from '#lib/server/auth/authorization.js'
 
 const campaignIdSchema = z.uuid()
 const conversationHistoryLimit = 12
@@ -19,6 +20,7 @@ export const POST: RequestHandler = async ({ params, request }) => {
 	if (!campaignId.success) {
 		return json({ message: 'Invalid campaign ID' }, { status: 400 })
 	}
+	await requireCampaignOwner(campaignId.data)
 
 	const body = askLoremasterRequestSchema.safeParse(await request.json().catch(() => null))
 	if (!body.success) {

@@ -22,6 +22,18 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
+Set `AUTH_ALLOWED_EMAILS` to the comma-separated email addresses you want to invite and set
+`AUTH_SIGNUP_CODE` to a long random code that you share with those testers. Then open
+`http://localhost:5173/signup` and create the first account. In development, an empty allowlist and
+signup code are accepted to simplify local setup; production requires both an invited address and
+the shared code. The first account claims any campaigns created before authentication was added,
+including the seeded campaign. Every campaign created after that is owned by the account that
+created it and is only visible to that owner.
+
+Authentication follows Lucia's database-session guidance: passwords are hashed with Argon2id and
+the browser receives an HTTP-only session cookie. This initial testing flow does not yet include
+email verification or password recovery.
+
 The local DBOS runtime uses `DBOS_SYSTEM_DATABASE_URL`, falling back to `DATABASE_URL`, and stores
 its system tables in the `dbos` schema. The web and workflows applications resolve
 `LOREMASTER_DATA_ROOT` from their package directories, so the campaign vault remains in the
@@ -51,7 +63,7 @@ pnpm dev:web
 pnpm dev:workflows
 ```
 
-The seeded campaign is available at
+After creating the first account, the seeded campaign is available at
 `http://localhost:5173/campaigns/11111111-1111-4111-8111-111111111111`.
 
 ## Database and vault

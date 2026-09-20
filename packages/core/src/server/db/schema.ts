@@ -25,12 +25,38 @@ const tsvector = customType<{ data: string }>({
 	dataType: () => 'tsvector'
 })
 
-export const campaigns = pgTable('campaigns', {
+export const users = pgTable('users', {
 	id: uuid('id').primaryKey().defaultRandom(),
-	name: text('name').notNull(),
-	description: text('description').notNull(),
-	createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' }).notNull().defaultNow()
+	email: text('email').notNull().unique(),
+	passwordHash: text('password_hash').notNull(),
+	createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
 })
+
+export const userSessions = pgTable(
+	'user_sessions',
+	{
+		id: text('id').primaryKey(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull()
+	},
+	(table) => [index('user_sessions_user_id_index').on(table.userId)]
+)
+
+export const campaigns = pgTable(
+	'campaigns',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		ownerId: uuid('owner_id').references(() => users.id, { onDelete: 'restrict' }),
+		name: text('name').notNull(),
+		description: text('description').notNull(),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'string' })
+			.notNull()
+			.defaultNow()
+	},
+	(table) => [index('campaigns_owner_id_index').on(table.ownerId)]
+)
 
 export const vaultDocuments = pgTable(
 	'vault_documents',

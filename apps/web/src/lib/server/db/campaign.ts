@@ -9,16 +9,32 @@ import { campaigns } from './schema'
 export const getById = (id: string) =>
 	pipe(
 		tryPromise({
-			try: () => db.select().from(campaigns).where(eq(campaigns.id, id)).limit(1),
+			try: () =>
+				db
+					.select({
+						id: campaigns.id,
+						name: campaigns.name,
+						description: campaigns.description,
+						createdAt: campaigns.createdAt
+					})
+					.from(campaigns)
+					.where(eq(campaigns.id, id))
+					.limit(1),
 			catch: (cause) => failure('database', 'getCampaignById', cause)
 		}),
 		map(([campaign]) => campaign)
 	)
 
-export const create = (input: Pick<Campaign, 'name' | 'description'>) =>
+export const create = (input: Pick<Campaign, 'name' | 'description'> & { ownerId: string }) =>
 	pipe(
 		tryPromise({
-			try: () => db.insert(campaigns).values(input).returning(),
+			try: () =>
+				db.insert(campaigns).values(input).returning({
+					id: campaigns.id,
+					name: campaigns.name,
+					description: campaigns.description,
+					createdAt: campaigns.createdAt
+				}),
 			catch: (cause) => failure('database', 'createCampaign', cause)
 		}),
 		flatMap(([campaign]) =>
@@ -28,8 +44,17 @@ export const create = (input: Pick<Campaign, 'name' | 'description'>) =>
 		)
 	)
 
-export const list = () =>
+export const list = (ownerId: string) =>
 	tryPromise({
-		try: () => db.select().from(campaigns),
+		try: () =>
+			db
+				.select({
+					id: campaigns.id,
+					name: campaigns.name,
+					description: campaigns.description,
+					createdAt: campaigns.createdAt
+				})
+				.from(campaigns)
+				.where(eq(campaigns.ownerId, ownerId)),
 		catch: (cause) => failure('database', 'listCampaigns', cause)
 	})
