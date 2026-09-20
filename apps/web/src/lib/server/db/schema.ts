@@ -44,6 +44,22 @@ export const userSessions = pgTable(
 	(table) => [index('user_sessions_user_id_index').on(table.userId)]
 )
 
+export const signupInvites = pgTable(
+	'signup_invites',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		email: text('email').notNull(),
+		tokenHash: text('token_hash').notNull().unique(),
+		createdBy: uuid('created_by')
+			.notNull()
+			.references(() => users.id, { onDelete: 'restrict' }),
+		expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+		acceptedAt: timestamp('accepted_at', { withTimezone: true, mode: 'date' }),
+		createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().defaultNow()
+	},
+	(table) => [index('signup_invites_email_index').on(table.email)]
+)
+
 export const campaigns = pgTable(
 	'campaigns',
 	{

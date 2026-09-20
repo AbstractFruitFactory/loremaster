@@ -22,13 +22,14 @@ pnpm db:migrate
 pnpm db:seed
 ```
 
-Set `AUTH_ALLOWED_EMAILS` to the comma-separated email addresses you want to invite and set
-`AUTH_SIGNUP_CODE` to a long random code that you share with those testers. Then open
-`http://localhost:5173/signup` and create the first account. In development, an empty allowlist and
-signup code are accepted to simplify local setup; production requires both an invited address and
-the shared code. The first account claims any campaigns created before authentication was added,
-including the seeded campaign. Every campaign created after that is owned by the account that
-created it and is only visible to that owner.
+Set `AUTH_ADMIN_EMAIL` to the email address for the initial administrator, then open
+`http://localhost:5173/signup` and register that address without an invite code. Once signed in, the
+administrator can open `/admin/invites` to create single-use signup links that expire after seven
+days. `AUTH_ALLOWED_EMAILS` and `AUTH_SIGNUP_CODE` remain available for the legacy shared-code
+flow. In development, an empty allowlist and signup code are accepted to simplify local setup. The
+first account claims any campaigns created before authentication was added, including the seeded
+campaign. Every campaign created after that is owned by the account that created it and is only
+visible to that owner.
 
 Authentication follows Lucia's database-session guidance: passwords are hashed with Argon2id and
 the browser receives an HTTP-only session cookie. This initial testing flow does not yet include

@@ -2,7 +2,9 @@
 	import logo from '#lib/assets/logo-eye.png'
 	import type { PageProps } from './$types'
 
-	let { form }: PageProps = $props()
+	let { data, form }: PageProps = $props()
+
+	let invitedEmail = $derived(data.inviteEmail || form?.email || '')
 </script>
 
 <svelte:head>
@@ -17,8 +19,12 @@
 		<h1 id="sign-up-heading">Create account</h1>
 
 		<form method="POST">
-			<label for="signup-code">Invite code</label>
-			<input name="signupCode" id="signup-code" type="password" autocomplete="one-time-code" />
+			{#if data.inviteToken}
+				<input name="inviteToken" type="hidden" value={data.inviteToken} />
+			{:else}
+				<label for="signup-code">Invite code <span class="optional">(optional for admin)</span></label>
+				<input name="signupCode" id="signup-code" type="password" autocomplete="one-time-code" />
+			{/if}
 
 			<label for="email">Email</label>
 			<input
@@ -27,8 +33,12 @@
 				type="email"
 				autocomplete="email"
 				required
-				value={form?.email ?? ''}
+				value={invitedEmail}
+				readonly={Boolean(data.inviteToken)}
 			/>
+			{#if data.inviteToken}
+				<p class="hint">This invitation is for {data.inviteEmail}.</p>
+			{/if}
 
 			<label for="password">Password</label>
 			<input
@@ -146,6 +156,16 @@
 
 	.hint {
 		color: var(--color-muted);
+	}
+
+	.optional {
+		color: var(--color-muted);
+		font-size: 0.85em;
+		font-weight: 400;
+	}
+
+	input:read-only {
+		background: #eee9df;
 	}
 
 	.error {

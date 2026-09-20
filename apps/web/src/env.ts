@@ -4,6 +4,7 @@ const optionalString = { schema: (input: string | undefined) => input ?? '' }
 
 export const variables = defineEnvVars({
 	DATABASE_URL: optionalString,
+	AUTH_ADMIN_EMAIL: optionalString,
 	AUTH_ALLOWED_EMAILS: optionalString,
 	AUTH_SIGNUP_CODE: optionalString,
 	LOREMASTER_DATA_ROOT: optionalString,

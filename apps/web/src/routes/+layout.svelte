@@ -16,6 +16,9 @@
 		{#if data.user}
 			<div class="account">
 				<span>{data.user.email}</span>
+				{#if data.isAdmin}
+					<a href="/admin/invites">Invite</a>
+				{/if}
 				<form method="POST" action="/logout">
 					<button>Sign out</button>
 				</form>
@@ -83,7 +86,20 @@
 		cursor: pointer;
 	}
 
-	.account button:focus-visible {
+	.account a {
+		padding: 0.3rem 0.6rem;
+		border-radius: 999px;
+		color: var(--color-main);
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.account a:hover {
+		background: rgb(62 75 57 / 10%);
+	}
+
+	.account button:focus-visible,
+	.account a:focus-visible {
 		outline: 3px solid rgb(62 75 57 / 35%);
 		outline-offset: 2px;
 	}

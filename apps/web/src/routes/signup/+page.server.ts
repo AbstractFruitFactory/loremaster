@@ -2,7 +2,9 @@ import { hash } from '@node-rs/argon2'
 import { dev } from '$app/env'
 import { AUTH_ALLOWED_EMAILS, AUTH_SIGNUP_CODE } from '$app/env/private'
 import { fail, redirect } from '@sveltejs/kit'
-import { isNull } from 'drizzle-orm'
+import { and, eq, gt, isNull } from 'drizzle-orm'
+import { isAdminEmail } from '#lib/server/auth/admin.js'
+import { findActiveSignupInvite } from '#lib/server/auth/invitations.js'
 import {
 	createSession,
 	generateSessionToken,
@@ -11,12 +13,17 @@ import {
 import { safeRedirectPath } from '#lib/server/auth/redirect.js'
 import { isEmailAllowed, isSignupCodeValid, isValidEmail } from '#lib/server/auth/validation.js'
 import { db } from '#lib/server/db/index.js'
-import { campaigns, users } from '#lib/server/db/schema.js'
+import { campaigns, signupInvites, users } from '#lib/server/db/schema.js'
 import type { Actions, PageServerLoad } from './$types'
 
-export const load: PageServerLoad = ({ locals, url }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	if (locals.user !== null) redirect(302, safeRedirectPath(url.searchParams.get('redirectTo')))
-	return {}
+	const inviteToken = url.searchParams.get('invite')
+	const invite = inviteToken ? await findActiveSignupInvite(inviteToken) : undefined
+	return {
+		inviteToken: invite ? inviteToken : '',
+		inviteEmail: invite?.email ?? ''
+	}
 }
 
 export const actions: Actions = {
@@ -25,6 +32,7 @@ export const actions: Actions = {
 		const email = formData.get('email')
 		const password = formData.get('password')
 		const signupCode = formData.get('signupCode')
+		const inviteToken = formData.get('inviteToken')
 		const redirectTo = safeRedirectPath(event.url.searchParams.get('redirectTo'))
 
 		if (!email || typeof email !== 'string') {
@@ -41,11 +49,18 @@ export const actions: Actions = {
 		if (!isValidEmail(normalizedEmail)) {
 			return fail(400, { message: 'Invalid email', email })
 		}
-		if (!isEmailAllowed(normalizedEmail, AUTH_ALLOWED_EMAILS, dev)) {
+		const invite =
+			typeof inviteToken === 'string' && inviteToken
+				? await findActiveSignupInvite(inviteToken)
+				: undefined
+		const hasMatchingInvite = invite?.email === normalizedEmail
+		const hasLegacyInvite =
+			isEmailAllowed(normalizedEmail, AUTH_ALLOWED_EMAILS, dev) &&
+			typeof signupCode === 'string' &&
+			isSignupCodeValid(signupCode, AUTH_SIGNUP_CODE, dev)
+
+		if (!isAdminEmail(normalizedEmail) && !hasMatchingInvite && !hasLegacyInvite) {
 			return fail(403, { message: 'This email has not been invited', email })
-		}
-		if (typeof signupCode !== 'string' || !isSignupCodeValid(signupCode, AUTH_SIGNUP_CODE, dev)) {
-			return fail(403, { message: 'Invalid invite code', email })
 		}
 		const passwordHash = await hash(password, {
 			memoryCost: 19456,
@@ -62,6 +77,22 @@ export const actions: Actions = {
 					.values({ email: normalizedEmail, passwordHash })
 					.returning({ id: users.id })
 				if (!created) throw new Error('User could not be created')
+
+				if (invite) {
+					const [accepted] = await tx
+						.update(signupInvites)
+						.set({ acceptedAt: new Date() })
+						.where(
+							and(
+								eq(signupInvites.id, invite.id),
+								eq(signupInvites.email, normalizedEmail),
+								isNull(signupInvites.acceptedAt),
+								gt(signupInvites.expiresAt, new Date())
+							)
+						)
+						.returning({ id: signupInvites.id })
+					if (!accepted) throw new Error('Invitation is no longer available')
+				}
 
 				await tx.update(campaigns).set({ ownerId: created.id }).where(isNull(campaigns.ownerId))
 				return created
