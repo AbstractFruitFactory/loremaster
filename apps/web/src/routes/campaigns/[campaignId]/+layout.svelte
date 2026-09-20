@@ -18,7 +18,7 @@
 	import { getCampaign } from '../../data.remote'
 	import type { LayoutProps } from './$types'
 
-	let { params, children }: LayoutProps = $props()
+	let { data, params, children }: LayoutProps = $props()
 
 	const campaignId = $derived(params.campaignId)
 	const campaign = $derived(getCampaign(campaignId))
@@ -54,6 +54,20 @@
 	<a class="campaign-title" href={`/campaigns/${campaignId}`}>
 		{campaign.current?.name ?? 'Campaign'}
 	</a>
+{/snippet}
+
+{#snippet accountActions()}
+	{#if data.user}
+		<div class="account">
+			<span>{data.user.email}</span>
+			{#if data.isAdmin}
+				<a href="/admin/invites">Invite</a>
+			{/if}
+			<form method="POST" action="/logout">
+				<button>Sign out</button>
+			</form>
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet navigation()}
@@ -92,7 +106,7 @@
 	]}
 >
 	<div class="campaign-workspace" inert={isChatExpanded}>
-		<Header {brand} {navigation}>
+		<Header {brand} {navigation} actions={accountActions}>
 			{@render campaignHeading()}
 		</Header>
 
@@ -187,6 +201,53 @@
 		width: 2.15rem;
 		height: 2.15rem;
 		object-fit: contain;
+	}
+
+	.account {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+		padding: 0.35rem 0.4rem 0.35rem 0.7rem;
+		border: 1px solid rgb(37 35 31 / 28%);
+		border-radius: 999px;
+		background: rgb(255 250 240 / 92%);
+		box-shadow: 0 2px 8px rgb(37 35 31 / 12%);
+		color: var(--color-text);
+		font-family: var(--font-sans);
+		font-size: 0.78rem;
+	}
+
+	.account form {
+		display: contents;
+	}
+
+	.account button {
+		padding: 0.3rem 0.6rem;
+		border: 0;
+		border-radius: 999px;
+		background: var(--color-main);
+		color: #fffaf0;
+		font: inherit;
+		font-weight: 700;
+		cursor: pointer;
+	}
+
+	.account a {
+		padding: 0.3rem 0.6rem;
+		border-radius: 999px;
+		color: var(--color-main);
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.account a:hover {
+		background: rgb(62 75 57 / 10%);
+	}
+
+	.account button:focus-visible,
+	.account a:focus-visible {
+		outline: 3px solid rgb(62 75 57 / 35%);
+		outline-offset: 2px;
 	}
 
 	ul {
@@ -302,6 +363,10 @@
 
 	@media (max-width: 42rem) {
 		.brand span {
+			display: none;
+		}
+
+		.account span {
 			display: none;
 		}
 	}
