@@ -9,7 +9,8 @@ import type {
 	SessionEventAudit,
 	SessionClaimEvidenceRepair,
 	SessionClaimValidation,
-	SessionEntityResolution
+	SessionEntityResolution,
+	SessionEntityResolutionRequest
 } from '../ingestion/types.js'
 import type { RelationshipLink } from '../vault/types.js'
 
@@ -56,9 +57,10 @@ export type RepairSessionClaimEvidence = (
 	input: AiPrompt & { model: string }
 ) => Effect<SessionClaimEvidenceRepair[], Failure<'ai', 'repairSessionClaimEvidence'>>
 
-export type ResolveSessionEntities = (
-	input: AiPrompt & { model: string }
-) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
+export type ResolveSessionEntities = (input: {
+	model: string
+	references: SessionEntityResolutionRequest[]
+}) => Effect<SessionEntityResolution[], Failure<'ai', 'resolveSessionEntities'>>
 
 export type AuditSessionEvents = (
 	input: AiPrompt & { model: string }

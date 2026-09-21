@@ -1,7 +1,7 @@
 import { fail, flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultDocument } from '../vault/types.js'
-import { judgeEntityIdentity, type EntityIdentityRequest } from './entity-judgment.js'
+import { judgeEntityIdentity } from './entity-judgment.js'
 import type { ResolveSessionEntities } from '../ai/provider.js'
 import { entityResolution } from './entity-resolution.js'
 import type { ValidatedClaim } from './internal.js'
@@ -38,13 +38,11 @@ const claim: ValidatedClaim = {
 	]
 }
 
-const referencesFrom = (prompt: string): EntityIdentityRequest[] => JSON.parse(prompt).references
-
 describe('entity identity judgment through AiProvider', () => {
 	it('hands retrieved candidates and evidence to the AI provider before applying its selection', async () => {
-		const judge = vi.fn<ResolveSessionEntities>(({ prompt }) =>
+		const judge = vi.fn<ResolveSessionEntities>(({ references }) =>
 			succeed(
-				referencesFrom(prompt).map((request) => ({
+				references.map((request) => ({
 					referenceId: request.referenceId,
 					kind: 'existing',
 					targetId: 'document:dereka'
@@ -58,7 +56,7 @@ describe('entity identity judgment through AiProvider', () => {
 			}).resolveClaims([claim], [document])
 		)
 		expect(judge).toHaveBeenCalledOnce()
-		expect(referencesFrom(judge.mock.calls[0][0].prompt)[0]).toMatchObject({
+		expect(judge.mock.calls[0][0].references[0]).toMatchObject({
 			reference: 'Dereka',
 			type: 'npc',
 			evidence: expect.stringContaining('War of the Ages'),
@@ -79,9 +77,9 @@ describe('entity identity judgment through AiProvider', () => {
 	})
 
 	it('keeps retrieval candidates for review when a provider returns an unknown target', async () => {
-		const judge: ResolveSessionEntities = ({ prompt }) =>
+		const judge: ResolveSessionEntities = ({ references }) =>
 			succeed(
-				referencesFrom(prompt).map(({ referenceId }) => ({
+				references.map(({ referenceId }) => ({
 					referenceId,
 					kind: 'existing',
 					targetId: 'document:invented'
@@ -100,9 +98,9 @@ describe('entity identity judgment through AiProvider', () => {
 	})
 
 	it('preserves explicit uncertainty even without a provider-supplied shortlist', async () => {
-		const judge: ResolveSessionEntities = ({ prompt }) =>
+		const judge: ResolveSessionEntities = ({ references }) =>
 			succeed(
-				referencesFrom(prompt).map(({ referenceId }) => ({
+				references.map(({ referenceId }) => ({
 					referenceId,
 					kind: 'defer',
 					candidateIds: [],
@@ -138,7 +136,7 @@ describe('entity identity judgment through AiProvider', () => {
 		expect(result).toEqual(error)
 	})
 
-	it('adapts legacy LLM outcomes without changing the provider prompt shape', async () => {
+	it('passes structured input to the provider and adapts its outcomes', async () => {
 		const resolveSessionEntities = vi.fn(() =>
 			succeed([
 				{ referenceId: 'one', kind: 'existing' as const, targetId: 'document:dereka' },
@@ -157,7 +155,7 @@ describe('entity identity judgment through AiProvider', () => {
 		expect(resolveSessionEntities).toHaveBeenCalledWith(
 			expect.objectContaining({
 				model: 'test-model',
-				prompt: JSON.stringify({ references: [] }, null, 2)
+				references: []
 			})
 		)
 		expect(result).toEqual([

@@ -343,12 +343,8 @@ describe('session ingestion operations', () => {
 
 	it('uses the model to establish a short partial-name identity', async () => {
 		const mara = document('mara', 'Mara Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: { referenceId: string; candidates: { targetId: string }[] }[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,
@@ -380,9 +376,8 @@ describe('session ingestion operations', () => {
 
 	it('preserves identity candidates when the model returns an invalid target', async () => {
 		const mara = document('mara', 'Mara Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (JSON.parse(prompt) as { references: { referenceId: string }[] })
-				.references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,
@@ -420,12 +415,8 @@ describe('session ingestion operations', () => {
 
 	it('allows one existing identity candidate to be deferred against creating a new entity', async () => {
 		const mara = document('mara', 'Mara Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: { referenceId: string; candidates: { targetId: string }[] }[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,
@@ -531,16 +522,7 @@ describe('session ingestion operations', () => {
 	})
 
 	it('resolves a relational reference to an entity introduced in the same session', async () => {
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const references = (
-				JSON.parse(prompt) as {
-					references: {
-						referenceId: string
-						reference: string
-						candidates: { targetId: string; title: string; provenance: string }[]
-					}[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
 			return succeed(
 				references.map((reference) => {
 					const ysra = reference.candidates.find(
@@ -627,10 +609,8 @@ describe('session ingestion operations', () => {
 			links: ['Roger']
 		})
 		const roger = document('roger', 'Roger')
-		const resolver: ResolveSessionEntities = vi.fn(({ prompt }) => {
-			const input = JSON.parse(prompt) as {
-				references: { referenceId: string; candidates: { targetId: string }[] }[]
-			}
+		const resolver: ResolveSessionEntities = vi.fn(({ references }) => {
+			const input = { references }
 			return succeed(
 				input.references.map(({ referenceId, candidates }) => ({
 					referenceId,
@@ -855,15 +835,8 @@ describe('session ingestion operations', () => {
 	it('considers an equivalent event name without treating context overlap as identity', async () => {
 		const equivalent = document('nine-banners-war', 'Nine Banners War', [], 'event')
 		const presentDay = document('party-reaches-wyrmfall', 'Party reaches Wyrmfall', [], 'event')
-		const resolver: ResolveSessionEntities = vi.fn(({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: {
-						referenceId: string
-						candidates: { targetId: string; provenance: string }[]
-					}[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = vi.fn(({ references }) => {
+			const [reference] = references
 			expect(reference!.candidates).toEqual(
 				[{ targetId: `document:${equivalent.id}`, provenance: 'partial-name' }].map((candidate) =>
 					expect.objectContaining(candidate)
@@ -1782,12 +1755,8 @@ describe('session ingestion operations', () => {
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {
 		const mara = document('mara', 'Mara Vale')
 		const edric = document('edric', 'Brother Edric Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: { referenceId: string; candidates: { targetId: string }[] }[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,

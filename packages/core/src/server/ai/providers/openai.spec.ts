@@ -2,8 +2,85 @@ import type { Response as OpenAiResponse } from 'openai/resources/responses/resp
 import { runPromise } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import { openAiProvider } from './openai.js'
+import type { SessionEntityResolutionRequest } from '../../ingestion/types.js'
+import { mockAiProvider } from './mock.js'
 
 describe('OpenAI provider', () => {
+	it('builds the identity prompt inside the provider from structured evidence and candidates', async () => {
+		const references: SessionEntityResolutionRequest[] = [
+			{
+				referenceId: 'mention-1',
+				reference: 'Dereka',
+				type: 'npc',
+				evidence: 'Dereka served in the War of the Ages.',
+				candidates: [
+					{
+						targetId: 'document:dereka',
+						title: 'Dereka Stonehand',
+						type: 'npc',
+						provenance: 'partial-name',
+						context: 'A barbarian who served in the War of the Ages.'
+					}
+				]
+			}
+		]
+		const resolutions = [
+			{ referenceId: 'mention-1', kind: 'existing', targetId: 'document:dereka' }
+		]
+		const create = vi
+			.fn()
+			.mockResolvedValue({
+				output: [
+					{
+						type: 'function_call',
+						name: 'resolve_session_entities',
+						arguments: JSON.stringify({ resolutions })
+					}
+				]
+			})
+		const provider = openAiProvider({
+			responses: { create },
+			embeddings: { create: vi.fn() }
+		} as never)
+		const result = await runPromise(
+			provider.resolveSessionEntities({ model: 'identity-model', references })
+		)
+		expect(result).toEqual(resolutions)
+		expect(create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: 'identity-model',
+				instructions: expect.stringContaining('Resolve entity identity conservatively'),
+				input: JSON.stringify({ references }, null, 2),
+				tool_choice: { type: 'function', name: 'resolve_session_entities' }
+			})
+		)
+	})
+
+	it('keeps an empty candidate set unresolved in the mock provider', async () => {
+		const result = await runPromise(
+			mockAiProvider.resolveSessionEntities({
+				model: 'mock',
+				references: [
+					{
+						referenceId: 'mention-1',
+						reference: 'the king',
+						type: 'npc',
+						evidence: 'The king sent a letter.',
+						candidates: []
+					}
+				]
+			})
+		)
+		expect(result).toEqual([
+			{
+				referenceId: 'mention-1',
+				kind: 'defer',
+				candidateIds: [],
+				reason: 'No candidates supplied.'
+			}
+		])
+	})
+
 	it('preserves event form on extracted event references', async () => {
 		const response = {
 			output: [

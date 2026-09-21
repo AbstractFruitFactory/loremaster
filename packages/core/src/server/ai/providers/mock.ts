@@ -216,18 +216,19 @@ const validateSessionClaims: ValidateSessionClaims = ({ prompt }) => {
 
 const repairSessionClaimEvidence: RepairSessionClaimEvidence = () => succeed([])
 
-const resolveSessionEntities: ResolveSessionEntities = ({ prompt }) => {
-	const input = JSON.parse(prompt) as {
-		references?: { referenceId: string; candidates: { targetId: string }[] }[]
-	}
-	return succeed(
-		(input.references ?? []).map(({ referenceId, candidates }) => ({
-			referenceId,
-			kind: 'existing' as const,
-			targetId: candidates[0]!.targetId
-		}))
+const resolveSessionEntities: ResolveSessionEntities = ({ references }) =>
+	succeed(
+		references.map(({ referenceId, candidates }) =>
+			candidates.length
+				? { referenceId, kind: 'existing' as const, targetId: candidates[0]!.targetId }
+				: {
+						referenceId,
+						kind: 'defer' as const,
+						candidateIds: [],
+						reason: 'No candidates supplied.'
+					}
+		)
 	)
-}
 
 const auditSessionEvents: AuditSessionEvents = () =>
 	succeed({ events: [], discardedEventIds: [], duplicateGroups: [] })

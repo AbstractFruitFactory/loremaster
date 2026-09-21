@@ -1,5 +1,5 @@
 import type { DocumentType } from '../../document.js'
-import type { MutationPlan } from './internal.js'
+import type { MutationPlan, ResolutionCandidate } from './internal.js'
 import type { EventForm } from '../vault/types.js'
 
 export const ingestionDocumentTypes = [
@@ -83,6 +83,15 @@ export type SessionClaimValidation = {
 export type SessionClaimEvidenceRepair = {
 	candidateId: string
 	evidence: EvidenceRange[]
+}
+
+/** Structured input shared by identity providers; retrieval and mutation stay in the pipeline. */
+export type SessionEntityResolutionRequest = {
+	referenceId: string
+	reference: string
+	type: IngestionDocumentType
+	evidence: string
+	candidates: Pick<ResolutionCandidate, 'targetId' | 'title' | 'type' | 'context' | 'provenance'>[]
 }
 
 export type SessionEntityResolution =

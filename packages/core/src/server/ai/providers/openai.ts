@@ -819,12 +819,16 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 			catch: (cause) => failure('ai', 'repairSessionClaimEvidence', cause)
 		}),
 
-	resolveSessionEntities: ({ model, system, prompt }) =>
+	resolveSessionEntities: ({ model, references }) =>
 		tryPromise({
 			try: async () => {
 				const response = await client.responses.create({
 					model,
-					...requestInput({ system, prompt }),
+					...requestInput({
+						system:
+							'Resolve entity identity conservatively and return exactly one explicit outcome per reference. Use existing only when the supplied evidence and candidate context establish that the reference is the same campaign entity as that supplied target; the target may be a persisted campaign document or another entity being created from this session. A relational-context or session-entity candidate may establish identity for a phrase such as "Elias\' father", but neither is a reason to defer to the user. Use create when the evidence describes a new named entity or event and none of the supplied identity candidates is the same thing. Use defer when one or more supplied exact-name, alias, or partial-name candidates remain genuinely plausible identities and the evidence cannot establish whether to use one of them or create a new entry; include only their supplied IDs and explain the ambiguity. Never defer relational-context or session-entity candidates, invent a target, or return an ID that was not supplied.',
+						prompt: JSON.stringify({ references }, null, 2)
+					}),
 					tools: [sessionEntityResolutionsTool],
 					tool_choice: { type: 'function', name: sessionEntityResolutionsTool.name }
 				})

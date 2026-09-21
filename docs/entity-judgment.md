@@ -31,10 +31,12 @@ model selection follows the existing AI configuration. Ingestion consumes
 service options do not expose an identity-judge callback. Tests substitute the provider
 operation directly.
 
-Jev integration should implement the identity operation through `AiProvider`. Its current
-input is a generative prompt; a structured request should become the operation's input
-when adding Jev, with prompt construction moved into the generative provider. This avoids
-requiring Jev to parse an LLM prompt or creating a parallel provider interface.
+`resolveSessionEntities` accepts `{ model, references }`. Each reference carries its ID,
+label, suggested type, evidence, and candidate IDs with context and provenance. The OpenAI
+provider constructs its own prompt from that data; the mock reads the same typed input.
+Jev can implement this operation directly without parsing a generative prompt or adding
+a parallel provider interface. The existing result contract and proposal policy remain
+unchanged.
 
 This refactor retains deterministic exact matches, automatic proposals when no identity
 candidate exists, same-type filtering, and the ten-candidate limit. Those paths do not
