@@ -49,7 +49,18 @@
 
 	const selectedFor = (proposal: SessionProposal) => choices.selected[proposal.proposalId] ?? false
 	const resolutionFor = (proposal: SessionProposal) => choices.resolutions[proposal.proposalId]
-	const selection = $derived(buildCampaignImportCommitSelection(draft.proposals, choices))
+	const actionableProposals = $derived(
+		draft.proposals.filter((proposal) => proposal.operation !== 'mention-only')
+	)
+	const sourceContext = $derived(
+		draft.proposals.filter((proposal) => proposal.operation === 'mention-only')
+	)
+	const visibleSourceContext = $derived(
+		sourceContext.filter((proposal) =>
+			proposalMatchesFilters(proposal, false, undefined, sourceFilter, 'all')
+		)
+	)
+	const selection = $derived(buildCampaignImportCommitSelection(actionableProposals, choices))
 	const selectedCount = $derived(selection.selectedProposalIds.length)
 	const selectedResolutionCount = $derived(selection.resolutions.length)
 	const selectionLimitError = $derived(
@@ -60,7 +71,7 @@
 				: ''
 	)
 	const visibleProposals = $derived(
-		draft.proposals.filter((proposal) =>
+		actionableProposals.filter((proposal) =>
 			proposalMatchesFilters(
 				proposal,
 				selectedFor(proposal),
@@ -104,15 +115,19 @@
 	<div class="review-heading">
 		<div>
 			<p class="eyebrow">Document review</p>
-			<h2 id="proposals-heading">{draft.proposals.length} proposals</h2>
+			<h2 id="proposals-heading">
+				{actionableProposals.length}
+				{actionableProposals.length === 1 ? 'proposal' : 'proposals'} to review
+			</h2>
 		</div>
-		<p>{selectedCount} selected</p>
+		{#if actionableProposals.length}<p>{selectedCount} selected</p>{/if}
 	</div>
 
 	<ReviewFilters
 		sources={draft.sources}
 		sourceId={sourceFilter}
 		status={statusFilter}
+		showStatus={actionableProposals.length > 0}
 		onSourceChange={(value) => (sourceFilter = value)}
 		onStatusChange={(value) => (statusFilter = value)}
 	/>
@@ -132,11 +147,45 @@
 				/>
 			{/each}
 		</div>
+	{:else if !actionableProposals.length}
+		<div class="empty-state">
+			<strong>No campaign changes to approve.</strong>
+			<p>
+				{sourceContext.length
+					? 'This import contains source context only. These details do not create or update campaign documents.'
+					: 'This import did not produce any document proposals.'}
+			</p>
+		</div>
 	{:else}
 		<div class="empty-state">
 			<strong>No proposals match these filters.</strong>
 			<p>Choose a different source or status.</p>
 		</div>
+	{/if}
+
+	{#if sourceContext.length}
+		<details class="source-context">
+			<summary>Source context ({visibleSourceContext.length})</summary>
+			<p>
+				Reference details from your sources. No approval is needed, and these details will not
+				change campaign documents.
+			</p>
+			<div class="proposal-list">
+				{#each visibleSourceContext as proposal (proposal.proposalId)}
+					<DocumentReviewCard
+						{proposal}
+						sources={draft.sources}
+						selected={false}
+						{disabled}
+						onApprove={() => changeSelection(proposal, true)}
+						onReject={() => changeSelection(proposal, false)}
+						onResolutionChange={(resolution) => chooseResolution(proposal, resolution)}
+					/>
+				{:else}
+					<p>No source context matches this source filter.</p>
+				{/each}
+			</div>
+		</details>
 	{/if}
 
 	{#if draft.warnings.length}
@@ -157,7 +206,9 @@
 			<strong>
 				{selectedCount
 					? `${selectedCount} ${selectedCount === 1 ? 'proposal' : 'proposals'} will be committed`
-					: 'No proposals selected'}
+					: actionableProposals.length
+						? 'No proposals selected'
+						: 'Ready to finalize without changes'}
 			</strong>
 			<p>
 				{selectedCount
@@ -250,6 +301,21 @@
 		border: 1px dashed #a88b61;
 		background: rgb(245 234 213 / 58%);
 		text-align: center;
+	}
+
+	.source-context {
+		padding: 1rem;
+		border: 1px solid rgb(143 112 67 / 45%);
+	}
+
+	.source-context summary {
+		font-weight: 800;
+		cursor: pointer;
+	}
+
+	.source-context > p {
+		margin: 0.75rem 0;
+		color: #6f604e;
 	}
 
 	.warnings {

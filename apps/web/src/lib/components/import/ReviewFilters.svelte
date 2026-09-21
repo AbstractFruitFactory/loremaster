@@ -6,11 +6,19 @@
 		sources: readonly CampaignImportSource[]
 		sourceId: string
 		status: ReviewStatusFilter
+		showStatus?: boolean
 		onSourceChange: (sourceId: string) => void
 		onStatusChange: (status: ReviewStatusFilter) => void
 	}
 
-	let { sources, sourceId, status, onSourceChange, onStatusChange }: Props = $props()
+	let {
+		sources,
+		sourceId,
+		status,
+		showStatus = true,
+		onSourceChange,
+		onStatusChange
+	}: Props = $props()
 
 	const statusOptions: { value: ReviewStatusFilter; label: string }[] = [
 		{ value: 'all', label: 'All decisions' },
@@ -22,7 +30,7 @@
 <div class="filters" aria-label="Review filters">
 	<fieldset>
 		<legend>Source</legend>
-		<label for="import-source-filter">Show proposals from</label>
+		<label for="import-source-filter">Show imported details from</label>
 		<select
 			id="import-source-filter"
 			value={sourceId}
@@ -35,23 +43,25 @@
 		</select>
 	</fieldset>
 
-	<fieldset>
-		<legend>Status</legend>
-		<div class="status-options">
-			{#each statusOptions as option (option.value)}
-				<label>
-					<input
-						type="radio"
-						name="import-review-status"
-						value={option.value}
-						checked={status === option.value}
-						onchange={() => onStatusChange(option.value)}
-					/>
-					<span>{option.label}</span>
-				</label>
-			{/each}
-		</div>
-	</fieldset>
+	{#if showStatus}
+		<fieldset>
+			<legend>Proposal status</legend>
+			<div class="status-options">
+				{#each statusOptions as option (option.value)}
+					<label>
+						<input
+							type="radio"
+							name="import-review-status"
+							value={option.value}
+							checked={status === option.value}
+							onchange={() => onStatusChange(option.value)}
+						/>
+						<span>{option.label}</span>
+					</label>
+				{/each}
+			</div>
+		</fieldset>
+	{/if}
 </div>
 
 <style>

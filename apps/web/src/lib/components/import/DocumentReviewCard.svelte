@@ -32,6 +32,7 @@
 		onResolutionChange
 	}: Props = $props()
 
+	const isSourceContext = $derived(proposal.operation === 'mention-only')
 	const candidates = $derived(sameTypeCandidates(proposal))
 	const needsResolution = $derived(needsIdentityResolution(proposal))
 	const decisionLabel = $derived(selected ? 'Selected' : 'Not selected')
@@ -46,34 +47,42 @@
 	}
 </script>
 
-<article class={['review-card', selected && 'selected']}>
+<article
+	class={[
+		'review-card',
+		isSourceContext && 'context-card',
+		!isSourceContext && selected && 'selected'
+	]}
+>
 	<header>
 		<div>
 			<p class="card-kicker">
 				<span>{typeLabel}</span>
 				<span aria-hidden="true">·</span>
-				<span>{operationLabel(proposal.operation)}</span>
-				{#if proposal.groupId}
+				<span>{isSourceContext ? 'Source context' : operationLabel(proposal.operation)}</span>
+				{#if proposal.groupId && !isSourceContext}
 					<span aria-hidden="true">·</span>
 					<span>Grouped proposal</span>
 				{/if}
 			</p>
 			<h3>{proposal.title}</h3>
 		</div>
-		<span class="decision-badge">{decisionLabel}</span>
+		{#if !isSourceContext}
+			<span class="decision-badge">{decisionLabel}</span>
+		{/if}
 	</header>
 
 	<div class="proposal-content">{proposal.content}</div>
 
 	<EvidenceSummary evidence={proposal.evidence} {sources} />
 
-	{#if proposal.operation === 'mention-only'}
+	{#if isSourceContext}
 		<p class="source-context">
-			Mention-only details remain source context and cannot change canon.
+			This detail is kept as source context. It does not create or update a campaign document.
 		</p>
 	{/if}
 
-	{#if needsResolution}
+	{#if !isSourceContext && needsResolution}
 		<fieldset class="identity-options" {disabled}>
 			<legend>Which document does this describe?</legend>
 			<p>Choose an identity before committing this proposal.</p>
@@ -118,22 +127,24 @@
 		</fieldset>
 	{/if}
 
-	<footer class="review-actions">
-		<button type="button" class="reject" aria-pressed={!selected} {disabled} onclick={onReject}>
-			<Icon icon="lucide:x" aria-hidden="true" />
-			Reject
-		</button>
-		<button
-			type="button"
-			class="approve"
-			aria-pressed={selected}
-			disabled={disabled || !canApprove}
-			onclick={onApprove}
-		>
-			<Icon icon="lucide:check" aria-hidden="true" />
-			Approve
-		</button>
-	</footer>
+	{#if !isSourceContext}
+		<footer class="review-actions">
+			<button type="button" class="reject" aria-pressed={!selected} {disabled} onclick={onReject}>
+				<Icon icon="lucide:x" aria-hidden="true" />
+				Reject
+			</button>
+			<button
+				type="button"
+				class="approve"
+				aria-pressed={selected}
+				disabled={disabled || !canApprove}
+				onclick={onApprove}
+			>
+				<Icon icon="lucide:check" aria-hidden="true" />
+				Approve
+			</button>
+		</footer>
+	{/if}
 </article>
 
 <style>
@@ -145,6 +156,11 @@
 		border-radius: 2px;
 		background: rgb(255 250 239 / 94%);
 		box-shadow: 0.2rem 0.2rem 0 rgb(35 31 25 / 85%);
+	}
+
+	.review-card.context-card {
+		border-color: rgb(143 112 67 / 45%);
+		box-shadow: none;
 	}
 
 	.review-card.selected {
