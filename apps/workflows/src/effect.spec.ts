@@ -1,5 +1,5 @@
 import { fail, succeed } from 'effect/Effect'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { runEffect } from './effect.js'
 
 describe('workflow Effect boundary', () => {
@@ -8,6 +8,7 @@ describe('workflow Effect boundary', () => {
 	})
 
 	it('throws a serializable sanitized stage error', async () => {
+		const logger = vi.spyOn(console, 'error').mockImplementation(() => {})
 		const error = await runEffect(
 			fail({
 				domain: 'vault',
@@ -22,5 +23,30 @@ describe('workflow Effect boundary', () => {
 			message: 'A workflow stage could not be completed.'
 		})
 		expect(JSON.stringify(error)).not.toContain('private document text')
+		expect(logger).toHaveBeenCalledWith('[workflow-stage-failure]', {
+			code: 'vault.updateDocument'
+		})
+		logger.mockRestore()
+	})
+
+	it('logs safe provider diagnostics without exposing the error message', async () => {
+		const logger = vi.spyOn(console, 'error').mockImplementation(() => {})
+		const cause = Object.assign(new Error('Private source text and API key'), {
+			name: 'RateLimitError',
+			status: 429,
+			code: 'rate_limit_exceeded'
+		})
+
+		await expect(
+			runEffect(fail({ domain: 'ai', operation: 'analyzeSessionChunk', cause }))
+		).rejects.toMatchObject({ code: 'ai.analyzeSessionChunk' })
+		expect(logger).toHaveBeenCalledWith('[workflow-stage-failure]', {
+			code: 'ai.analyzeSessionChunk',
+			causeType: 'RateLimitError',
+			status: 429,
+			providerCode: 'rate_limit_exceeded'
+		})
+		expect(JSON.stringify(logger.mock.calls)).not.toContain('Private source text')
+		logger.mockRestore()
 	})
 })
