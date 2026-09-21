@@ -5,6 +5,5 @@ export type CoreRuntimeConfig = {
 	databaseMaxConnections?: number
 	vaultRoot?: string
 	supabaseStorage?: SupabaseStorageConfig
-	openAiApiKey?: string
 	useMockAi?: boolean
 }

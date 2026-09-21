@@ -18,7 +18,10 @@ import { canCreateEntityFromReference, sessionCandidateTitle } from './proposals
 import { combineContent, displayTitle, normalize, uniqueStrings } from './text.js'
 
 export const entityResolution = (
-	ai: Pick<AiProvider, 'resolveSessionEntities'> & { analysisModel: string }
+	ai: Pick<AiProvider, 'resolveSessionEntities'> & {
+		analysisModel: string
+		entityResolutionModel?: string
+	}
 ) => {
 	const createEntityReferenceOccurrences = (
 		claims: ValidatedClaim[],

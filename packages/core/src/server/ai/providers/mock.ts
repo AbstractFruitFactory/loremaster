@@ -26,6 +26,7 @@ export const mockAiModels = {
 	documentSummary: 'mock-text-v1',
 	documentType: 'mock-document-type-v1',
 	sessionAnalysis: 'mock-session-analysis-v1',
+	entityResolution: 'mock-entity-resolution-v1',
 	relationshipLinks: 'mock-relationship-links-v1',
 	embeddings: 'mock-token-hash-v1'
 } satisfies AiModels

@@ -35,6 +35,7 @@ export type SessionIngestionDependencies = {
 		| 'inferSessionChronology'
 	> & {
 		analysisModel: string
+		entityResolutionModel?: string
 	}
 	storage: IngestionStorage
 	retrieveAnalysisDocuments: (

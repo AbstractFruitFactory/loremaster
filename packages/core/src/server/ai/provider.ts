@@ -83,6 +83,7 @@ export type AiModels = {
 	campaignSummary: string
 	documentSummary: string
 	documentType: string
+	entityResolution: string
 	sessionAnalysis: string
 	relationshipLinks: string
 	embeddings: string

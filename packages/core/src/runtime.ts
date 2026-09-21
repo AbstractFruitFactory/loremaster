@@ -1,5 +1,5 @@
 import { mockAiProvider } from './server/ai/providers/mock.js'
-import { createOpenAiProvider } from './server/ai/providers/openai.js'
+import { createAiProvider } from './server/ai/index.js'
 import { closeDb } from './server/db/index.js'
 import { closeVectorStore } from './server/db/vector.js'
 import { createServices } from './server/services.js'
@@ -14,7 +14,7 @@ const disposeCoreResources = async () => {
 }
 
 export const createCoreRuntime = (config: CoreRuntimeConfig) => {
-	const aiProvider = config.useMockAi ? mockAiProvider : createOpenAiProvider(config.openAiApiKey)
+	const aiProvider = config.useMockAi ? mockAiProvider : createAiProvider()
 	const services = createServices(aiProvider, {
 		databaseUrl: config.databaseUrl,
 		...(config.databaseMaxConnections

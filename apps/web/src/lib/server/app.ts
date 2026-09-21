@@ -2,7 +2,6 @@ import {
 	DATABASE_URL,
 	LOREMASTER_DATA_ROOT,
 	MOCK_AI_PROVIDER,
-	OPENAI_API_KEY,
 	SUPABASE_SERVICE_ROLE_KEY,
 	SUPABASE_STORAGE_BUCKET,
 	SUPABASE_URL,
@@ -34,7 +33,6 @@ const services = createCoreRuntime({
 				}
 			}
 		: {}),
-	openAiApiKey: OPENAI_API_KEY,
 	useMockAi: MOCK_AI_PROVIDER === 'true'
 })
 

@@ -1,4 +1,4 @@
-import { fail, tryPromise } from 'effect/Effect'
+import { fail, suspend, tryPromise, type Effect } from 'effect/Effect'
 import OpenAI from 'openai'
 import type {
 	Response as OpenAiResponse,
@@ -7,7 +7,7 @@ import type {
 import { z } from 'zod'
 import { documentTypes, isDocumentType, loreDocumentTypes } from '../../../document.js'
 import type { AssistantGeneration, AssistantGenerationEvent } from '../../assistant/types.js'
-import { failure } from '../../failure.js'
+import { failure, type Failure } from '../../failure.js'
 import {
 	ingestionDocumentTypes,
 	sessionClaimValidationReasons,
@@ -21,7 +21,12 @@ import {
 } from '../../ingestion/types.js'
 import { MAX_EVIDENCE_RANGES } from '../../ingestion/evidence.js'
 import { eventForms, type RelationshipLink } from '../../vault/types.js'
-import { EMBEDDING_DIMENSIONS, type AiModels, type AiProvider } from '../provider.js'
+import {
+	EMBEDDING_DIMENSIONS,
+	type AiModels,
+	type AiProvider,
+	type AiOperation
+} from '../provider.js'
 
 type OpenAiClient = Pick<OpenAI, 'embeddings' | 'responses'>
 
@@ -31,6 +36,7 @@ export const openAiModels = {
 	documentSummary: 'gpt-5.6-luna',
 	documentType: 'gpt-5.6-luna',
 	sessionAnalysis: 'gpt-5.6-terra',
+	entityResolution: 'gpt-5.6-terra',
 	relationshipLinks: 'gpt-5.6-luna',
 	embeddings: 'text-embedding-3-small'
 } satisfies AiModels
@@ -894,28 +900,73 @@ export const openAiProvider = (client: OpenAiClient): AiProvider => ({
 		})
 })
 
-export const createOpenAiProvider = (apiKey?: string): AiProvider => {
-	if (apiKey) {
-		return openAiProvider(new OpenAI({ apiKey }))
-	}
-
-	const missingApiKey = <Operation extends string>(operation: Operation) =>
-		fail(failure('ai', operation, { reason: 'missingOpenAiApiKey' }))
-
+/** Credentials are read only when an operation executes, including after startup. */
+export const createOpenAiProvider = (): AiProvider => {
+	let cached: { key: string; provider: AiProvider } | undefined
+	const run = <A, Operation extends AiOperation>(
+		operation: Operation,
+		model: string,
+		invoke: (provider: AiProvider) => Effect<A, Failure<'ai', Operation>>
+	): Effect<A, Failure<'ai', Operation>> =>
+		suspend(() => {
+			if (model.startsWith('jev-'))
+				return fail(
+					failure('ai', operation, {
+						reason: 'unsupportedModelForOperation',
+						model
+					})
+				)
+			const key = process.env.OPENAI_API_KEY?.trim()
+			if (!key)
+				return fail(
+					failure('ai', operation, {
+						reason: 'missingOpenAiApiKey',
+						variable: 'OPENAI_API_KEY',
+						model
+					})
+				)
+			if (cached?.key !== key)
+				cached = { key, provider: openAiProvider(new OpenAI({ apiKey: key })) }
+			return invoke(cached.provider)
+		})
 	return {
 		models: openAiModels,
-		generateText: () => missingApiKey('generateText'),
-		generateAssistant: () => missingApiKey('generateAssistant'),
-		streamAssistant: () => missingApiKey('streamAssistant'),
-		embedTexts: () => missingApiKey('embedTexts'),
-		inferDocumentType: () => missingApiKey('inferDocumentType'),
-		analyzeSessionChunk: () => missingApiKey('analyzeSessionChunk'),
-		validateSessionClaims: () => missingApiKey('validateSessionClaims'),
-		repairSessionClaimEvidence: () => missingApiKey('repairSessionClaimEvidence'),
-		resolveSessionEntities: () => missingApiKey('resolveSessionEntities'),
-		auditSessionEvents: () => missingApiKey('auditSessionEvents'),
-		inferSessionChronology: () => missingApiKey('inferSessionChronology'),
-		inferCampaignImportChronology: () => missingApiKey('inferCampaignImportChronology'),
-		generateRelationshipLinks: () => missingApiKey('generateRelationshipLinks')
+		generateText: (input) =>
+			run('generateText', input.model, (provider) => provider.generateText(input)),
+		generateAssistant: (input) =>
+			run('generateAssistant', input.model, (provider) => provider.generateAssistant(input)),
+		streamAssistant: (input) =>
+			run('streamAssistant', input.model, (provider) => provider.streamAssistant(input)),
+		embedTexts: (input) => run('embedTexts', input.model, (provider) => provider.embedTexts(input)),
+		inferDocumentType: (input) =>
+			run('inferDocumentType', input.model, (provider) => provider.inferDocumentType(input)),
+		analyzeSessionChunk: (input) =>
+			run('analyzeSessionChunk', input.model, (provider) => provider.analyzeSessionChunk(input)),
+		validateSessionClaims: (input) =>
+			run('validateSessionClaims', input.model, (provider) =>
+				provider.validateSessionClaims(input)
+			),
+		repairSessionClaimEvidence: (input) =>
+			run('repairSessionClaimEvidence', input.model, (provider) =>
+				provider.repairSessionClaimEvidence(input)
+			),
+		resolveSessionEntities: (input) =>
+			run('resolveSessionEntities', input.model, (provider) =>
+				provider.resolveSessionEntities(input)
+			),
+		auditSessionEvents: (input) =>
+			run('auditSessionEvents', input.model, (provider) => provider.auditSessionEvents(input)),
+		inferSessionChronology: (input) =>
+			run('inferSessionChronology', input.model, (provider) =>
+				provider.inferSessionChronology(input)
+			),
+		inferCampaignImportChronology: (input) =>
+			run('inferCampaignImportChronology', input.model, (provider) =>
+				provider.inferCampaignImportChronology(input)
+			),
+		generateRelationshipLinks: (input) =>
+			run('generateRelationshipLinks', input.model, (provider) =>
+				provider.generateRelationshipLinks(input)
+			)
 	}
 }

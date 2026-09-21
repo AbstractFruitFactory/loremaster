@@ -27,17 +27,15 @@ describe('OpenAI provider', () => {
 		const resolutions = [
 			{ referenceId: 'mention-1', kind: 'existing', targetId: 'document:dereka' }
 		]
-		const create = vi
-			.fn()
-			.mockResolvedValue({
-				output: [
-					{
-						type: 'function_call',
-						name: 'resolve_session_entities',
-						arguments: JSON.stringify({ resolutions })
-					}
-				]
-			})
+		const create = vi.fn().mockResolvedValue({
+			output: [
+				{
+					type: 'function_call',
+					name: 'resolve_session_entities',
+					arguments: JSON.stringify({ resolutions })
+				}
+			]
+		})
 		const provider = openAiProvider({
 			responses: { create },
 			embeddings: { create: vi.fn() }

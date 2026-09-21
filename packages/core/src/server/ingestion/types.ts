@@ -94,7 +94,14 @@ export type SessionEntityResolutionRequest = {
 	candidates: Pick<ResolutionCandidate, 'targetId' | 'title' | 'type' | 'context' | 'provenance'>[]
 }
 
-export type SessionEntityResolution =
+export type EntityIdentityJudgment = {
+	model: string
+	choice: string
+	probabilities: Record<string, number>
+	confidence: number
+}
+
+export type SessionEntityResolution = { judgment?: EntityIdentityJudgment } & (
 	| {
 			referenceId: string
 			kind: 'existing'
@@ -110,6 +117,7 @@ export type SessionEntityResolution =
 			candidateIds: string[]
 			reason: string
 	  }
+)
 
 export type SessionEventAudit = {
 	events: ExtractedSessionClaim[]

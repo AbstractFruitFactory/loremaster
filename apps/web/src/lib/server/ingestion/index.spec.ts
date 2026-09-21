@@ -1,10 +1,10 @@
+import type { ResolveSessionEntities } from '@loremaster/core'
 import { flip, runPromise, succeed } from 'effect/Effect'
 import { describe, expect, it, vi } from 'vitest'
 import type {
 	AnalyzeSessionChunk,
 	AuditSessionEvents,
 	InferSessionChronology,
-	ResolveSessionEntities,
 	ValidateSessionClaims
 } from '../ai/provider'
 import type { VaultDocument } from '../vault/types'
@@ -254,12 +254,8 @@ describe('session ingestion operations', () => {
 
 	it('uses the model to establish a short partial-name identity', async () => {
 		const mara = document('mara', 'Mara Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: { referenceId: string; candidates: { targetId: string }[] }[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,
@@ -401,10 +397,8 @@ describe('session ingestion operations', () => {
 			links: ['Roger']
 		})
 		const roger = document('roger', 'Roger')
-		const resolver: ResolveSessionEntities = vi.fn(({ prompt }) => {
-			const input = JSON.parse(prompt) as {
-				references: { referenceId: string; candidates: { targetId: string }[] }[]
-			}
+		const resolver = vi.fn<ResolveSessionEntities>(({ references }) => {
+			const input = { references }
 			return succeed(
 				input.references.map(({ referenceId, candidates }) => ({
 					referenceId,
@@ -1328,12 +1322,8 @@ describe('session ingestion operations', () => {
 	it('lets a reviewer resolve an ambiguous mention to an existing entity', async () => {
 		const mara = document('mara', 'Mara Vale')
 		const edric = document('edric', 'Brother Edric Vale')
-		const resolver: ResolveSessionEntities = ({ prompt }) => {
-			const [reference] = (
-				JSON.parse(prompt) as {
-					references: { referenceId: string; candidates: { targetId: string }[] }[]
-				}
-			).references
+		const resolver: ResolveSessionEntities = ({ references }) => {
+			const [reference] = references
 			return succeed([
 				{
 					referenceId: reference!.referenceId,

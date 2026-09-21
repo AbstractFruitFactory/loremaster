@@ -34,7 +34,7 @@ operation directly.
 `resolveSessionEntities` accepts `{ model, references }`. Each reference carries its ID,
 label, suggested type, evidence, and candidate IDs with context and provenance. The OpenAI
 provider constructs its own prompt from that data; the mock reads the same typed input.
-Jev can implement this operation directly without parsing a generative prompt or adding
+Jev implements this operation directly without parsing a generative prompt or adding
 a parallel provider interface. The existing result contract and proposal policy remain
 unchanged.
 
@@ -43,19 +43,50 @@ candidate exists, same-type filtering, and the ten-candidate limit. Those paths 
 all reach the judge yet. Campaign imports still use their separate conservative resolver;
 this session refactor does not alter campaign-import behavior.
 
-## Jev rollout
+## Provider configuration
 
-Before enabling Jev, make the following behavioral changes explicitly and evaluate them:
+`createAiProvider` composes the existing AI operations. Identity resolution defaults to
+`jev-latest`; all other operations retain their OpenAI models. `AiModels.entityResolution`
+is independent of `sessionAnalysis`. The identity model is configured in code in
+`packages/core/src/server/ai/index.ts`. Change it to an OpenAI model name to switch back,
+or to a pinned Jev version for repeatable experiments. Code can also pass model overrides
+to `createAiProvider`; environment variables only provide credentials.
+
+Providers read `OPENAI_API_KEY` and `TYPESAFE_API_KEY` from `process.env` when an operation
+executes. Missing credentials fail that operation through the existing `Failure` channel;
+constructing the runtime does not require keys. `CoreRuntimeConfig` has no API-key fields.
+Mock mode does not require either key. The web Vite configurations load these server-only
+values from the root `.env`; the workflow worker already uses Node's `--env-file`.
+Production uses the deployment environment. Restart development processes after editing
+`.env`.
+
+Jev sends one Choice question per reference, in batches of up to 16. Candidate options
+are accompanied by `none_of_these` and `insufficient_evidence`. The provider validates
+option membership, answer coverage, probability ranges, sums, and the winning choice.
+It retains the returned model, full distribution, and confidence on each operation result.
+Those diagnostics are not yet persisted in ingestion drafts.
+
+The ingestion judgment step applies an initial conservative policy: the winning option
+must have probability at least 0.95 and lead the next option by at least 0.20. Otherwise
+it preserves uncertainty for review. These values need calibration on campaign data;
+provider confidence alone does not authorize linking. No-match results use the existing
+creation eligibility policy. Explicit uncertainty is not converted to an automatic link.
+
+Requests have a 30-second batch deadline and retry transient HTTP errors up to twice
+with exponential backoff. Authentication and malformed-response failures propagate;
+there is no silent provider fallback. The integration uses the documented
+[TypeSafe HTTP API](https://docs.typesafe.ai/api) and
+[Choice primitive](https://docs.typesafe.ai/primitives/choice).
+
+## Remaining rollout work
 
 1. Send exact-name and alias matches through judgment rather than treating names as
    authoritative identity. Include the current automatic-creation paths in evaluation.
 2. Broaden identity retrieval to preserve useful semantic candidates and spelling
    variants. A type predicted during extraction should be a retrieval hint, not a hard
    exclusion. Preserve known document types in candidate context.
-3. Implement Jev through the existing AI provider operation with structured input. Keep its raw Choice
-   distribution, returned model version, and request metadata for evaluation. Put the
-   probability/margin policy in application code, not in the HTTP transport. Report
-   ambiguous distributions as insufficient evidence.
+3. Persist judgments for evaluation against labeled identity decisions and calibrate
+   probability thresholds before expanding automatic behavior.
 4. Evaluate no-match results against retrieval coverage before allowing creation.
    Missing candidates, missing evidence, provider failures, and genuinely new entities
    are different situations.
@@ -88,5 +119,5 @@ type. Otherwise, use classification to propose the new document's type; uncertai
 classification should stay explicit for review. Event form (period versus occurrence)
 is a separate dimension from document type.
 
-Classification is a proposed next step; no additional classification calls or Jev API
-calls are enabled by the current refactor.
+Classification remains a proposed next step. Jev currently handles only the existing
+session identity-resolution operation.

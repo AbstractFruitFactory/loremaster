@@ -125,6 +125,7 @@ export const createServices = (
 			validateSessionClaims: ai.validateSessionClaims,
 			repairSessionClaimEvidence: ai.repairSessionClaimEvidence,
 			resolveSessionEntities: ai.resolveSessionEntities,
+			entityResolutionModel: ai.models.entityResolution,
 			auditSessionEvents: ai.auditSessionEvents,
 			inferSessionChronology: ai.inferSessionChronology,
 			analysisModel: ai.models.sessionAnalysis

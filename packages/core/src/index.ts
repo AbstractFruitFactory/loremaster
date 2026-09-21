@@ -1,6 +1,7 @@
 export * from './document.js'
 export * from './runtime.js'
 export * from './server/ai/provider.js'
+export * from './server/ai/index.js'
 export * from './server/ai/providers/mock.js'
 export * from './server/ai/providers/openai.js'
 export * from './server/db/index.js'

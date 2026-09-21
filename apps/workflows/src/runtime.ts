@@ -31,6 +31,5 @@ export const runtime = createCoreRuntime({
 				}
 			}
 		: {}),
-	...(process.env.OPENAI_API_KEY ? { openAiApiKey: process.env.OPENAI_API_KEY } : {}),
 	useMockAi: process.env.MOCK_AI_PROVIDER === 'true'
 })
