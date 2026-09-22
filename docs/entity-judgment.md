@@ -60,7 +60,12 @@ values from the root `.env`; the workflow worker already uses Node's `--env-file
 Production uses the deployment environment. Restart development processes after editing
 `.env`.
 
-Jev sends one Choice question per reference, in batches of up to 16. Candidate options
+Jev sends one Choice question per reference. Batches are packed against a 48,000-byte
+UTF-8 budget for the complete serialized request, with a secondary cap of 16 references.
+This is a conservative size heuristic, not an exact model-token count. On HTTP 413 or
+HTTP 400 with `max_tokens_exceeded`, the rejected batch is split in half and retried
+with rebuilt question indices. A single oversized reference fails with
+`jevReferenceTooLarge`; evidence and candidates are never silently truncated. Candidate options
 are accompanied by `none_of_these` and `insufficient_evidence`. The provider validates
 option membership, answer coverage, probability ranges, sums, and the winning choice.
 It retains the returned model, full distribution, and confidence on each operation result.

@@ -1,3 +1,4 @@
+import { JEV_REQUEST_BYTE_BUDGET } from './jev.js'
 import { flip, runPromise } from 'effect/Effect'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createAiProvider } from '../index.js'
@@ -195,6 +196,87 @@ describe('Jev identity provider', () => {
 		expect(JSON.parse(fetch.mock.calls[0][1].body).questions.reference_15.instructions).toContain(
 			'references[15]'
 		)
+	})
+
+	it('budgets the full UTF-8 request including repeated candidate context without truncating evidence', async () => {
+		const { fetch, provider } = setup()
+		const references = Array.from({ length: 3 }, (_, i) => ({
+			...reference,
+			referenceId: `large-${i}`,
+			candidates: [{ ...reference.candidates[0], context: '界'.repeat(5_000) }]
+		}))
+		fetch.mockImplementation(async (_url, init) => {
+			expect(Buffer.byteLength(init.body, 'utf8')).toBeLessThanOrEqual(JEV_REQUEST_BYTE_BUDGET)
+			const body = JSON.parse(init.body)
+			expect(body.state.references).toHaveLength(1)
+			expect(body.questions.reference_0.instructions).toContain('references[0]')
+			expect(body.state.references[0].candidates[0].context).toBe('界'.repeat(5_000))
+			return response()
+		})
+		const decisions = await runPromise(resolve(provider, references))
+		expect(decisions.map(({ referenceId }) => referenceId)).toEqual(
+			references.map(({ referenceId }) => referenceId)
+		)
+		expect(fetch).toHaveBeenCalledTimes(3)
+	})
+
+	it.each([400, 413])(
+		'splits server-rejected batches on HTTP %s and keeps reference order',
+		async (status) => {
+			const { fetch, provider } = setup()
+			const references = Array.from({ length: 3 }, (_, i) => ({
+				...reference,
+				referenceId: `split-${i}`
+			}))
+			fetch.mockImplementation(async (_url, init) => {
+				const body = JSON.parse(init.body)
+				if (body.state.references.length > 1)
+					return Response.json({ detail: { error_type: 'max_tokens_exceeded' } }, { status })
+				return response()
+			})
+			const decisions = await runPromise(resolve(provider, references))
+			expect(decisions.map(({ referenceId }) => referenceId)).toEqual(
+				references.map(({ referenceId }) => referenceId)
+			)
+			expect(
+				fetch.mock.calls.map(([, init]) => JSON.parse(init.body).state.references.length)
+			).toEqual([3, 2, 1, 1, 1])
+		}
+	)
+
+	it('preflights an oversized singleton before sending any batches', async () => {
+		const { fetch, provider } = setup()
+		const large = {
+			...reference,
+			referenceId: 'oversized',
+			evidence: 'x'.repeat(JEV_REQUEST_BYTE_BUDGET)
+		}
+		expect(await runPromise(flip(resolve(provider, [reference, large])))).toMatchObject({
+			cause: { reason: 'jevReferenceTooLarge', referenceId: 'oversized' }
+		})
+		expect(fetch).not.toHaveBeenCalled()
+	})
+
+	it('fails a server-rejected singleton without endlessly retrying or creating an entity', async () => {
+		const { fetch, provider } = setup()
+		fetch.mockResolvedValue(
+			Response.json({ detail: { error_type: 'max_tokens_exceeded' } }, { status: 400 })
+		)
+		expect(await runPromise(flip(resolve(provider)))).toMatchObject({
+			cause: { reason: 'jevReferenceTooLarge', referenceId: reference.referenceId }
+		})
+		expect(fetch).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not split unrelated HTTP 400 errors', async () => {
+		const { fetch, provider } = setup()
+		fetch.mockResolvedValue(
+			Response.json({ detail: { error_type: 'invalid_model' } }, { status: 400 })
+		)
+		expect(
+			await runPromise(flip(resolve(provider, [reference, { ...reference, referenceId: 'two' }])))
+		).toMatchObject({ cause: { status: 400 } })
+		expect(fetch).toHaveBeenCalledTimes(1)
 	})
 
 	it('does not retry an authentication failure or expose its response body', async () => {
